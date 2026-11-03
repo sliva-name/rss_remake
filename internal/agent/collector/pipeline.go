@@ -241,7 +241,8 @@ func (c *Collector) event(record *Record) *agentv1.AuditEvent {
 	if record.Kind == KindLogin {
 		event.EventType = agentv1.EventType_EVENT_TYPE_AUTHENTICATION
 		event.Operation = &agentv1.Operation{Type: agentv1.OperationType_OPERATION_TYPE_LOGIN}
-		event.Evidence = evidence(record.Status, agentv1.ObjectResolution_OBJECT_RESOLUTION_RESOLVED)
+		// A login names no objects, so there is nothing to resolve.
+		event.Evidence = evidence(record.Status, agentv1.ObjectResolution_OBJECT_RESOLUTION_UNSPECIFIED)
 		return c.checked(event)
 	}
 	analysis := c.catalog.Analyze(record.Statement.Reveal())

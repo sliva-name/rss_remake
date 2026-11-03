@@ -83,6 +83,18 @@ func toCatalogColumn(entry *asset.CatalogEntry) restapi.CatalogColumn {
 	}
 }
 
+func (s *Server) GetCatalogSummary(ctx context.Context, _ restapi.GetCatalogSummaryRequestObject) (restapi.GetCatalogSummaryResponseObject, error) {
+	counts, err := s.catalog.SummarizeCatalog(ctx, tenantOf(ctx))
+	if err != nil {
+		return nil, err
+	}
+	response := make(restapi.GetCatalogSummary200JSONResponse, 0, len(counts))
+	for _, item := range counts {
+		response = append(response, restapi.CategoryInventory{Category: item.Category, Columns: item.Columns, Tables: item.Tables})
+	}
+	return response, nil
+}
+
 func (s *Server) ListCatalogChanges(ctx context.Context, request restapi.ListCatalogChangesRequestObject) (restapi.ListCatalogChangesResponseObject, error) {
 	entries, err := s.catalog.ListHistory(ctx, tenantOf(ctx), orDefault(request.Params.Limit, defaultScanLimit))
 	if err != nil {
@@ -91,7 +103,7 @@ func (s *Server) ListCatalogChanges(ctx context.Context, request restapi.ListCat
 	response := make(restapi.ListCatalogChanges200JSONResponse, 0, len(entries))
 	for _, entry := range entries {
 		item := restapi.CatalogChange{
-			OccurredAt: entry.OccurredAt, Kind: entry.Kind, TableId: entry.TableID, TableName: entry.TableName,
+			OccurredAt: entry.OccurredAt, Kind: entry.Kind, TableId: entry.TableID, TableName: entry.TableName, SourceKey: entry.SourceKey,
 			ColumnId: entry.ColumnID, CategoryId: entry.CategoryID,
 		}
 		if entry.ColumnName != "" {

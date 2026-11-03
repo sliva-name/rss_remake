@@ -176,6 +176,7 @@ type CatalogChange struct {
 	ColumnName *string             `json:"columnName,omitempty"`
 	Kind       string              `json:"kind"`
 	OccurredAt time.Time           `json:"occurredAt"`
+	SourceKey  string              `json:"sourceKey"`
 	TableId    openapi_types.UUID  `json:"tableId"`
 	TableName  string              `json:"tableName"`
 }
@@ -217,6 +218,13 @@ type CategoryAccess struct {
 	LastAccess time.Time `json:"lastAccess"`
 	Principals int64     `json:"principals"`
 	Sources    int64     `json:"sources"`
+}
+
+// CategoryInventory defines model for CategoryInventory.
+type CategoryInventory struct {
+	Category string `json:"category"`
+	Columns  int64  `json:"columns"`
+	Tables   int64  `json:"tables"`
 }
 
 // CoverageRow Shares are absent when nothing was measured; absent never means zero.
@@ -396,10 +404,13 @@ type ListAuditEventsParams struct {
 	Principal *string             `form:"principal,omitempty" json:"principal,omitempty"`
 	Category  *string             `form:"category,omitempty" json:"category,omitempty"`
 	EventType *string             `form:"eventType,omitempty" json:"eventType,omitempty"`
-	From      *time.Time          `form:"from,omitempty" json:"from,omitempty"`
-	To        *time.Time          `form:"to,omitempty" json:"to,omitempty"`
-	Limit     *int                `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset    *int                `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// IncludeLogins Logins outnumber data access by far, so they are left out unless asked for or filtered by type.
+	IncludeLogins *bool      `form:"includeLogins,omitempty" json:"includeLogins,omitempty"`
+	From          *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To            *time.Time `form:"to,omitempty" json:"to,omitempty"`
+	Limit         *int       `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset        *int       `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListCatalogChangesParams defines parameters for ListCatalogChanges.
@@ -464,6 +475,9 @@ type ServerInterface interface {
 
 	// (GET /catalog/columns)
 	ListCatalogColumns(w http.ResponseWriter, r *http.Request, params ListCatalogColumnsParams)
+
+	// (GET /catalog/summary)
+	GetCatalogSummary(w http.ResponseWriter, r *http.Request)
 
 	// (POST /enrollment-tokens)
 	CreateEnrollmentToken(w http.ResponseWriter, r *http.Request)
@@ -780,6 +794,19 @@ func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// ------------- Optional query parameter "includeLogins" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "includeLogins", r.URL.Query(), &params.IncludeLogins, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "includeLogins"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "includeLogins", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "from" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
@@ -939,6 +966,20 @@ func (siw *ServerInterfaceWrapper) ListCatalogColumns(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListCatalogColumns(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCatalogSummary operation middleware
+func (siw *ServerInterfaceWrapper) GetCatalogSummary(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCatalogSummary(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1253,6 +1294,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/scans", wrapper.ListScans)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scans", wrapper.RequestScan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/columns", wrapper.ListCatalogColumns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/summary", wrapper.GetCatalogSummary)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/changes", wrapper.ListCatalogChanges)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/audit/events", wrapper.ListAuditEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/audit/coverage", wrapper.GetAuditCoverage)
@@ -1445,6 +1487,27 @@ type ListCatalogColumnsResponseObject interface {
 type ListCatalogColumns200JSONResponse CatalogPage
 
 func (response ListCatalogColumns200JSONResponse) VisitListCatalogColumnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogSummaryRequestObject struct {
+}
+
+type GetCatalogSummaryResponseObject interface {
+	VisitGetCatalogSummaryResponse(w http.ResponseWriter) error
+}
+
+type GetCatalogSummary200JSONResponse []CategoryInventory
+
+func (response GetCatalogSummary200JSONResponse) VisitGetCatalogSummaryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1722,6 +1785,9 @@ type StrictServerInterface interface {
 
 	// (GET /catalog/columns)
 	ListCatalogColumns(ctx context.Context, request ListCatalogColumnsRequestObject) (ListCatalogColumnsResponseObject, error)
+
+	// (GET /catalog/summary)
+	GetCatalogSummary(ctx context.Context, request GetCatalogSummaryRequestObject) (GetCatalogSummaryResponseObject, error)
 
 	// (POST /enrollment-tokens)
 	CreateEnrollmentToken(ctx context.Context, request CreateEnrollmentTokenRequestObject) (CreateEnrollmentTokenResponseObject, error)
@@ -2021,6 +2087,30 @@ func (sh *strictHandler) ListCatalogColumns(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListCatalogColumnsResponseObject); ok {
 		if err := validResponse.VisitListCatalogColumnsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCatalogSummary operation middleware
+func (sh *strictHandler) GetCatalogSummary(w http.ResponseWriter, r *http.Request) {
+	var request GetCatalogSummaryRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCatalogSummary(ctx, request.(GetCatalogSummaryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCatalogSummary")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCatalogSummaryResponseObject); ok {
+		if err := validResponse.VisitGetCatalogSummaryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

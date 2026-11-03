@@ -12,6 +12,7 @@ const (
 	defaultPeriod      = 7 * 24 * time.Hour
 	defaultCoverageHrs = 24
 	defaultEventLimit  = 100
+	typeAuthentication = "EVENT_TYPE_AUTHENTICATION"
 )
 
 // period applies the default of the last week, so no report scans all history by
@@ -40,6 +41,9 @@ func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditE
 	}
 	if params.SourceId != nil {
 		filter.SourceID = *params.SourceId
+	}
+	if params.IncludeLogins == nil || !*params.IncludeLogins {
+		filter.ExcludeType = typeAuthentication
 	}
 	events, total, err := s.events.Search(ctx, tenantOf(ctx), filter)
 	if err != nil {

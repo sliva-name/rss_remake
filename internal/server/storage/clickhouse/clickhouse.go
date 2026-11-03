@@ -178,6 +178,8 @@ func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
 	}
 	if filter.Type != "" {
 		add("event_type = ?", filter.Type)
+	} else if filter.ExcludeType != "" {
+		add("event_type != ?", filter.ExcludeType)
 	}
 	if filter.Category != "" {
 		add("has(categories, ?)", filter.Category)

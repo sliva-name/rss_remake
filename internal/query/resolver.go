@@ -143,9 +143,15 @@ func (c *Catalog) AnalyzeStatements(statements []ir.Statement) Analysis {
 		Columns:     state.columns,
 		Resolution:  state.outcome(),
 		Fingerprint: fingerprint(statements),
-		Internal: !dynamic && !state.incomplete && len(state.tables) == 0 &&
-			(operation == agentv1.OperationType_OPERATION_TYPE_OTHER || state.system),
+		// A statement that resolved completely and touched no table, such as SELECT 1
+		// from a health check, reads no data and is not an access worth reporting.
+		Internal: !dynamic && !state.incomplete && len(state.tables) == 0 && isReadOrOther(operation, state.system),
 	}
+}
+
+func isReadOrOther(operation agentv1.OperationType, system bool) bool {
+	return system || operation == agentv1.OperationType_OPERATION_TYPE_OTHER ||
+		operation == agentv1.OperationType_OPERATION_TYPE_SELECT
 }
 
 func operationOf(statements []ir.Statement) agentv1.OperationType {

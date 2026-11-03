@@ -182,10 +182,12 @@ type Filter struct {
 	Principal string
 	Category  string
 	Type      string
-	From      time.Time
-	To        time.Time
-	Limit     int
-	Offset    int
+	// ExcludeType hides one type unless Type asks for it explicitly.
+	ExcludeType string
+	From        time.Time
+	To          time.Time
+	Limit       int
+	Offset      int
 }
 
 // PrincipalAccess aggregates access by who did it.

@@ -221,6 +221,11 @@ func (s *Scanner) collect(table *connector.Table, profiles []*columnProfile, sta
 	var classifications []*agentv1.ColumnClassification
 	for _, profile := range profiles {
 		for _, finding := range s.engine.Findings(profile.evidence) {
+			method := stats.Method
+			if finding.ByName {
+				// Rows were read, but they are not what this finding is based on.
+				method = agentv1.SamplingMethod_SAMPLING_METHOD_METADATA_ONLY
+			}
 			classifications = append(classifications, &agentv1.ColumnClassification{
 				Column:     &agentv1.ColumnPath{Table: tablePath(table), Column: profile.column.Name},
 				CategoryId: finding.Category,
@@ -231,7 +236,7 @@ func (s *Scanner) collect(table *connector.Table, profiles []*columnProfile, sta
 					RowsNonNull:    profile.nonNull,
 					RowsMatched:    finding.Matched,
 					UniqueEstimate: profile.unique.Estimate(),
-					SamplingMethod: stats.Method,
+					SamplingMethod: method,
 				},
 			})
 		}

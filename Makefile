@@ -44,3 +44,11 @@ dev-up: dev-env
 
 dev-down:
 	$(COMPOSE) down --volumes
+
+.PHONY: web web-test
+
+web:
+	cd web/dashboard && npm ci --no-audit --no-fund && npm run api && npm run build
+
+web-test:
+	cd web/dashboard && npm test

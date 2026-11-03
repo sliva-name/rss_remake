@@ -53,13 +53,40 @@ func (s *Store) ListCatalog(ctx context.Context, tenantID uuid.UUID, filter asse
 	return entries, total, nil
 }
 
+func (s *Store) SummarizeCatalog(ctx context.Context, tenantID uuid.UUID) ([]asset.CategoryCount, error) {
+	var counts []asset.CategoryCount
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		const query = `SELECT c.category_id, count(*), count(DISTINCT t.id)
+			FROM classifications c
+			JOIN asset_columns ac ON ac.id = c.column_id AND ac.status = 'active'
+			JOIN asset_tables t ON t.id = ac.table_id AND t.status = 'active'
+			WHERE c.status = 'detected'
+			GROUP BY c.category_id ORDER BY count(*) DESC`
+		rows, err := tx.Query(ctx, query)
+		if err != nil {
+			return err
+		}
+		counts, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.CategoryCount, error) {
+			var item asset.CategoryCount
+			err := row.Scan(&item.Category, &item.Columns, &item.Tables)
+			return item, err
+		})
+		return err
+	})
+	if err != nil {
+		return nil, storageError("summarize catalog", err)
+	}
+	return counts, nil
+}
+
 func (s *Store) ListHistory(ctx context.Context, tenantID uuid.UUID, limit int) ([]asset.HistoryEntry, error) {
 	var entries []asset.HistoryEntry
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		const query = `SELECT h.occurred_at, h.kind, h.table_id, t.table_name, h.column_id,
+		const query = `SELECT h.occurred_at, h.kind, h.table_id, src.source_key, t.table_name, h.column_id,
 				COALESCE(ac.column_name, ''), h.category_id
 			FROM catalog_changes h
 			JOIN asset_tables t ON t.id = h.table_id
+			JOIN sources src ON src.id = t.source_id
 			LEFT JOIN asset_columns ac ON ac.id = h.column_id
 			ORDER BY h.occurred_at DESC LIMIT $1`
 		rows, err := tx.Query(ctx, query, limit)
@@ -68,7 +95,7 @@ func (s *Store) ListHistory(ctx context.Context, tenantID uuid.UUID, limit int) 
 		}
 		entries, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.HistoryEntry, error) {
 			var entry asset.HistoryEntry
-			err := row.Scan(&entry.OccurredAt, &entry.Kind, &entry.TableID, &entry.TableName, &entry.ColumnID,
+			err := row.Scan(&entry.OccurredAt, &entry.Kind, &entry.TableID, &entry.SourceKey, &entry.TableName, &entry.ColumnID,
 				&entry.ColumnName, &entry.CategoryID)
 			return entry, err
 		})

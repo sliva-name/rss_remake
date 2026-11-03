@@ -67,7 +67,7 @@ func open(setting *config.Source) (*entry, error) {
 		opened.source, err = mysql.Open(credentials, mysql.FlavorMariaDB, setting.MaxConnections)
 	case config.EngineMSSQL:
 		opened.engine = agentv1.Engine_ENGINE_MSSQL
-		opened.source, err = mssql.Open(credentials, setting.MaxConnections)
+		opened.source, err = mssql.Open(credentials, setting.Audit.Directory, setting.MaxConnections)
 	default:
 		err = fmt.Errorf("source %s: unknown engine", setting.Key)
 	}

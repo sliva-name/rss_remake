@@ -231,7 +231,30 @@ func TestAuditOnEveryEngine(t *testing.T) {
 				})
 			}
 			harness.assertNoMarker(t)
+			assertAuditCapabilities(t, harness)
 		})
+	}
+}
+
+// assertAuditCapabilities guards against a probe that misreads its own access: a
+// source whose events are flowing must not be reported as unaudited.
+func assertAuditCapabilities(t *testing.T, harness *auditHarness) {
+	t.Helper()
+	reports := harness.registry.Probe(context.Background())
+	if len(reports) != 1 {
+		t.Fatalf("reports = %v", reports)
+	}
+	support := map[agentv1.Capability]agentv1.Support{}
+	for _, item := range reports[0].GetCapabilities() {
+		support[item.GetCapability()] = item.GetSupport()
+	}
+	for _, capability := range []agentv1.Capability{agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Capability_CAPABILITY_READ_AUDIT} {
+		if support[capability] != agentv1.Support_SUPPORT_AVAILABLE {
+			t.Errorf("%s = %s while events are collected", capability, support[capability])
+		}
+	}
+	if support[agentv1.Capability_CAPABILITY_RETURNED_ROWS] != agentv1.Support_SUPPORT_UNAVAILABLE {
+		t.Errorf("returned rows = %s", support[agentv1.Capability_CAPABILITY_RETURNED_ROWS])
 	}
 }
 

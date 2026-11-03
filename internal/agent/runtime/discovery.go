@@ -79,6 +79,11 @@ func (d *Discovery) Run(ctx context.Context) {
 		case err == nil:
 			failures = 0
 			d.runJobs(ctx, jobs)
+			if len(jobs) > 0 {
+				// More may be waiting: the interval is for an idle queue, and scans
+				// still run one at a time.
+				wait = 0
+			}
 		}
 		if !retry.Sleep(ctx, wait) {
 			return

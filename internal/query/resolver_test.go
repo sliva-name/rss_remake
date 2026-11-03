@@ -240,6 +240,21 @@ func TestLiteralsNeverAppearInAnalysis(t *testing.T) {
 	}
 }
 
+func TestStatementsWithoutDataAreInternal(t *testing.T) {
+	for _, d := range dialects() {
+		catalog := catalogFor(d)
+		if !catalog.Analyze("SELECT 1").Internal {
+			t.Errorf("%s: SELECT 1 reads no data", d.name)
+		}
+		if catalog.Analyze("SELECT email FROM users").Internal {
+			t.Errorf("%s: a read of a table is an access", d.name)
+		}
+		if catalog.Analyze("SELECT a FROM not_in_catalog").Internal {
+			t.Errorf("%s: an unresolved read must be reported", d.name)
+		}
+	}
+}
+
 func TestPostgresSpecifics(t *testing.T) {
 	catalog := query.NewCatalog(postgres.Frontend{}, []connector.Table{
 		table("public", "users", "id", "email"),

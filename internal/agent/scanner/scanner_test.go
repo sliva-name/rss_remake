@@ -133,6 +133,20 @@ func TestScanResultPassesEgressAndCarriesNoValues(t *testing.T) {
 	}
 }
 
+func TestNameOnlyFindingSaysSoEvenWhenValuesWereRead(t *testing.T) {
+	source := &fakeSource{tables: []connector.Table{{
+		Database: "crm", Schema: "public", Name: "users", Kind: agentv1.TableKind_TABLE_KIND_TABLE,
+		Columns: []connector.Column{{Name: "first_name", NativeType: "text"}},
+	}}, rows: 10}
+	result := run(source, nil)
+	if len(result.GetClassifications()) != 1 {
+		t.Fatalf("classifications = %+v", result.GetClassifications())
+	}
+	if method := result.GetClassifications()[0].GetProfile().GetSamplingMethod(); method != agentv1.SamplingMethod_SAMPLING_METHOD_METADATA_ONLY {
+		t.Fatalf("method = %s", method)
+	}
+}
+
 func TestCatalogFailureIsReportedAsFailure(t *testing.T) {
 	cause := safeerr.New("read catalog", safeerr.CodeQuery, errors.New("connection refused"))
 	result := run(&fakeSource{catalogErr: cause}, nil)

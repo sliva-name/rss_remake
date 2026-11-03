@@ -21,10 +21,13 @@ import (
 type Source struct {
 	db       *sql.DB
 	database string
+	// auditPattern locates audit files on the server; empty when audit is not
+	// configured for this source.
+	auditPattern string
 }
 
 // Open connects without running a query.
-func Open(credentials connector.Credentials, maxConnections int) (*Source, error) {
+func Open(credentials connector.Credentials, auditDirectory string, maxConnections int) (*Source, error) {
 	query := url.Values{"database": {credentials.Database}, "app name": {"dataguard-scanner"}}
 	switch credentials.TLS {
 	case connector.TLSDisable:
@@ -46,7 +49,11 @@ func Open(credentials connector.Credentials, maxConnections int) (*Source, error
 		return nil, safeerr.New("open mssql source", safeerr.CodeInvalid, err)
 	}
 	sqlsource.Configure(db, maxConnections)
-	return &Source{db: db, database: credentials.Database}, nil
+	source := &Source{db: db, database: credentials.Database}
+	if auditDirectory != "" {
+		source.auditPattern = strings.TrimSuffix(auditDirectory, "/") + "/*.sqlaudit"
+	}
+	return source, nil
 }
 
 // Close releases the pool.
@@ -67,25 +74,36 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 	}, s.auditCapabilities(ctx)...)
 }
 
-const auditEnabledQuery = `
-SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.server_audits WHERE is_state_enabled = 1)
-             AND EXISTS (SELECT 1 FROM sys.database_audit_specifications WHERE is_state_enabled = 1)
-       THEN 1 ELSE 0 END`
-
+// auditCapabilities checks what the agent can actually read. The catalog views of
+// server audits are hidden from a login with only VIEW SERVER SECURITY AUDIT, so
+// reading the files is the only honest probe: an empty catalog would look like
+// "not configured" while events flow.
 func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilityStatus {
 	const reason = "SERVER_AUDIT_REQUIRED"
-	var enabled int
-	if err := s.db.QueryRowContext(ctx, auditEnabledQuery).Scan(&enabled); err != nil {
-		return []*agentv1.CapabilityStatus{connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED")}
+	if s.auditPattern == "" {
+		return []*agentv1.CapabilityStatus{
+			connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_NOT_CONFIGURED, "AUDIT_DIRECTORY_NOT_SET"),
+		}
 	}
-	active := enabled == 1
+	const probe = `SELECT COUNT(*), COUNT(CASE WHEN action_id = 'SL' THEN 1 END)
+		FROM (SELECT TOP (1000) action_id FROM sys.fn_get_audit_file(@pattern, default, default)) recent`
+	var records, reads int
+	if err := s.db.QueryRowContext(ctx, probe, sql.Named("pattern", s.auditPattern)).Scan(&records, &reads); err != nil {
+		return []*agentv1.CapabilityStatus{connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_NOT_CONFIGURED, reason)}
+	}
+	readAudit := connector.Status(agentv1.Capability_CAPABILITY_READ_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, "")
+	if reads == 0 {
+		// The file is readable but holds no SELECT yet: that may be a quiet database
+		// or a specification without SELECT. The probe cannot tell which.
+		readAudit = connector.Status(agentv1.Capability_CAPABILITY_READ_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, "NO_READ_RECORDS_SEEN")
+	}
 	return []*agentv1.CapabilityStatus{
-		connector.Configured(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, active, reason),
-		connector.Configured(agentv1.Capability_CAPABILITY_READ_AUDIT, active, reason),
-		connector.Configured(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, active, reason),
-		connector.Configured(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, active, "DERIVED_FROM_QUERY_TEXT"),
-		connector.Configured(agentv1.Capability_CAPABILITY_QUERY_TEXT, active, reason),
-		connector.Configured(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, active, reason),
+		connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, ""),
+		readAudit,
+		connector.Status(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, ""),
+		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, "DERIVED_FROM_QUERY_TEXT"),
+		connector.Status(agentv1.Capability_CAPABILITY_QUERY_TEXT, agentv1.Support_SUPPORT_AVAILABLE, ""),
+		connector.Status(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, agentv1.Support_SUPPORT_AVAILABLE, ""),
 		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IN_NATIVE_AUDIT"),
 		connector.Status(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IMPLEMENTED_FOR_ENGINE"),
 	}

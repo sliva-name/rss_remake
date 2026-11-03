@@ -152,6 +152,17 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/CatalogPage"}
+  /catalog/summary:
+    get:
+      operationId: getCatalogSummary
+      responses:
+        "200":
+          description: Number of active columns per category
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/CategoryInventory"}
   /catalog/changes:
     get:
       operationId: listCatalogChanges
@@ -173,6 +184,10 @@ paths:
         - {name: principal, in: query, schema: {type: string}}
         - {name: category, in: query, schema: {type: string}}
         - {name: eventType, in: query, schema: {type: string}}
+        - name: includeLogins
+          in: query
+          description: Logins outnumber data access by far, so they are left out unless asked for or filtered by type.
+          schema: {type: boolean, default: false}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
@@ -401,11 +416,12 @@ components:
           items: {$ref: "#/components/schemas/CatalogColumn"}
     CatalogChange:
       type: object
-      required: [occurredAt, kind, tableId, categoryId, tableName]
+      required: [occurredAt, kind, tableId, categoryId, tableName, sourceKey]
       properties:
         occurredAt: {type: string, format: date-time}
         kind: {type: string}
         tableId: {type: string, format: uuid}
+        sourceKey: {type: string}
         tableName: {type: string}
         columnId: {type: string, format: uuid}
         columnName: {type: string}
@@ -530,3 +546,10 @@ components:
         principals: {type: integer, format: int64}
         sources: {type: integer, format: int64}
         lastAccess: {type: string, format: date-time}
+    CategoryInventory:
+      type: object
+      required: [category, columns, tables]
+      properties:
+        category: {type: string}
+        columns: {type: integer, format: int64}
+        tables: {type: integer, format: int64}

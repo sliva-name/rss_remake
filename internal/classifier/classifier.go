@@ -162,6 +162,9 @@ type Finding struct {
 	Confidence float64
 	Evidence   *agentv1.ClassificationEvidence
 	Matched    uint64
+	// ByName means the decision rests on the column name alone: values were not
+	// consulted or did not support it.
+	ByName bool
 }
 
 // Findings returns categories above the report threshold, strongest first.
@@ -271,5 +274,6 @@ func metadataFinding(category string) Finding {
 		Category:   category,
 		Confidence: metadataConfidence,
 		Evidence:   &agentv1.ClassificationEvidence{NameMatch: true},
+		ByName:     true,
 	}
 }

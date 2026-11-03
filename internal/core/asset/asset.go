@@ -97,6 +97,7 @@ type HistoryEntry struct {
 	OccurredAt time.Time
 	Kind       string
 	TableID    uuid.UUID
+	SourceKey  string
 	TableName  string
 	ColumnID   *uuid.UUID
 	ColumnName string
@@ -107,6 +108,14 @@ type HistoryEntry struct {
 type Reader interface {
 	ListCatalog(ctx context.Context, tenantID uuid.UUID, filter CatalogFilter) ([]CatalogEntry, int64, error)
 	ListHistory(ctx context.Context, tenantID uuid.UUID, limit int) ([]HistoryEntry, error)
+	SummarizeCatalog(ctx context.Context, tenantID uuid.UUID) ([]CategoryCount, error)
+}
+
+// CategoryCount says how much of a category is stored.
+type CategoryCount struct {
+	Category string
+	Columns  int64
+	Tables   int64
 }
 
 // Rename is one detected name change.

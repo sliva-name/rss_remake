@@ -22,6 +22,24 @@ make dev-up
 make test-integration
 ```
 
+Интерфейс собирается в `web/dashboard/dist`. Сервер раздаёт его, если задана `DG_WEB_DIR`.
+
+```bash
+make web
+```
+
+Сквозной тест запускает настоящие бинарники на стенде, с входом через Keycloak:
+
+```bash
+go test -tags=e2e -count=1 -timeout 15m ./tests/e2e/
+```
+
+Проверка в браузере (нужен Docker: браузер работает в образе Playwright, чтобы не ставить системные библиотеки). Тест в режиме удержания пишет файл с учётными данными и ждёт файла `.done`:
+
+```bash
+DG_E2E_HOLD=/tmp/dg-hold go test -tags=e2e -count=1 -timeout 25m ./tests/e2e/
+```
+
 После изменения контрактов в `api/proto`:
 
 ```bash

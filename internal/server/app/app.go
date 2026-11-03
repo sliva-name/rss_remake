@@ -6,12 +6,16 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -42,6 +46,10 @@ type Options struct {
 	CertificateTTL time.Duration
 	Authenticator  api.Authenticator
 	Logger         *slog.Logger
+	OIDCIssuer     string
+	OIDCClientID   string
+	// WebDirectory is the built dashboard; empty disables serving it.
+	WebDirectory string
 }
 
 // App holds the composed services and handlers.
@@ -77,12 +85,16 @@ func Build(options Options) (*App, error) {
 		Events: options.Events, Coverage: coverage.NewService(fleetService, options.Store, options.Events),
 	}
 
+	apiRoutes, err := apiHandler(options, services)
+	if err != nil {
+		return nil, err
+	}
 	return &App{
 		Tenants:    tenants,
 		Fleet:      fleetService,
 		Policies:   policies,
 		Scans:      scans,
-		APIHandler: apiHandler(options, services),
+		APIHandler: apiRoutes,
 		AgentHandler: agentapi.Handler(agentapi.Dependencies{
 			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,
 			Audit: audit.NewService(options.Store, options.Events), Health: options.Store,
@@ -91,9 +103,20 @@ func Build(options Options) (*App, error) {
 	}, nil
 }
 
-func apiHandler(options Options, services api.Services) http.Handler {
+func apiHandler(options Options, services api.Services) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.Handler(api.New(services), options.Authenticator, options.Logger))
+	mux.HandleFunc("GET /ui-config", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": options.OIDCIssuer, "clientId": options.OIDCClientID})
+	})
+	if options.WebDirectory != "" {
+		web, err := webHandler(options.WebDirectory, options.OIDCIssuer)
+		if err != nil {
+			return nil, err
+		}
+		mux.Handle("/", web)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -104,7 +127,43 @@ func apiHandler(options Options, services api.Services) http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	return mux
+	return mux, nil
+}
+
+// webHandler serves the dashboard. Unknown paths return the page, because routes
+// live in the browser. The policy allows scripts only from this origin, which
+// limits what an injected value could do with the access token.
+func webHandler(directory, issuer string) (http.Handler, error) {
+	// os.Root refuses any path that leaves the directory, including through links.
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return nil, fmt.Errorf("open web directory: %w", err)
+	}
+	files := http.FileServerFS(root.FS())
+	provider := originOf(issuer)
+	policy := "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+		"connect-src 'self' " + provider + "; frame-ancestors 'none'; base-uri 'none'; form-action " + provider
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", policy)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		if _, err := root.Stat(name); name == "" || err != nil {
+			http.ServeFileFS(w, r, root.FS(), "index.html")
+			return
+		}
+		files.ServeHTTP(w, r)
+	}), nil
+}
+
+// originOf reduces the issuer to its origin. A CSP source with a path matches that
+// exact path only, which would block the provider's discovery document.
+func originOf(issuer string) string {
+	parsed, err := url.Parse(issuer)
+	if err != nil || parsed.Host == "" {
+		return "'none'"
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // AgentTLSConfig requires TLS 1.3. Client certificates are optional at the TLS

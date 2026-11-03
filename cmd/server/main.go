@@ -91,7 +91,8 @@ func serve(ctx context.Context) error {
 	}
 	defer func() { _ = events.Close() }()
 
-	authenticator, err := api.NewOIDCAuthenticator(ctx, mustEnv("DG_OIDC_ISSUER"), mustEnv("DG_OIDC_CLIENT_ID"))
+	issuer, clientID := mustEnv("DG_OIDC_ISSUER"), mustEnv("DG_OIDC_CLIENT_ID")
+	authenticator, err := api.NewOIDCAuthenticator(ctx, issuer, clientID)
 	if err != nil {
 		return err
 	}
@@ -99,6 +100,7 @@ func serve(ctx context.Context) error {
 	application, err := app.Build(app.Options{
 		Store: store, Events: events, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
 		Authenticator: authenticator, Logger: logger,
+		OIDCIssuer: issuer, OIDCClientID: clientID, WebDirectory: os.Getenv("DG_WEB_DIR"),
 	})
 	if err != nil {
 		return err
