@@ -84,6 +84,11 @@ type Sink interface {
 	Insert(ctx context.Context, events []Event) error
 }
 
+// Observer learns what ingest did: counts and delays, never the events.
+type Observer interface {
+	Ingested(stored, duplicates int, delays []time.Duration)
+}
+
 // AgentLocks serializes ingest per agent across server instances. Without it a
 // retry sent while the first attempt is still writing would pass the check.
 type AgentLocks interface {
@@ -104,17 +109,19 @@ type cachedColumns struct {
 
 // Service ingests events.
 type Service struct {
-	catalog Catalog
-	locks   AgentLocks
-	sink    Sink
-	now     func() time.Time
+	catalog  Catalog
+	locks    AgentLocks
+	sink     Sink
+	observer Observer
+	now      func() time.Time
 
 	mu    sync.Mutex
 	cache map[uuid.UUID]cachedColumns
 }
 
-func NewService(catalog Catalog, locks AgentLocks, sink Sink) *Service {
-	return &Service{catalog: catalog, locks: locks, sink: sink, now: time.Now, cache: map[uuid.UUID]cachedColumns{}}
+// NewService creates the service. The observer may be nil.
+func NewService(catalog Catalog, locks AgentLocks, sink Sink, observer Observer) *Service {
+	return &Service{catalog: catalog, locks: locks, sink: sink, observer: observer, now: time.Now, cache: map[uuid.UUID]cachedColumns{}}
 }
 
 // columnsOf reuses a source's catalog until a scan changes it. Loading every
@@ -159,7 +166,18 @@ func (s *Service) Ingest(ctx context.Context, tenantID, agentID uuid.UUID, event
 			return err
 		}
 		fresh := slices.DeleteFunc(converted, func(event Event) bool { return stored[event.ID] })
-		return s.sink.Insert(ctx, fresh)
+		if err := s.sink.Insert(ctx, fresh); err != nil {
+			return err
+		}
+		if s.observer != nil {
+			now := s.now()
+			delays := make([]time.Duration, len(fresh))
+			for i := range fresh {
+				delays[i] = now.Sub(fresh[i].Time)
+			}
+			s.observer.Ingested(len(fresh), len(accepted)-len(fresh), delays)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

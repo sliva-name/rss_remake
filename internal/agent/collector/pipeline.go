@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"dataguard/internal/agent/queue"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/connector"
 	"dataguard/internal/contract/egress"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
@@ -59,6 +60,8 @@ type Options struct {
 	Verifier     Verifier
 	PollInterval time.Duration
 	Logger       *slog.Logger
+	// Metrics may be nil.
+	Metrics *telemetry.Agent
 }
 
 // Collector moves records from a log into the durable queue.
@@ -228,8 +231,13 @@ func (c *Collector) store(batch *Batch) error {
 		if err := c.options.Queue.CommitGap(c.options.SourceID, nil, gaps); err != nil {
 			return err
 		}
+		c.options.Metrics.Queued(gaps)
 	}
-	return c.options.Queue.Commit(c.options.SourceID, batch.Cursor, events)
+	if err := c.options.Queue.Commit(c.options.SourceID, batch.Cursor, events); err != nil {
+		return err
+	}
+	c.options.Metrics.Queued(events)
+	return nil
 }
 
 func (c *Collector) events(batch *Batch) (events, gaps []*agentv1.AuditEvent) {
@@ -330,6 +338,7 @@ func (c *Collector) event(record *Record) (*agentv1.AuditEvent, bool) {
 func (c *Collector) checked(event *agentv1.AuditEvent) (*agentv1.AuditEvent, bool) {
 	if err := egress.Check(event); err != nil {
 		c.options.Logger.Error("event blocked", "source_key", c.options.SourceKey, "reason", "contract")
+		c.options.Metrics.Blocked("AuditEvent")
 		return nil, true
 	}
 	return event, false

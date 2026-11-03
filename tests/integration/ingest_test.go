@@ -245,6 +245,36 @@ func TestCenterOutageLosesNothingAndDuplicatesNothing(t *testing.T) {
 	if uint64(len(identifiers)) != total {
 		t.Fatalf("%d unique of %d stored", len(identifiers), total)
 	}
+
+	// The outage and the recovery are visible to an operator without the center.
+	samples := gather(t, agent.metrics.Gather)
+	failed := 0.0
+	for key, value := range samples {
+		if strings.HasPrefix(key, "dataguard_agent_center_requests_total|code=unavailable|") {
+			failed += value
+		}
+	}
+	if failed == 0 {
+		t.Errorf("calls during the outage were not counted as failed: %v", samples)
+	}
+	if samples["dataguard_agent_events_delivered_total"] < during {
+		t.Errorf("delivered = %v, want at least %d", samples["dataguard_agent_events_delivered_total"], during)
+	}
+	if samples["dataguard_server_events_ingested_total|result=stored"] != 0 {
+		t.Fatal("agent and server metrics must not share a registry")
+	}
+	if stored := gather(t, platform.metrics.Gather)["dataguard_server_events_ingested_total|result=stored"]; stored < during {
+		t.Errorf("server stored = %v, want at least %d", stored, during)
+	}
+}
+
+func gather(t *testing.T, read func() (map[string]float64, error)) map[string]float64 {
+	t.Helper()
+	samples, err := read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return samples
 }
 
 func TestRedeliveryStoresOneRow(t *testing.T) {
@@ -265,6 +295,12 @@ func TestRedeliveryStoresOneRow(t *testing.T) {
 	}
 	if _, total := platform.search(t, created.ID, searchWindow()); total != 1 {
 		t.Fatalf("stored %d rows", total)
+	}
+	samples := gather(t, platform.metrics.Gather)
+	if samples["dataguard_server_events_ingested_total|result=stored"] != 1 ||
+		samples["dataguard_server_events_ingested_total|result=duplicate"] != 2 ||
+		samples["dataguard_server_event_delivery_delay_seconds"] != 1 {
+		t.Fatalf("ingest metrics = %v", samples)
 	}
 }
 

@@ -79,7 +79,7 @@ func (f *fakeLocks) requireHeld() {
 func newService(t *testing.T, catalog audit.Catalog) (*audit.Service, *fakeSink) {
 	locks := &fakeLocks{t: t}
 	sink := &fakeSink{locks: locks}
-	return audit.NewService(catalog, locks, sink), sink
+	return audit.NewService(catalog, locks, sink, nil), sink
 }
 
 func event(sourceID uuid.UUID) *agentv1.AuditEvent {

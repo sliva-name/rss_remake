@@ -22,6 +22,7 @@ import (
 	"dataguard/internal/server/app"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
+	"dataguard/internal/server/telemetry"
 	"dataguard/migrations"
 )
 
@@ -144,16 +145,17 @@ func serve(ctx context.Context) error {
 		return err
 	}
 	pkiDirectory := mustEnv("DG_PKI_DIR")
+	metrics := telemetry.New()
 	application, err := app.Build(app.Options{
 		Store: store, Events: events, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
 		Authenticator: authenticator, Logger: logger,
-		OIDCIssuer: issuer, OIDCClientID: clientID, WebDirectory: os.Getenv("DG_WEB_DIR"),
+		OIDCIssuer: issuer, OIDCClientID: clientID, WebDirectory: os.Getenv("DG_WEB_DIR"), Metrics: metrics,
 	})
 	if err != nil {
 		return err
 	}
 	logger.Info("server started")
-	return app.Serve(ctx, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), pkiDirectory)
+	return app.Serve(ctx, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), os.Getenv("DG_METRICS_ADDR"), pkiDirectory, metrics)
 }
 
 func mustEnv(name string) string {

@@ -22,7 +22,7 @@ make demo
 make check
 ```
 
-Каждая часть платформы работает в контейнере: сервер вместе с Dashboard, агент, миграции и выпуск PKI (ADR-0005). Стенд — отдельный compose-проект `dataguard-dev`: исходные СУБД, центральные PostgreSQL и ClickHouse, Keycloak и сама платформа. Порты из диапазона `25xxx` слушают только loopback, пароли генерируются в `deployments/dev/.env`. Без демонстрационных данных стенд поднимается так:
+Каждая часть платформы работает в контейнере: сервер вместе с Dashboard, агент, миграции и выпуск PKI (ADR-0005). Стенд — отдельный compose-проект `dataguard-dev`: исходные СУБД, центральные PostgreSQL и ClickHouse, Keycloak и сама платформа. Порты из диапазона `25xxx` слушают только loopback, пароли генерируются в `deployments/dev/.env`. Метрики сервера — http://127.0.0.1:25910/metrics, агента — http://127.0.0.1:25964/metrics. Без демонстрационных данных стенд поднимается так:
 
 ```bash
 make dev-up
@@ -90,7 +90,8 @@ docker build --target agent -t dataguard/agent .
 - `DG_OIDC_ISSUER` и `DG_OIDC_CLIENT_ID`;
 - `DG_OIDC_DISCOVERY_URL` — необязательно: адрес провайдера, если сервер видит его не так, как браузер;
 - `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD`;
-- `DG_CH_MIGRATION_USER` и `DG_CH_MIGRATION_PASSWORD`.
+- `DG_CH_MIGRATION_USER` и `DG_CH_MIGRATION_PASSWORD`;
+- `DG_METRICS_ADDR` — необязательно: адрес порта метрик Prometheus, например `:9100`. Порт без аутентификации, открывайте его только во внутренней сети.
 
 Подкоманды образа сервера:
 
@@ -117,6 +118,8 @@ state_dir: /var/lib/dataguard
 allowed:
   hosts: ["10.20.0.0/16", "db.internal", "*.db.corp"]   # сети, адреса, имена, домены
   audit_directories: [/var/log/postgresql]             # откуда можно читать журналы
+metrics:                                               # необязательно: порт метрик Prometheus, по умолчанию закрыт
+  address: 127.0.0.1:9464
 applications:                                          # необязательно: приложения, подписывающие контекст
   - id: crm
     public_key_file: /etc/dataguard/apps/crm.pub

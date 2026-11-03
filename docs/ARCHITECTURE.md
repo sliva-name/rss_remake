@@ -41,8 +41,8 @@ flowchart LR
 |---|---|---|
 | `pki-init` | `dataguard/server` | Выпускает CA, сертификат сервера и ключ политик, если их ещё нет; кладёт сертификат CA в том для агентов |
 | `migrate` | `dataguard/server` | Миграции PostgreSQL и ClickHouse |
-| `server` | `dataguard/server` | REST, mTLS-порт агентов и Dashboard |
-| `agent` | `dataguard/agent` | Discovery и сбор аудита |
+| `server` | `dataguard/server` | REST, mTLS-порт агентов, Dashboard и порт метрик |
+| `agent` | `dataguard/agent` | Discovery, сбор аудита и, если включён, порт метрик |
 | `browser-check` | `dataguard/browser-check` | Проверка Dashboard в браузере, только для тестов |
 
 ## Модули
@@ -56,7 +56,7 @@ flowchart LR
 | `internal/query` | Разбор запросов, разрешение объектов | Выпускать литералы наружу |
 | `internal/agent/*` | Runtime, очередь, сборщики, egress | Отправлять что-либо мимо Guard |
 | `internal/server/*` | RPC, REST, ingest, хранилища | Принимать tenant из тела запроса |
-| `internal/platform/*` | safelog, safeerr, pki, tenancy | Зависеть от бизнес-логики |
+| `internal/platform/*` | safelog, safeerr, pki, tenancy, metrics | Зависеть от бизнес-логики |
 
 Запреты импортов проверяет `depguard` в `.golangci.yml`.
 
@@ -72,15 +72,21 @@ flowchart LR
 
 ## Отказы
 
-| Отказ | Поведение |
-|---|---|
-| Центр недоступен | Агент копит события, повторяет с exponential backoff |
-| Очередь заполнена | Позиция журнала не движется, записи ждут в журнале СУБД, источник в состоянии `DEGRADED`. Если журнал ротируется раньше, создаётся `AUDIT_GAP` с причиной `QUEUE_FULL` |
-| `kill -9` агента | Позиция и события согласованы; после старта чтение продолжается |
-| Журнал ротирован раньше чтения | `AUDIT_GAP` с причиной `LOG_ROTATED` |
-| Запись журнала не разобрана | Счётчик, `AUDIT_GAP` с `UNPARSEABLE_RECORDS` |
-| Источник недоступен | `AuditSourceHealth = UNAVAILABLE` |
-| Часовой пояс журнала неизвестен | Журнал не читается, позиция не движется, источник в состоянии `DEGRADED` с причиной `LOG_TIME_ZONE_UNKNOWN`. Пояс берётся у СУБД: `log_timezone` у PostgreSQL, системный пояс у MariaDB |
+Каждый отказ виден в метриках (ADR-0008). Префикс `dataguard_agent_` у метрик агента опущен.
+
+| Отказ | Поведение | Метрика |
+|---|---|---|
+| Центр недоступен | Агент копит события, повторяет с exponential backoff | `center_requests_total{code="unavailable"}` растёт, `center_last_success_timestamp_seconds` стоит, `queue_pending_events` растёт |
+| Очередь заполнена | Позиция журнала не движется, записи ждут в журнале СУБД, источник в состоянии `DEGRADED`. Если журнал ротируется раньше, создаётся `AUDIT_GAP` с причиной `QUEUE_FULL` | `queue_pending_bytes` у `queue_capacity_bytes`, `audit_source_reason{reason="QUEUE_FULL"}`, `audit_gaps_total{reason="GAP_REASON_QUEUE_FULL"}` |
+| `kill -9` агента | Позиция и события согласованы; после старта чтение продолжается | `process_start_time_seconds` сменился, `events_delivered_total` растёт после старта |
+| Журнал ротирован раньше чтения | `AUDIT_GAP` с причиной `LOG_ROTATED` | `audit_gaps_total{reason="GAP_REASON_LOG_ROTATED"}` |
+| Запись журнала не разобрана | Счётчик, `AUDIT_GAP` с `UNPARSEABLE_RECORDS` | `audit_lost_events_total{reason="GAP_REASON_UNPARSEABLE_RECORDS"}` |
+| Источник недоступен | `AuditSourceHealth = UNAVAILABLE` | `audit_source_state{state="AUDIT_SOURCE_STATE_UNAVAILABLE"} 1`, `audit_position_age_seconds` растёт |
+| Часовой пояс журнала неизвестен | Журнал не читается, позиция не движется, источник в состоянии `DEGRADED` с причиной `LOG_TIME_ZONE_UNKNOWN`. Пояс берётся у СУБД: `log_timezone` у PostgreSQL, системный пояс у MariaDB | `audit_source_reason{reason="LOG_TIME_ZONE_UNKNOWN"}` |
+| Агент не открыл источник из списка центра: цель не разрешена, пароль не открылся | Агент не подключается и сообщает код центру | `source_refused{code="TARGET_NOT_ALLOWED"}` и другие коды |
+| Политика или список источников не прошли проверку | Агент работает по последним принятым | `center_documents_rejected_total` |
+
+На сервере повторная доставка видна как `dataguard_server_events_ingested_total{result="duplicate"}`, задержка доставки — как `dataguard_server_event_delivery_delay_seconds`.
 
 ## Решения
 
@@ -99,4 +105,4 @@ flowchart LR
 | 6 | Приёмка: критерии §14.2, нагрузка, ревью | Готово, см. `ACCEPTANCE.md` |
 | — | Контейнеры для каждой части, сквозной тест на них | Готово |
 | — | Источники создаются в центре, пароль запечатан ключом агента (ADR-0006) | Готово, проверено в браузере |
-| — | Основа, `ROADMAP.md` этап 0: дедупликация при приёме, ключ по времени, агрегат отчётов (ADR-0007) | Пп. 1–4 готовы, критерии отчётов, поиска и записи достигнуты на 100 млн событий |
+| — | Основа, `ROADMAP.md` этап 0: дедупликация при приёме, ключ по времени, агрегат отчётов, метрики (ADR-0007, ADR-0008) | Пп. 1–5 готовы: критерии отчётов, поиска и записи достигнуты на 100 млн событий, метрики сервера и агента (ADR-0008) |

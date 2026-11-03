@@ -31,6 +31,7 @@ import (
 	"dataguard/internal/server/api"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
+	"dataguard/internal/server/telemetry"
 )
 
 const (
@@ -48,6 +49,8 @@ type Options struct {
 	Logger         *slog.Logger
 	OIDCIssuer     string
 	OIDCClientID   string
+	// Metrics may be nil.
+	Metrics *telemetry.Server
 	// WebDirectory is the built dashboard; empty disables serving it.
 	WebDirectory string
 }
@@ -97,7 +100,8 @@ func Build(options Options) (*App, error) {
 		APIHandler: apiRoutes,
 		AgentHandler: agentapi.Handler(agentapi.Dependencies{
 			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,
-			Audit: audit.NewService(options.Store, options.Store, options.Events), Health: options.Store,
+			Audit: audit.NewService(options.Store, options.Store, options.Events, options.Metrics), Health: options.Store,
+			Metrics:       options.Metrics,
 			CACertificate: authority.CertificatePEM(), PolicyPublicKey: signer.PublicKey(),
 		}),
 	}, nil
@@ -105,7 +109,7 @@ func Build(options Options) (*App, error) {
 
 func apiHandler(options Options, services api.Services) (http.Handler, error) {
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api.Handler(api.New(services), options.Authenticator, options.Logger))
+	mux.Handle("/api/", api.Handler(api.New(services), options.Authenticator, options.Logger, options.Metrics))
 	mux.HandleFunc("GET /ui-config", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": options.OIDCIssuer, "clientId": options.OIDCClientID})
@@ -194,8 +198,10 @@ func AgentTLSConfig(pkiDirectory string) (*tls.Config, error) {
 	}, nil
 }
 
-// Serve runs the public API and the agent endpoint until ctx ends.
-func Serve(ctx context.Context, application *App, apiAddress, agentAddress, pkiDirectory string) error {
+// Serve runs the public API, the agent endpoint and, when metricsAddress is set,
+// the metrics endpoint until ctx ends. Metrics get a port of their own, so a
+// scraper needs no access to the API and the API exposes no metrics.
+func Serve(ctx context.Context, application *App, apiAddress, agentAddress, metricsAddress, pkiDirectory string, metrics *telemetry.Server) error {
 	tlsConfig, err := AgentTLSConfig(pkiDirectory)
 	if err != nil {
 		return err
@@ -203,14 +209,26 @@ func Serve(ctx context.Context, application *App, apiAddress, agentAddress, pkiD
 	apiServer := &http.Server{Addr: apiAddress, Handler: application.APIHandler, ReadHeaderTimeout: readHeaderTimeout}
 	agentServer := &http.Server{Addr: agentAddress, Handler: application.AgentHandler, ReadHeaderTimeout: readHeaderTimeout, TLSConfig: tlsConfig}
 
+	servers := []*http.Server{apiServer, agentServer}
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error { return ignoreClosed(apiServer.ListenAndServe()) })
 	group.Go(func() error { return ignoreClosed(agentServer.ListenAndServeTLS("", "")) })
+	if metricsAddress != "" {
+		mux := http.NewServeMux()
+		mux.Handle("GET /metrics", metrics.Handler())
+		metricsServer := &http.Server{Addr: metricsAddress, Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
+		servers = append(servers, metricsServer)
+		group.Go(func() error { return ignoreClosed(metricsServer.ListenAndServe()) })
+	}
 	group.Go(func() error {
 		<-groupContext.Done()
 		shutdownContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()
-		return errors.Join(apiServer.Shutdown(shutdownContext), agentServer.Shutdown(shutdownContext))
+		var errs []error
+		for _, server := range servers {
+			errs = append(errs, server.Shutdown(shutdownContext))
+		}
+		return errors.Join(errs...)
 	})
 	return group.Wait()
 }

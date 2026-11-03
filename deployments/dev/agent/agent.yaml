@@ -8,6 +8,10 @@ allowed:
   hosts: [source-postgres, source-mysql, source-mariadb, source-mssql]
   # The same host directories the databases write their audit logs to.
   audit_directories: [/var/log/dg-audit]
+# All interfaces of the container; compose publishes the port on the host's
+# loopback only. On a host, prefer 127.0.0.1 or a firewalled address.
+metrics:
+  address: 0.0.0.0:9464
 applications:
   - id: crm
     public_key_file: /etc/dataguard/apps/crm.pub

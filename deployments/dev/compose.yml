@@ -226,9 +226,11 @@ services:
       DG_OIDC_ISSUER: http://127.0.0.1:25080/realms/dataguard
       DG_OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dataguard
       DG_OIDC_CLIENT_ID: dataguard-dashboard
+      DG_METRICS_ADDR: ":9100"
     ports:
       - "127.0.0.1:25800:8080"
       - "127.0.0.1:25443:8443"
+      - "127.0.0.1:25910:9100"
     volumes:
       # The CA key stays in this volume; agents only get the certificate.
       - center-pki:/var/lib/dataguard/pki:ro
@@ -264,6 +266,8 @@ services:
       - ./.state/audit/postgres:/var/log/dg-audit/postgres:ro
       - ./.state/audit/mysql:/var/log/dg-audit/mysql:ro
       - ./.state/audit/mariadb:/var/log/dg-audit/mariadb:ro
+    ports:
+      - "127.0.0.1:25964:9464"
     restart: unless-stopped
 
   # The dashboard walk in a real browser. It uses the host network to open the

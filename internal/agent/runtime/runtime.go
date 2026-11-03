@@ -13,6 +13,7 @@ import (
 
 	"dataguard/internal/agent/center"
 	"dataguard/internal/agent/identity"
+	"dataguard/internal/agent/telemetry"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/platform/retry"
@@ -60,6 +61,8 @@ type Options struct {
 	Version           string
 	HeartbeatInterval time.Duration
 	Logger            *slog.Logger
+	// Metrics may be nil.
+	Metrics *telemetry.Agent
 }
 
 // Control keeps the agent registered and up to date.
@@ -142,6 +145,7 @@ func (c *Control) refreshSources(ctx context.Context, latest uint64) error {
 	if err != nil {
 		// Like a bad policy: an incident, and the agent keeps the list it trusts.
 		c.options.Logger.Error("source list rejected", "reason", sourcesRejection(err))
+		c.options.Metrics.Rejected("sources", sourcesRejection(err))
 		return nil
 	}
 	c.options.Sources.ApplySources(ctx, list)
@@ -152,7 +156,7 @@ func (c *Control) refreshSources(ctx context.Context, latest uint64) error {
 func sourcesRejection(err error) string {
 	switch {
 	case errors.Is(err, pki.ErrBadSignature):
-		return "bad signature"
+		return "bad_signature"
 	case errors.Is(err, identity.ErrSourcesRollback):
 		return "rollback"
 	default:
@@ -185,6 +189,7 @@ func (c *Control) refreshPolicy(ctx context.Context, latest uint64) error {
 		// A forged or rolled-back policy is an incident, not a retryable failure:
 		// the agent keeps working on the policy it already trusts.
 		c.options.Logger.Error("policy rejected", "reason", policyRejection(err))
+		c.options.Metrics.Rejected("policy", policyRejection(err))
 		return nil
 	}
 	if c.options.Policies != nil {
@@ -197,7 +202,7 @@ func (c *Control) refreshPolicy(ctx context.Context, latest uint64) error {
 func policyRejection(err error) string {
 	switch {
 	case errors.Is(err, pki.ErrBadSignature):
-		return "bad signature"
+		return "bad_signature"
 	case errors.Is(err, identity.ErrPolicyRollback):
 		return "rollback"
 	default:

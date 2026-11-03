@@ -28,6 +28,7 @@ import (
 	"dataguard/internal/agent/config"
 	"dataguard/internal/agent/identity"
 	"dataguard/internal/agent/runtime"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/contract/egress"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/tenant"
@@ -39,6 +40,7 @@ import (
 	"dataguard/internal/server/app"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
+	servertelemetry "dataguard/internal/server/telemetry"
 	"dataguard/internal/testkit/stand"
 )
 
@@ -64,6 +66,7 @@ type platform struct {
 	events        *clickhouse.Store
 	eventSettings clickhouse.Settings
 	gate          *outage
+	metrics       *servertelemetry.Server
 }
 
 // outage makes the center unreachable from an agent's point of view.
@@ -122,9 +125,10 @@ func startPlatform(t *testing.T) *platform {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	authn := staticAuthenticator{}
+	metrics := servertelemetry.New()
 	application, err := app.Build(app.Options{
 		Store: store, Events: events, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
-		Authenticator: authn, Logger: safelog.Discard(),
+		Authenticator: authn, Logger: safelog.Discard(), Metrics: metrics,
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -145,7 +149,7 @@ func startPlatform(t *testing.T) *platform {
 
 	return &platform{
 		app: application, agents: agents, rest: rest, pkiDir: pkiDir, authn: authn,
-		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: gate,
+		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: gate, metrics: metrics,
 		caFile: filepath.Join(pkiDir, pki.CACertFile),
 	}
 }
@@ -165,9 +169,10 @@ func (p *platform) newTenant(t *testing.T, name string) (tenant.Tenant, tenant.E
 }
 
 type enrolledAgent struct {
-	client *center.Client
-	store  *identity.Store
-	dir    string
+	client  *center.Client
+	store   *identity.Store
+	dir     string
+	metrics *telemetry.Agent
 }
 
 func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrolledAgent {
@@ -186,11 +191,12 @@ func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrol
 	if err != nil {
 		t.Fatalf("identity.Open: %v", err)
 	}
-	client, err := center.New(p.agents.URL, p.caFile, store)
+	observer := telemetry.New()
+	client, err := center.New(p.agents.URL, p.caFile, store, observer)
 	if err != nil {
 		t.Fatalf("center.New: %v", err)
 	}
-	return enrolledAgent{client: client, store: store, dir: dir}
+	return enrolledAgent{client: client, store: store, dir: dir, metrics: observer}
 }
 
 func TestRuntimeRoleMustNotBypassRowSecurity(t *testing.T) {

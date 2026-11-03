@@ -128,6 +128,17 @@ func (r *Registry) Apply(definitions []Definition, refusals []Refusal) error {
 	return errors.Join(failures...)
 }
 
+// RefusalCodes returns the code of each source the agent did not open.
+func (r *Registry) RefusalCodes() map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	codes := make(map[string]string, len(r.refused))
+	for id, refusal := range r.refused {
+		codes[id] = refusal.Code
+	}
+	return codes
+}
+
 func (r *Registry) retire(item *entry) {
 	item.retired = true
 	if item.users == 0 {

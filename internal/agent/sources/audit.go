@@ -5,6 +5,7 @@ import (
 
 	"dataguard/internal/agent/collector"
 	"dataguard/internal/agent/queue"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/connector"
 	mysqlfrontend "dataguard/internal/query/frontend/mysql"
 	pgfrontend "dataguard/internal/query/frontend/postgres"
@@ -13,13 +14,14 @@ import (
 
 // NewCollector builds the collector matching a source's engine. It returns nil
 // when no audit directory is configured; the capability report states the rest.
-func NewCollector(definition Definition, source connector.Scannable, events *queue.Queue, verifier collector.Verifier, logger *slog.Logger) *collector.Collector {
+func NewCollector(definition Definition, source connector.Scannable, events *queue.Queue, verifier collector.Verifier,
+	logger *slog.Logger, observer *telemetry.Agent) *collector.Collector {
 	if definition.AuditDirectory == "" {
 		return nil
 	}
 	options := collector.Options{
 		SourceKey: definition.Name, SourceID: definition.ID, Catalog: source, Queue: events,
-		Verifier: verifier, Logger: logger,
+		Verifier: verifier, Logger: logger, Metrics: observer,
 	}
 	switch definition.Engine {
 	case EnginePostgreSQL:

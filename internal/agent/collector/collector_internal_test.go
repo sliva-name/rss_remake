@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dataguard/internal/agent/queue"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/connector"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safelog"
@@ -630,6 +631,45 @@ func TestImplausibleLogTimeIsReplacedBeforeQueueing(t *testing.T) {
 		got := plausibleTime(testCase.at, now)
 		if testCase.kept != got.Equal(testCase.at) || !testCase.kept && !got.Equal(now) {
 			t.Errorf("plausibleTime(%s) = %s", testCase.at, got)
+		}
+	}
+}
+
+// Every way the collector learns of a loss reaches the metrics, so a scraper sees
+// blindness without reading the center (ADR-0008).
+func TestEveryGapIsCounted(t *testing.T) {
+	var records []Record
+	for i := range 50 {
+		records = append(records, statementRecord(i))
+	}
+	observer := telemetry.New()
+	reader := &scriptedReader{batches: []Batch{{Unparseable: 3, Cursor: []byte("first")}, {Gap: lostLogGap(), Cursor: []byte("second")}}}
+	item, _ := newTestCollector(t, reader, 1<<20)
+	item.options.Metrics = observer
+	item.tick(context.Background())
+	item.tick(context.Background())
+
+	full := &scriptedReader{batches: []Batch{{Records: records, Cursor: []byte("after")}}}
+	blocked, _ := newTestCollector(t, full, 512)
+	blocked.options.Metrics = observer
+	blocked.tick(context.Background())
+	full.batches = []Batch{{Gap: lostLogGap(), Cursor: []byte("resumed")}}
+	full.position = 0
+	blocked.tick(context.Background())
+
+	samples, err := observer.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]float64{
+		"dataguard_agent_audit_gaps_total|reason=GAP_REASON_UNPARSEABLE_RECORDS":        1,
+		"dataguard_agent_audit_lost_events_total|reason=GAP_REASON_UNPARSEABLE_RECORDS": 3,
+		"dataguard_agent_audit_gaps_total|reason=GAP_REASON_LOG_ROTATED":                1,
+		"dataguard_agent_audit_gaps_total|reason=GAP_REASON_QUEUE_FULL":                 1,
+		"dataguard_agent_events_queued_total|type=EVENT_TYPE_AUDIT_GAP":                 3,
+	} {
+		if samples[key] != want {
+			t.Errorf("%s = %v, want %v", key, samples[key], want)
 		}
 	}
 }
