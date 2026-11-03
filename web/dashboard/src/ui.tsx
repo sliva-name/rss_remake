@@ -1,7 +1,7 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import { coverageReason, coverageStatus } from "./labels";
+import { coverageStatus, explain, failure } from "./labels";
 
 export function Loadable<T>({
   query,
@@ -43,7 +43,7 @@ const coverageTone: Record<string, string> = { OBSERVING: "ok", DEGRADED: "warn"
 
 export function CoverageBadge({ status, reason }: { status: string; reason: string }) {
   return (
-    <span className={`badge ${coverageTone[status] ?? ""}`} title={reason ? coverageReason(reason) : undefined}>
+    <span className={`badge ${coverageTone[status] ?? ""}`} title={reason ? explain(reason) : undefined}>
       {coverageStatus(status)}
     </span>
   );
@@ -57,5 +57,17 @@ export function Confidence({ value }: { value: number }) {
       </i>
       {Math.round(value * 100)}%
     </span>
+  );
+}
+
+// What went wrong and what the operator can do about it.
+export function FailureNote({ code }: { code: string }) {
+  if (!code) return null;
+  const { problem, action } = failure(code);
+  return (
+    <div className="failure">
+      <div className="muted">{problem}</div>
+      {action && <div className="hint">{action}</div>}
+    </div>
   );
 }

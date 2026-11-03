@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,6 +47,13 @@ const (
 	seededRows  = 200
 	agentConfig = "/etc/dataguard/agent.yaml"
 	agentVolume = "dataguard-dev_agent-state"
+	// ROADMAP.md, stage 0: from saving a source to seeing it observed, and from a
+	// record in the source log to the reports, p95, at the reference peak.
+	observingTarget = 30 * time.Second
+	delayTarget     = 30 * time.Second
+	peakRate        = 400 // statements per second over all sources
+	peakDuration    = 15 * time.Second
+	delayHistogram  = "dataguard_server_event_delivery_delay_seconds"
 )
 
 func root(t *testing.T) string {
@@ -89,6 +98,8 @@ type stack struct {
 	password string
 	sources  []stand.Source
 	appKey   ed25519.PrivateKey
+	// definedAt is when the administrator started saving sources.
+	definedAt time.Time
 }
 
 // bringUp builds the images and starts the center. The agent gets a new identity
@@ -250,6 +261,7 @@ func (s *stack) defineSources(t *testing.T) {
 	if len(agents) != 1 || agents[0].SealingPublicKey == nil {
 		t.Fatalf("the agent published no sealing key: %+v", agents)
 	}
+	s.definedAt = time.Now()
 	for _, item := range stand.ContainerSources(stand.Env(t)) {
 		sealed, err := sealing.Seal(*agents[0].SealingPublicKey, sealing.Binding{
 			TenantID: uuid.MustParse(s.tenantID), AgentID: agents[0].Id, Engine: item.Engine, Host: item.Host,
@@ -460,6 +472,22 @@ func TestPlatformEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	s := bringUp(t)
 	s.onboard(t)
+	// Measured before seeding, which takes long enough to hide a slow start.
+	eventually(t, "all sources observed", func() bool {
+		rows := s.coverage(t)
+		observing := 0
+		for _, row := range rows {
+			if row.Status == restapi.OBSERVING {
+				observing++
+			}
+		}
+		return len(rows) == len(s.sources) && observing == len(s.sources)
+	})
+	if elapsed := time.Since(s.definedAt); elapsed > observingTarget {
+		t.Errorf("sources observed %s after saving, target %s", elapsed.Round(time.Second), observingTarget)
+	} else {
+		t.Logf("sources observed %s after saving", elapsed.Round(time.Second))
+	}
 
 	var all []string
 	for i := range s.sources {
@@ -472,16 +500,6 @@ func TestPlatformEndToEnd(t *testing.T) {
 	}
 
 	t.Run("agent reports every source honestly", func(t *testing.T) {
-		eventually(t, "all sources observed", func() bool {
-			rows := s.coverage(t)
-			observing := 0
-			for _, row := range rows {
-				if row.Status == restapi.OBSERVING {
-					observing++
-				}
-			}
-			return len(rows) == len(s.sources) && observing == len(s.sources)
-		})
 		var sources []restapi.Source
 		s.must(t, http.MethodGet, "/sources", nil, &sources)
 		for _, source := range sources {
@@ -563,6 +581,24 @@ func TestPlatformEndToEnd(t *testing.T) {
 		eventually(t, "access to tax ids from all engines", func() bool {
 			return s.eventTotal(t, "&category=GOVERNMENT.TAX_ID&principal=dg_app") >= int64(len(s.sources))
 		})
+	})
+
+	t.Run("log reaches the reports within half a minute at the peak", func(t *testing.T) {
+		before := scrape(t, serverMetrics)
+		storedBefore := sample(t, before, `dataguard_server_events_ingested_total{result="stored"}`)
+		sent := s.peakLoad(ctx, t)
+		eventually(t, "peak load stored", func() bool {
+			metrics, err := scrapeOnce(serverMetrics)
+			return err == nil && sample(t, metrics, `dataguard_server_events_ingested_total{result="stored"}`)-storedBefore >= float64(sent)
+		})
+		// The delay runs from the time in the source log to the row in ClickHouse,
+		// which the reports read: the agent's reading and queue are inside it.
+		bound, share := percentile(t, before, scrape(t, serverMetrics), 0.95)
+		t.Logf("%d statements at %d/s over %d sources: p95 delay at most %gs, %.1f%% within %s",
+			sent, peakRate, len(s.sources), bound, share*100, delayTarget)
+		if bound > delayTarget.Seconds() {
+			t.Fatalf("p95 delay from the log to the reports is over %gs, target %s", bound, delayTarget)
+		}
 	})
 
 	t.Run("agent killed with SIGKILL loses nothing", func(t *testing.T) {
@@ -675,6 +711,61 @@ func TestPlatformEndToEnd(t *testing.T) {
 			t.Fatal("a revoked agent is still reporting")
 		}
 	})
+}
+
+// peakLoad runs statements against every source at the reference peak and
+// returns how many succeeded. Applications repeat their statements, so the text
+// does not change.
+func (s *stack) peakLoad(ctx context.Context, t *testing.T) int {
+	t.Helper()
+	interval := time.Duration(len(s.sources)) * time.Second / peakRate
+	var mu sync.Mutex
+	sent := 0
+	var group sync.WaitGroup
+	for i := range s.sources {
+		source := &s.sources[i]
+		group.Go(func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for deadline := time.Now().Add(peakDuration); time.Now().Before(deadline); <-ticker.C {
+				if _, err := source.Admin.ExecContext(ctx, `SELECT email, phone FROM `+seed.Users+` WHERE inn IS NULL`); err != nil {
+					t.Errorf("%s: %v", source.Dialect.Name, err)
+					return
+				}
+				mu.Lock()
+				sent++
+				mu.Unlock()
+			}
+		})
+	}
+	group.Wait()
+	return sent
+}
+
+// percentile reads a histogram twice and returns the smallest bucket bound that
+// holds the quantile of what was observed in between, with the share within
+// delayTarget.
+func percentile(t *testing.T, before, after string, quantile float64) (float64, float64) {
+	t.Helper()
+	total := sample(t, after, delayHistogram+"_count") - sample(t, before, delayHistogram+"_count")
+	if total == 0 {
+		t.Fatal("no delays observed")
+	}
+	within := func(bound string) float64 {
+		series := delayHistogram + `_bucket{le="` + bound + `"}`
+		return (sample(t, after, series) - sample(t, before, series)) / total
+	}
+	share := within(strconv.FormatFloat(delayTarget.Seconds(), 'f', -1, 64))
+	for _, bound := range []string{"0.5", "1", "2", "5", "10", "30", "60", "300", "900", "3600", "21600", "86400"} {
+		if within(bound) >= quantile {
+			value, err := strconv.ParseFloat(bound, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return value, share
+		}
+	}
+	return math.Inf(1), share
 }
 
 // assertQueueClean copies the stopped agent's state out of its container and

@@ -1,6 +1,8 @@
 // Display names only. Decisions such as a coverage status come from the backend;
 // this file never derives one.
 
+import failures from "./failures.json";
+
 const categories: Record<string, string> = {
   "PERSONAL.EMAIL": "Email",
   "PERSONAL.PHONE": "Телефон",
@@ -89,19 +91,19 @@ const coverage: Record<string, string> = {
 
 export const coverageStatus = (id: string): string => coverage[id] ?? id;
 
-const reasons: Record<string, string> = {
-  AGENT_SILENT: "агент не выходит на связь",
-  NO_HEALTH_REPORTS: "агент ещё не сообщал о журнале",
-  QUEUE_FULL: "очередь агента заполнена",
-  LOG_UNREADABLE: "журнал недоступен",
-  CATALOG_UNAVAILABLE: "каталог источника недоступен",
-  LOG_TIME_ZONE_UNKNOWN: "не удалось узнать часовой пояс журнала",
-  STORE_FAILED: "не удалось сохранить события",
-  NOT_STARTED: "сбор ещё не начался",
-  AUDIT_DIRECTORY_NOT_SET: "у источника не указан каталог журналов",
-};
+// What happened and what to do about it, for every code the agent or the center
+// reports. A Go test checks that each code produced has an entry here.
+export type Failure = { problem: string; action: string };
 
-export const coverageReason = (id: string): string => reasons[id] ?? id;
+const explained: Record<string, Failure> = failures;
+
+export const failure = (code: string): Failure => explained[code] ?? { problem: code, action: "" };
+
+// Both parts in one line, for a tooltip.
+export const explain = (code: string): string => {
+  const { problem, action } = failure(code);
+  return action ? `${problem}. ${action}` : problem;
+};
 
 const engines: Record<string, string> = {
   ENGINE_POSTGRESQL: "PostgreSQL",
@@ -161,20 +163,10 @@ const scans: Record<string, string> = {
 
 export const scanStatus = (id: string): string => scans[id] ?? id;
 
-// What the agent said about opening a source. The codes come from the agent.
-const sourceStatuses: Record<string, string> = {
-  TARGET_NOT_ALLOWED: "Адрес не разрешён агенту",
-  AUDIT_DIRECTORY_NOT_ALLOWED: "Каталог журналов не разрешён агенту",
-  CREDENTIAL_UNREADABLE: "Пароль не открывается, введите его заново",
-  CONNECTION_FAILED: "Нет подключения или неверный пароль",
-  INVALID_DEFINITION: "Агент отклонил настройки",
-  OPEN_FAILED: "Агент отклонил настройки",
-};
-
 export const sourceStatus = (code: string, probedAt: string | undefined): { label: string; tone: string } => {
   if (!probedAt) return { label: "Ожидает агента", tone: "warn" };
   if (!code) return { label: "Подключено", tone: "ok" };
-  return { label: sourceStatuses[code] ?? code, tone: "bad" };
+  return { label: failure(code).problem, tone: "bad" };
 };
 
 export const percent = (share: number | undefined): string =>

@@ -123,6 +123,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge.bad { background: var(--bad-bg); color: var(--bad); }
 
 .muted { color: var(--text-2); }
+.hint { color: var(--text-2); font-size: 12.5px; max-width: 42ch; white-space: normal; }
+.failure .hint { margin-top: 2px; }
 .empty { color: var(--text-2); padding: 18px 0; }
 .error { color: var(--bad); padding: 10px 0; }
 

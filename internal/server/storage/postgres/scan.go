@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/scan"
 )
@@ -69,9 +70,9 @@ func (s *Store) LeaseJobs(ctx context.Context, tenantID, agentID uuid.UUID, maxJ
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		// A job whose agent vanished comes back through an expired lease; after
 		// MaxAttempts it fails instead of being retried forever.
-		const giveUp = `UPDATE scan_jobs SET status = 'failed', failure_code = 'LEASE_EXPIRED', finished_at = now()
+		const giveUp = `UPDATE scan_jobs SET status = 'failed', failure_code = $2, finished_at = now()
 			WHERE status = 'running' AND lease_until < now() AND attempts >= $1`
-		if _, err := tx.Exec(ctx, giveUp, scan.MaxAttempts); err != nil {
+		if _, err := tx.Exec(ctx, giveUp, scan.MaxAttempts, codes.LeaseExpired); err != nil {
 			return err
 		}
 		const lease = `UPDATE scan_jobs SET status = 'running', attempts = attempts + 1,

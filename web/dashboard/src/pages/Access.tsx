@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { api, type Schemas } from "../api";
 import { category, categoryIds, count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
-import { Loadable, Page } from "../ui";
+import { FailureNote, Loadable, Page } from "../ui";
 
 const pageSize = 50;
 
@@ -36,9 +36,12 @@ function Who({ event, scanner }: { event: Schemas["AuditEvent"]; scanner: boolea
 function What({ event }: { event: Schemas["AuditEvent"] }) {
   if (event.type === "EVENT_TYPE_AUDIT_GAP") {
     return (
-      <span className="badge bad">
-        {event.gapReason}: {event.gapLostEvents === undefined ? "сколько потеряно, неизвестно" : `потеряно ${count(event.gapLostEvents)}`}
-      </span>
+      <>
+        <span className="badge bad">
+          {event.gapLostEvents === undefined ? "Сколько потеряно, неизвестно" : `Потеряно ${count(event.gapLostEvents)}`}
+        </span>
+        <FailureNote code={event.gapReason} />
+      </>
     );
   }
   const shown = event.columns.length > 0 ? event.columns : event.tables;

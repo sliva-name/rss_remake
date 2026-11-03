@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/audit"
 	"dataguard/internal/core/fleet"
 )
@@ -30,10 +31,6 @@ const (
 	// staleAfter is how long a report stays believable. A silent agent reports
 	// nothing bad, so an old OBSERVING must not read as still observing.
 	staleAfter = 5 * time.Minute
-
-	reasonAgentSilent = "AGENT_SILENT"
-	reasonNoReports   = "NO_HEALTH_REPORTS"
-	reasonNoDirectory = "AUDIT_DIRECTORY_NOT_SET"
 
 	capabilityReadAudit = "CAPABILITY_READ_AUDIT"
 	supportAvailable    = "SUPPORT_AVAILABLE"
@@ -123,10 +120,10 @@ func (s *Service) Report(ctx context.Context, tenantID uuid.UUID, window time.Du
 
 func buildRow(source *fleet.Source, reports []Health, scans map[uuid.UUID]ScanState, windows []audit.SourceWindow, now time.Time) Row {
 	row := Row{SourceID: source.ID, SourceKey: source.Key, Engine: source.Engine, ReadsAudited: readsAudited(source)}
-	row.Status, row.Reason = StatusBlind, reasonNoReports
+	row.Status, row.Reason = StatusBlind, codes.NoHealthReports
 	if source.AuditDirectory == "" {
 		// The database may audit reads, but nobody collects them for this source.
-		row.Status, row.Reason, row.ReadsAudited = StatusNotConfigured, reasonNoDirectory, false
+		row.Status, row.Reason, row.ReadsAudited = StatusNotConfigured, codes.AuditDirectoryNotSet, false
 	} else if index := slices.IndexFunc(reports, func(h Health) bool { return h.SourceID == source.ID }); index >= 0 {
 		health := &reports[index]
 		row.Status, row.Reason = classify(health, now)
@@ -149,7 +146,7 @@ func readsAudited(source *fleet.Source) bool {
 
 func classify(health *Health, now time.Time) (string, string) {
 	if now.Sub(health.ReportedAt) > staleAfter {
-		return StatusBlind, reasonAgentSilent
+		return StatusBlind, codes.AgentSilent
 	}
 	switch health.State {
 	case stateObserving:

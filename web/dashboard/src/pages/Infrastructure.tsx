@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { api } from "../api";
-import { capability, count, coverageReason, dateTime, engine, percent, scanStatus, support } from "../labels";
-import { CoverageBadge, Loadable, Page } from "../ui";
+import { capability, count, dateTime, engine, explain, percent, scanStatus, support } from "../labels";
+import { CoverageBadge, FailureNote, Loadable, Page } from "../ui";
 import { Sources } from "./Sources";
 
 const supportTone: Record<string, string> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT_CONFIGURED: "warn", SUPPORT_UNKNOWN: "warn" };
@@ -118,7 +118,7 @@ export function Infrastructure({ roles, tenantId }: { roles: string[]; tenantId:
                       </td>
                       <td>
                         <CoverageBadge status={row.status} reason={row.reason} />
-                        {row.reason && <div className="muted">{coverageReason(row.reason)}</div>}
+                        <FailureNote code={row.reason} />
                       </td>
                       <td>{row.readsAudited ? "Да" : <span className="badge bad">Нет</span>}</td>
                       <td>
@@ -166,7 +166,7 @@ export function Infrastructure({ roles, tenantId }: { roles: string[]; tenantId:
                         return (
                           <td key={source.id}>
                             {item ? (
-                              <span className={`badge ${supportTone[item.support] ?? ""}`} title={item.reasonCode}>
+                              <span className={`badge ${supportTone[item.support] ?? ""}`} title={item.reasonCode ? explain(item.reasonCode) : undefined}>
                                 {support(item.support)}
                               </span>
                             ) : "—"}
@@ -198,7 +198,7 @@ export function Infrastructure({ roles, tenantId }: { roles: string[]; tenantId:
                       <td>{scanStatus(row.status)}</td>
                       <td className="muted">{dateTime(row.createdAt)}</td>
                       <td className="muted">{dateTime(row.finishedAt)}</td>
-                      <td className="mono muted">{row.failureCode}</td>
+                      <td><FailureNote code={row.failureCode} /></td>
                     </tr>
                   ))}
                 </tbody>

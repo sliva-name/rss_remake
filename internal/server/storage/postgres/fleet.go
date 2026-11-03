@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/fleet"
 )
 
@@ -214,9 +215,9 @@ func (s *Store) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) 
 		if err := tx.QueryRow(ctx, remove, sourceID).Scan(&agentID); err != nil {
 			return err
 		}
-		const cancel = `UPDATE scan_jobs SET status = 'cancelled', failure_code = 'SOURCE_DELETED', finished_at = now()
+		const cancel = `UPDATE scan_jobs SET status = 'cancelled', failure_code = $2, finished_at = now()
 			WHERE source_id = $1 AND status IN ('pending', 'running')`
-		if _, err := tx.Exec(ctx, cancel, sourceID); err != nil {
+		if _, err := tx.Exec(ctx, cancel, sourceID, codes.SourceDeleted); err != nil {
 			return err
 		}
 		return bumpSourcesVersion(ctx, tx, agentID)

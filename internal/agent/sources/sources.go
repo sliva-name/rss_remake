@@ -14,6 +14,7 @@ import (
 	"dataguard/internal/connector/mssql"
 	"dataguard/internal/connector/mysql"
 	"dataguard/internal/connector/postgres"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 )
 
@@ -101,7 +102,7 @@ func (r *Registry) Apply(definitions []Definition, refusals []Refusal) error {
 		item, err := open(definition)
 		if err != nil {
 			failures = append(failures, err)
-			refusals = append(refusals, Refusal{ID: definition.ID, Code: "OPEN_FAILED"})
+			refusals = append(refusals, Refusal{ID: definition.ID, Code: codes.OpenFailed})
 			continue
 		}
 		opened[definition.ID] = item
@@ -239,7 +240,7 @@ func (r *Registry) Probe(ctx context.Context) []*agentv1.SourceReport {
 		report := &agentv1.SourceReport{SourceId: id, Engine: r.engineOf(id), EngineVersion: version, Capabilities: capabilities}
 		if version == "" {
 			// The probe could not even read the version: no connection or no login.
-			report.StatusCode = "CONNECTION_FAILED"
+			report.StatusCode = codes.ConnectionFailed
 		}
 		reports = append(reports, report)
 	}

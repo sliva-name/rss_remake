@@ -13,6 +13,7 @@ import (
 
 	"dataguard/internal/connector"
 	"dataguard/internal/connector/sqlsource"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safeerr"
 )
@@ -49,8 +50,8 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 	var version string
 	if err := s.db.QueryRowContext(ctx, `SELECT current_setting('server_version')`).Scan(&version); err != nil {
 		return "", []*agentv1.CapabilityStatus{
-			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED"),
-			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED"),
+			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
+			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
 		}
 	}
 	version, _, _ = strings.Cut(version, " ")
@@ -69,7 +70,7 @@ func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilitySta
 	var preload, classes, destination, collector, disconnections string
 	err := s.db.QueryRowContext(ctx, auditSettingsQuery).Scan(&preload, &classes, &destination, &collector, &disconnections)
 	if err != nil {
-		return []*agentv1.CapabilityStatus{connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED")}
+		return []*agentv1.CapabilityStatus{connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed)}
 	}
 	installed := strings.Contains(preload, "pgaudit")
 	readable := installed && collector == "on" && strings.Contains(destination, "jsonlog")
@@ -77,14 +78,14 @@ func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilitySta
 		return strings.Contains(classes, class) || strings.Contains(classes, "all")
 	}
 	return []*agentv1.CapabilityStatus{
-		connector.Configured(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, readable, "PGAUDIT_WITH_JSONLOG_REQUIRED"),
-		connector.Configured(agentv1.Capability_CAPABILITY_READ_AUDIT, readable && audited("read"), "PGAUDIT_READ_CLASS_REQUIRED"),
-		connector.Configured(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, readable, "DERIVED_FROM_QUERY_TEXT"),
-		connector.Configured(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, readable, "DERIVED_FROM_QUERY_TEXT"),
+		connector.Configured(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, readable, codes.PgauditWithJSONLogRequired),
+		connector.Configured(agentv1.Capability_CAPABILITY_READ_AUDIT, readable && audited("read"), codes.PgauditReadClassRequired),
+		connector.Configured(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, readable, codes.DerivedFromQueryText),
+		connector.Configured(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, readable, codes.DerivedFromQueryText),
 		connector.Configured(agentv1.Capability_CAPABILITY_QUERY_TEXT, readable, ""),
-		connector.Configured(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, readable && disconnections == "on", "LOG_DISCONNECTIONS_REQUIRED"),
-		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IN_NATIVE_AUDIT"),
-		connector.Configured(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, readable && audited("misc_set"), "PGAUDIT_MISC_SET_CLASS_REQUIRED"),
+		connector.Configured(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, readable && disconnections == "on", codes.LogDisconnectionsRequired),
+		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, codes.NotInNativeAudit),
+		connector.Configured(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, readable && audited("misc_set"), codes.PgauditMiscSetClassRequired),
 	}
 }
 

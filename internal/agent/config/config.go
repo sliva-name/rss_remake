@@ -14,7 +14,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const defaultQueueSize = 256 << 20
+// DefaultQueueCapacity applies when queue_capacity_bytes is not set.
+const DefaultQueueCapacity = 256 << 20
 
 // Config is the root of the agent's YAML file.
 type Config struct {
@@ -68,7 +69,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	if loaded.QueueCap == 0 {
-		loaded.QueueCap = defaultQueueSize
+		loaded.QueueCap = DefaultQueueCapacity
 	}
 	if err := loaded.validate(); err != nil {
 		return nil, err

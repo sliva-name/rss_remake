@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 
 import { api, type Schemas } from "../api";
-import { engine as engineLabel, sourceStatus } from "../labels";
+import { engine as engineLabel, failure, sourceStatus } from "../labels";
 import { fromBase64, sealPassword, toBase64 } from "../sealing";
 import { Loadable } from "../ui";
 
@@ -219,7 +219,10 @@ export function Sources({ tenantId, admin, canScan }: { tenantId: string; admin:
                         {row.key}
                         <div className="muted">{engineLabel(row.engine)} {row.engineVersion}</div>
                       </td>
-                      <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
+                      <td>
+                        <span className={`badge ${status.tone}`}>{status.label}</span>
+                        {row.probedAt && row.statusCode && <div className="hint">{failure(row.statusCode).action}</div>}
+                      </td>
                       <td className="mono">
                         {row.host}:{row.port}/{row.database}
                         <div className="muted">{row.username}</div>
