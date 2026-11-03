@@ -11,7 +11,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"dataguard/internal/core/asset"
 	"dataguard/internal/core/fleet"
+	"dataguard/internal/core/policy"
+	"dataguard/internal/core/scan"
 	"dataguard/internal/core/tenant"
 	"dataguard/internal/gen/restapi"
 	"dataguard/internal/platform/safeerr"
@@ -19,10 +22,22 @@ import (
 
 const maxRequestBytes = 1 << 20
 
+// Services are the use cases the API exposes.
+type Services struct {
+	Tenants  *tenant.Service
+	Fleet    *fleet.Service
+	Policies *policy.Service
+	Scans    *scan.Service
+	Catalog  asset.Reader
+}
+
 // Server implements the generated strict interface.
 type Server struct {
-	tenants *tenant.Service
-	fleet   *fleet.Service
+	tenants  *tenant.Service
+	fleet    *fleet.Service
+	policies *policy.Service
+	scans    *scan.Service
+	catalog  asset.Reader
 }
 
 // Handler builds the HTTP handler with authentication and authorization.
@@ -46,8 +61,11 @@ func Handler(server *Server, authenticator Authenticator, logger *slog.Logger) h
 }
 
 // New creates the REST adapter.
-func New(tenants *tenant.Service, fleetService *fleet.Service) *Server {
-	return &Server{tenants: tenants, fleet: fleetService}
+func New(services Services) *Server {
+	return &Server{
+		tenants: services.Tenants, fleet: services.Fleet, policies: services.Policies,
+		scans: services.Scans, catalog: services.Catalog,
+	}
 }
 
 func limitBody(next http.Handler) http.Handler {
@@ -63,11 +81,11 @@ func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeProblem(w, http.StatusUnauthorized, "unauthenticated", err.Error())
 	case errors.Is(err, errForbidden), errors.Is(err, errNoTenant):
 		writeProblem(w, http.StatusForbidden, "forbidden", err.Error())
-	case errors.Is(err, fleet.ErrNotFound):
+	case errors.Is(err, fleet.ErrNotFound), errors.Is(err, scan.ErrNotFound), errors.Is(err, policy.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "not_found", "resource not found")
 	case errors.Is(err, tenant.ErrConflict):
 		writeProblem(w, http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid):
+	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 	default:
 		logger.Error("request failed", "error", err, "code", string(safeerr.CodeOf(err)))

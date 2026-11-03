@@ -17,6 +17,7 @@ import (
 	"dataguard/internal/contract/egress"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/policy"
+	"dataguard/internal/core/scan"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/gen/dataguard/agent/v1/agentv1connect"
 	"dataguard/internal/platform/pki"
@@ -26,7 +27,10 @@ import (
 // CurrentSchemaVersion is the envelope version this server understands.
 const CurrentSchemaVersion = 1
 
-const maxMessageBytes = 16 << 20
+const (
+	maxMessageBytes = 16 << 20
+	maxLeasedJobs   = 4
+)
 
 type identityKey struct{}
 
@@ -115,6 +119,7 @@ func checkEnvelope(envelope *agentv1.Envelope, identity pki.Identity) error {
 type Dependencies struct {
 	Fleet           *fleet.Service
 	Policies        *policy.Service
+	Scans           *scan.Service
 	CACertificate   []byte
 	PolicyPublicKey []byte
 	Logger          *slog.Logger
@@ -242,6 +247,32 @@ func (h *agentHandler) GetPolicy(ctx context.Context, _ *connect.Request[agentv1
 		return nil, h.internal("read policy", err)
 	}
 	return connect.NewResponse(&agentv1.GetPolicyResponse{Policy: signed.Payload, Signature: signed.Signature}), nil
+}
+
+func (h *agentHandler) PullJobs(ctx context.Context, request *connect.Request[agentv1.PullJobsRequest]) (*connect.Response[agentv1.PullJobsResponse], error) {
+	identity, _ := identityFrom(ctx)
+	maxJobs := min(int(request.Msg.GetMaxJobs()), maxLeasedJobs)
+	jobs, err := h.dependencies.Scans.Lease(ctx, identity.TenantID, identity.AgentID, maxJobs)
+	if err != nil {
+		return nil, h.internal("lease jobs", err)
+	}
+	response := &agentv1.PullJobsResponse{}
+	for _, job := range jobs {
+		response.Jobs = append(response.Jobs, &agentv1.ScanJob{JobId: job.ID.String(), SourceId: job.SourceID.String()})
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (h *agentHandler) SubmitScanResult(ctx context.Context, request *connect.Request[agentv1.SubmitScanResultRequest]) (*connect.Response[agentv1.SubmitScanResultResponse], error) {
+	identity, _ := identityFrom(ctx)
+	err := h.dependencies.Scans.Complete(ctx, identity.TenantID, identity.AgentID, request.Msg.GetResult())
+	if errors.Is(err, scan.ErrStale) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, scan.ErrStale)
+	}
+	if err != nil {
+		return nil, h.internal("complete scan", err)
+	}
+	return connect.NewResponse(&agentv1.SubmitScanResultResponse{}), nil
 }
 
 func (h *agentHandler) internal(op string, err error) error {

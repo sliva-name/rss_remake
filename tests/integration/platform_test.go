@@ -48,18 +48,20 @@ func (a staticAuthenticator) Authenticate(_ context.Context, token string) (api.
 }
 
 type platform struct {
-	app    *app.App
-	agents *httptest.Server
-	rest   *httptest.Server
-	caFile string
-	pkiDir string
-	authn  staticAuthenticator
+	app      *app.App
+	agents   *httptest.Server
+	rest     *httptest.Server
+	caFile   string
+	pkiDir   string
+	authn    staticAuthenticator
+	store    *postgres.Store
+	ownerDSN string
 }
 
 func startPlatform(t *testing.T) *platform {
 	t.Helper()
 	ctx := context.Background()
-	_, runtimeDSN := stand.CenterDatabase(t)
+	ownerDSN, runtimeDSN := stand.CenterDatabase(t)
 	store, err := postgres.Open(ctx, runtimeDSN)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -93,6 +95,7 @@ func startPlatform(t *testing.T) *platform {
 
 	return &platform{
 		app: application, agents: agents, rest: rest, pkiDir: pkiDir, authn: authn,
+		store: store, ownerDSN: ownerDSN,
 		caFile: filepath.Join(pkiDir, pki.CACertFile),
 	}
 }

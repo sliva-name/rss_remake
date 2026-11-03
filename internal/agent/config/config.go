@@ -24,9 +24,10 @@ const (
 )
 
 const (
-	maxPort          = 65535
-	maxSourceKeyLen  = 64
-	defaultQueueSize = 256 << 20
+	maxPort               = 65535
+	maxSourceKeyLen       = 64
+	defaultQueueSize      = 256 << 20
+	defaultMaxConnections = 2
 )
 
 var sourceKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -54,7 +55,12 @@ type Source struct {
 	Database     string `yaml:"database"`
 	Username     string `yaml:"username"`
 	PasswordFile string `yaml:"password_file"`
-	Audit        Audit  `yaml:"audit"`
+	// TLS defaults to verify-full; weakening it has to be written down.
+	TLS string `yaml:"tls"`
+	// MaxConnections caps the pool locally, so no job can exceed what the
+	// customer allowed for this database.
+	MaxConnections int   `yaml:"max_connections"`
+	Audit          Audit `yaml:"audit"`
 }
 
 // Audit locates the audit log. An empty Directory on a file-based engine means
@@ -126,6 +132,19 @@ func (s *Source) validate() error {
 	}
 	if s.Port <= 0 || s.Port > maxPort {
 		return errors.New("port is out of range")
+	}
+	switch s.TLS {
+	case "":
+		s.TLS = "verify-full"
+	case "verify-full", "require", "disable":
+	default:
+		return errors.New("tls must be verify-full, require or disable")
+	}
+	if s.MaxConnections == 0 {
+		s.MaxConnections = defaultMaxConnections
+	}
+	if s.MaxConnections < 0 {
+		return errors.New("max_connections must be positive")
 	}
 	return nil
 }

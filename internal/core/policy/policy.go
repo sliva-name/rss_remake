@@ -72,6 +72,15 @@ func (s *Service) Latest(ctx context.Context, tenantID uuid.UUID) (Signed, error
 	return s.repository.Latest(ctx, tenantID)
 }
 
+// Decode returns the content of a signed policy.
+func Decode(signed Signed) (*agentv1.Policy, error) {
+	decoded := &agentv1.Policy{}
+	if err := proto.Unmarshal(signed.Payload, decoded); err != nil {
+		return nil, fmt.Errorf("decode policy: %w", err)
+	}
+	return decoded, nil
+}
+
 func validateDetectors(detectors []*agentv1.CustomDetector) error {
 	for _, detector := range detectors {
 		if !categoryPattern.MatchString(detector.GetCategoryId()) {

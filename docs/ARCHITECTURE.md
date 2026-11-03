@@ -79,7 +79,7 @@ flowchart LR
 |---|---|---|
 | 0 | Контракты, Egress Guard, инструменты, стенд | Готово |
 | 1 | Platform Core: арендаторы, агенты, mTLS, RLS, RBAC, подписанные политики | Готово; вход через реальный OIDC проверяется на этапе 5 |
-| 2 | Discovery, Classification | Не начат |
+| 2 | Discovery, Classification: 4 СУБД, детекторы, реестр, задания | Готово |
 | 3 | Audit Collection | Не начат |
 | 4 | Ingest, аналитика, покрытие | Не начат |
 | 5 | Dashboard | Не начат |

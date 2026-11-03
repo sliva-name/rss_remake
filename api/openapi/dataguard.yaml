@@ -111,6 +111,82 @@ paths:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/Source"}
+  /scans:
+    get:
+      operationId: listScans
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        "200":
+          description: Recent scans
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Scan"}
+    post:
+      operationId: requestScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewScan"}
+      responses:
+        "201":
+          description: Queued
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Scan"}
+  /catalog/columns:
+    get:
+      operationId: listCatalogColumns
+      description: Active columns with detected classifications
+      parameters:
+        - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+      responses:
+        "200":
+          description: Sensitive columns
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CatalogPage"}
+  /catalog/changes:
+    get:
+      operationId: listCatalogChanges
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        "200":
+          description: Recent changes of the inventory
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/CatalogChange"}
+  /policy:
+    get:
+      operationId: getPolicy
+      responses:
+        "200":
+          description: Latest published policy
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Policy"}
+    put:
+      operationId: publishPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PolicyDraft"}
+      responses:
+        "201":
+          description: Published as a new version
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Policy"}
 components:
   securitySchemes:
     bearerAuth:
@@ -203,3 +279,94 @@ components:
           type: array
           items: {$ref: "#/components/schemas/Capability"}
         updatedAt: {type: string, format: date-time}
+    NewScan:
+      type: object
+      required: [sourceId]
+      properties:
+        sourceId: {type: string, format: uuid}
+    Scan:
+      type: object
+      required: [id, sourceId, status, requestedBy, failureCode, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        status: {type: string, enum: [pending, running, completed, partial, failed, cancelled]}
+        requestedBy: {type: string}
+        failureCode: {type: string}
+        createdAt: {type: string, format: date-time}
+        startedAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time}
+    CatalogColumn:
+      type: object
+      required: [columnId, tableId, sourceId, database, schema, table, column, nativeType, categoryId, confidence, nameMatch, contextMatch, formatRatio, rowsInspected, rowsNonNull, rowsMatched, uniqueEstimate, samplingMethod, updatedAt]
+      properties:
+        columnId: {type: string, format: uuid}
+        tableId: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        database: {type: string}
+        schema: {type: string}
+        table: {type: string}
+        column: {type: string}
+        nativeType: {type: string}
+        categoryId: {type: string}
+        confidence: {type: number, format: double}
+        nameMatch: {type: boolean}
+        contextMatch: {type: boolean}
+        formatRatio: {type: number, format: double}
+        checksumRatio: {type: number, format: double}
+        rowsInspected: {type: integer, format: int64}
+        rowsNonNull: {type: integer, format: int64}
+        rowsMatched: {type: integer, format: int64}
+        uniqueEstimate: {type: integer, format: int64}
+        samplingMethod: {type: string}
+        updatedAt: {type: string, format: date-time}
+    CatalogPage:
+      type: object
+      required: [total, items]
+      properties:
+        total: {type: integer, format: int64}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CatalogColumn"}
+    CatalogChange:
+      type: object
+      required: [occurredAt, kind, tableId, categoryId, tableName]
+      properties:
+        occurredAt: {type: string, format: date-time}
+        kind: {type: string}
+        tableId: {type: string, format: uuid}
+        tableName: {type: string}
+        columnId: {type: string, format: uuid}
+        columnName: {type: string}
+        categoryId: {type: string}
+    CustomDetector:
+      type: object
+      required: [categoryId]
+      properties:
+        categoryId: {type: string, pattern: "^CUSTOM(\\.[A-Z][A-Z0-9_]*)+$"}
+        valuePattern: {type: string, maxLength: 512}
+        namePattern: {type: string, maxLength: 512}
+    ScanBudget:
+      type: object
+      properties:
+        maxDurationSeconds: {type: integer, minimum: 1}
+        maxRowsPerTable: {type: integer, format: int64, minimum: 1}
+        maxBytesPerTable: {type: integer, format: int64, minimum: 1}
+        maxConnections: {type: integer, minimum: 1}
+        maxRowsPerSecond: {type: integer, minimum: 1}
+    PolicyDraft:
+      type: object
+      required: [customDetectors]
+      properties:
+        customDetectors:
+          type: array
+          maxItems: 200
+          items: {$ref: "#/components/schemas/CustomDetector"}
+        scanBudget: {$ref: "#/components/schemas/ScanBudget"}
+    Policy:
+      allOf:
+        - $ref: "#/components/schemas/PolicyDraft"
+        - type: object
+          required: [version]
+          properties:
+            version: {type: integer, format: int64}

@@ -10,10 +10,11 @@ import (
 )
 
 var (
-	tenantReaders = []string{RoleTenantAdmin, RoleSecurityAnalyst, RoleAuditor}
-	tenantAdmins  = []string{RoleTenantAdmin}
-	platformOnly  = []string{RolePlatformAdmin}
-	anyRole       = []string{RolePlatformAdmin, RoleTenantAdmin, RoleSecurityAnalyst, RoleAuditor}
+	tenantReaders  = []string{RoleTenantAdmin, RoleSecurityAnalyst, RoleAuditor}
+	tenantAdmins   = []string{RoleTenantAdmin}
+	scanRequesters = []string{RoleTenantAdmin, RoleSecurityAnalyst}
+	platformOnly   = []string{RolePlatformAdmin}
+	anyRole        = []string{RolePlatformAdmin, RoleTenantAdmin, RoleSecurityAnalyst, RoleAuditor}
 )
 
 // accessRule says who may call an operation. tenantScoped operations also
@@ -35,6 +36,12 @@ var accessRules = map[string]accessRule{
 	"ListAgents":            {roles: tenantReaders, tenantScoped: true},
 	"RevokeAgent":           {roles: tenantAdmins, tenantScoped: true},
 	"ListSources":           {roles: tenantReaders, tenantScoped: true},
+	"ListScans":             {roles: tenantReaders, tenantScoped: true},
+	"RequestScan":           {roles: scanRequesters, tenantScoped: true},
+	"ListCatalogColumns":    {roles: tenantReaders, tenantScoped: true},
+	"ListCatalogChanges":    {roles: tenantReaders, tenantScoped: true},
+	"GetPolicy":             {roles: tenantReaders, tenantScoped: true},
+	"PublishPolicy":         {roles: tenantAdmins, tenantScoped: true},
 }
 
 func authorize(next restapi.StrictHandlerFunc, operationID string) restapi.StrictHandlerFunc {

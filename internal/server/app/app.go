@@ -18,6 +18,7 @@ import (
 
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/policy"
+	"dataguard/internal/core/scan"
 	"dataguard/internal/core/tenant"
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/server/agentapi"
@@ -44,6 +45,7 @@ type App struct {
 	Tenants  *tenant.Service
 	Fleet    *fleet.Service
 	Policies *policy.Service
+	Scans    *scan.Service
 
 	APIHandler   http.Handler
 	AgentHandler http.Handler
@@ -65,22 +67,25 @@ func Build(options Options) (*App, error) {
 	tenants := tenant.NewService(options.Store)
 	fleetService := fleet.NewService(options.Store, agentapi.Issuer{Authority: authority})
 	policies := policy.NewService(options.Store, signer)
+	scans := scan.NewService(options.Store, options.Store)
+	services := api.Services{Tenants: tenants, Fleet: fleetService, Policies: policies, Scans: scans, Catalog: options.Store}
 
 	return &App{
 		Tenants:    tenants,
 		Fleet:      fleetService,
 		Policies:   policies,
-		APIHandler: apiHandler(options, tenants, fleetService),
+		Scans:      scans,
+		APIHandler: apiHandler(options, services),
 		AgentHandler: agentapi.Handler(agentapi.Dependencies{
-			Fleet: fleetService, Policies: policies, Logger: options.Logger,
+			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,
 			CACertificate: authority.CertificatePEM(), PolicyPublicKey: signer.PublicKey(),
 		}),
 	}, nil
 }
 
-func apiHandler(options Options, tenants *tenant.Service, fleetService *fleet.Service) http.Handler {
+func apiHandler(options Options, services api.Services) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api.Handler(api.New(tenants, fleetService), options.Authenticator, options.Logger))
+	mux.Handle("/api/", api.Handler(api.New(services), options.Authenticator, options.Logger))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

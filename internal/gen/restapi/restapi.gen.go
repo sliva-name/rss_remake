@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -56,6 +57,36 @@ func (e EnvironmentKind) Valid() bool {
 	}
 }
 
+// Defines values for ScanStatus.
+const (
+	Cancelled ScanStatus = "cancelled"
+	Completed ScanStatus = "completed"
+	Failed    ScanStatus = "failed"
+	Partial   ScanStatus = "partial"
+	Pending   ScanStatus = "pending"
+	Running   ScanStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the ScanStatus enum.
+func (e ScanStatus) Valid() bool {
+	switch e {
+	case Cancelled:
+		return true
+	case Completed:
+		return true
+	case Failed:
+		return true
+	case Partial:
+		return true
+	case Pending:
+		return true
+	case Running:
+		return true
+	default:
+		return false
+	}
+}
+
 // Agent defines model for Agent.
 type Agent struct {
 	CertificateExpires time.Time          `json:"certificateExpires"`
@@ -77,11 +108,59 @@ type Capability struct {
 	Support    string `json:"support"`
 }
 
+// CatalogChange defines model for CatalogChange.
+type CatalogChange struct {
+	CategoryId string              `json:"categoryId"`
+	ColumnId   *openapi_types.UUID `json:"columnId,omitempty"`
+	ColumnName *string             `json:"columnName,omitempty"`
+	Kind       string              `json:"kind"`
+	OccurredAt time.Time           `json:"occurredAt"`
+	TableId    openapi_types.UUID  `json:"tableId"`
+	TableName  string              `json:"tableName"`
+}
+
+// CatalogColumn defines model for CatalogColumn.
+type CatalogColumn struct {
+	CategoryId     string             `json:"categoryId"`
+	ChecksumRatio  *float64           `json:"checksumRatio,omitempty"`
+	Column         string             `json:"column"`
+	ColumnId       openapi_types.UUID `json:"columnId"`
+	Confidence     float64            `json:"confidence"`
+	ContextMatch   bool               `json:"contextMatch"`
+	Database       string             `json:"database"`
+	FormatRatio    float64            `json:"formatRatio"`
+	NameMatch      bool               `json:"nameMatch"`
+	NativeType     string             `json:"nativeType"`
+	RowsInspected  int64              `json:"rowsInspected"`
+	RowsMatched    int64              `json:"rowsMatched"`
+	RowsNonNull    int64              `json:"rowsNonNull"`
+	SamplingMethod string             `json:"samplingMethod"`
+	Schema         string             `json:"schema"`
+	SourceId       openapi_types.UUID `json:"sourceId"`
+	Table          string             `json:"table"`
+	TableId        openapi_types.UUID `json:"tableId"`
+	UniqueEstimate int64              `json:"uniqueEstimate"`
+	UpdatedAt      time.Time          `json:"updatedAt"`
+}
+
+// CatalogPage defines model for CatalogPage.
+type CatalogPage struct {
+	Items []CatalogColumn `json:"items"`
+	Total int64           `json:"total"`
+}
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	Roles    []string            `json:"roles"`
 	Subject  string              `json:"subject"`
 	TenantId *openapi_types.UUID `json:"tenantId,omitempty"`
+}
+
+// CustomDetector defines model for CustomDetector.
+type CustomDetector struct {
+	CategoryId   string  `json:"categoryId"`
+	NamePattern  *string `json:"namePattern,omitempty"`
+	ValuePattern *string `json:"valuePattern,omitempty"`
 }
 
 // EnrollmentToken defines model for EnrollmentToken.
@@ -112,15 +191,57 @@ type NewEnvironment struct {
 	Name string          `json:"name"`
 }
 
+// NewScan defines model for NewScan.
+type NewScan struct {
+	SourceId openapi_types.UUID `json:"sourceId"`
+}
+
 // NewTenant defines model for NewTenant.
 type NewTenant struct {
 	Name string `json:"name"`
+}
+
+// Policy defines model for Policy.
+type Policy struct {
+	CustomDetectors []CustomDetector `json:"customDetectors"`
+	ScanBudget      *ScanBudget      `json:"scanBudget,omitempty"`
+	Version         int64            `json:"version"`
+}
+
+// PolicyDraft defines model for PolicyDraft.
+type PolicyDraft struct {
+	CustomDetectors []CustomDetector `json:"customDetectors"`
+	ScanBudget      *ScanBudget      `json:"scanBudget,omitempty"`
 }
 
 // Problem defines model for Problem.
 type Problem struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// Scan defines model for Scan.
+type Scan struct {
+	CreatedAt   time.Time          `json:"createdAt"`
+	FailureCode string             `json:"failureCode"`
+	FinishedAt  *time.Time         `json:"finishedAt,omitempty"`
+	Id          openapi_types.UUID `json:"id"`
+	RequestedBy string             `json:"requestedBy"`
+	SourceId    openapi_types.UUID `json:"sourceId"`
+	StartedAt   *time.Time         `json:"startedAt,omitempty"`
+	Status      ScanStatus         `json:"status"`
+}
+
+// ScanStatus defines model for Scan.Status.
+type ScanStatus string
+
+// ScanBudget defines model for ScanBudget.
+type ScanBudget struct {
+	MaxBytesPerTable   *int64 `json:"maxBytesPerTable,omitempty"`
+	MaxConnections     *int   `json:"maxConnections,omitempty"`
+	MaxDurationSeconds *int   `json:"maxDurationSeconds,omitempty"`
+	MaxRowsPerSecond   *int   `json:"maxRowsPerSecond,omitempty"`
+	MaxRowsPerTable    *int64 `json:"maxRowsPerTable,omitempty"`
 }
 
 // Source defines model for Source.
@@ -141,11 +262,35 @@ type Tenant struct {
 	Name      string             `json:"name"`
 }
 
+// ListCatalogChangesParams defines parameters for ListCatalogChanges.
+type ListCatalogChangesParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListCatalogColumnsParams defines parameters for ListCatalogColumns.
+type ListCatalogColumnsParams struct {
+	SourceId *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
+	Category *string             `form:"category,omitempty" json:"category,omitempty"`
+	Limit    *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset   *int                `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// ListScansParams defines parameters for ListScans.
+type ListScansParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // CreateEnrollmentTokenJSONRequestBody defines body for CreateEnrollmentToken for application/json ContentType.
 type CreateEnrollmentTokenJSONRequestBody = NewEnrollmentToken
 
 // CreateEnvironmentJSONRequestBody defines body for CreateEnvironment for application/json ContentType.
 type CreateEnvironmentJSONRequestBody = NewEnvironment
+
+// PublishPolicyJSONRequestBody defines body for PublishPolicy for application/json ContentType.
+type PublishPolicyJSONRequestBody = PolicyDraft
+
+// RequestScanJSONRequestBody defines body for RequestScan for application/json ContentType.
+type RequestScanJSONRequestBody = NewScan
 
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = NewTenant
@@ -159,6 +304,12 @@ type ServerInterface interface {
 	// (POST /agents/{agentId}/revoke)
 	RevokeAgent(w http.ResponseWriter, r *http.Request, agentId openapi_types.UUID)
 
+	// (GET /catalog/changes)
+	ListCatalogChanges(w http.ResponseWriter, r *http.Request, params ListCatalogChangesParams)
+
+	// (GET /catalog/columns)
+	ListCatalogColumns(w http.ResponseWriter, r *http.Request, params ListCatalogColumnsParams)
+
 	// (POST /enrollment-tokens)
 	CreateEnrollmentToken(w http.ResponseWriter, r *http.Request)
 
@@ -170,6 +321,18 @@ type ServerInterface interface {
 
 	// (GET /me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+
+	// (GET /policy)
+	GetPolicy(w http.ResponseWriter, r *http.Request)
+
+	// (PUT /policy)
+	PublishPolicy(w http.ResponseWriter, r *http.Request)
+
+	// (GET /scans)
+	ListScans(w http.ResponseWriter, r *http.Request, params ListScansParams)
+
+	// (POST /scans)
+	RequestScan(w http.ResponseWriter, r *http.Request)
 
 	// (GET /sources)
 	ListSources(w http.ResponseWriter, r *http.Request)
@@ -230,6 +393,111 @@ func (siw *ServerInterfaceWrapper) RevokeAgent(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListCatalogChanges operation middleware
+func (siw *ServerInterfaceWrapper) ListCatalogChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCatalogChangesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCatalogChanges(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCatalogColumns operation middleware
+func (siw *ServerInterfaceWrapper) ListCatalogColumns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCatalogColumnsParams
+
+	// ------------- Optional query parameter "sourceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sourceId", r.URL.Query(), &params.SourceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sourceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCatalogColumns(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateEnrollmentToken operation middleware
 func (siw *ServerInterfaceWrapper) CreateEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 
@@ -277,6 +545,81 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetPolicy(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishPolicy operation middleware
+func (siw *ServerInterfaceWrapper) PublishPolicy(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishPolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListScans operation middleware
+func (siw *ServerInterfaceWrapper) ListScans(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListScansParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListScans(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestScan operation middleware
+func (siw *ServerInterfaceWrapper) RequestScan(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestScan(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -457,6 +800,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/agents", wrapper.ListAgents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/agents/{agentId}/revoke", wrapper.RevokeAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sources", wrapper.ListSources)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/scans", wrapper.ListScans)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scans", wrapper.RequestScan)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/columns", wrapper.ListCatalogColumns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/changes", wrapper.ListCatalogChanges)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy", wrapper.GetPolicy)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/policy", wrapper.PublishPolicy)
 
 	return m
 }
@@ -496,6 +845,50 @@ type RevokeAgent204Response struct {
 func (response RevokeAgent204Response) VisitRevokeAgentResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type ListCatalogChangesRequestObject struct {
+	Params ListCatalogChangesParams
+}
+
+type ListCatalogChangesResponseObject interface {
+	VisitListCatalogChangesResponse(w http.ResponseWriter) error
+}
+
+type ListCatalogChanges200JSONResponse []CatalogChange
+
+func (response ListCatalogChanges200JSONResponse) VisitListCatalogChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCatalogColumnsRequestObject struct {
+	Params ListCatalogColumnsParams
+}
+
+type ListCatalogColumnsResponseObject interface {
+	VisitListCatalogColumnsResponse(w http.ResponseWriter) error
+}
+
+type ListCatalogColumns200JSONResponse CatalogPage
+
+func (response ListCatalogColumns200JSONResponse) VisitListCatalogColumnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type CreateEnrollmentTokenRequestObject struct {
@@ -584,6 +977,93 @@ func (response GetCurrentUser200JSONResponse) VisitGetCurrentUserResponse(w http
 	return err
 }
 
+type GetPolicyRequestObject struct {
+}
+
+type GetPolicyResponseObject interface {
+	VisitGetPolicyResponse(w http.ResponseWriter) error
+}
+
+type GetPolicy200JSONResponse Policy
+
+func (response GetPolicy200JSONResponse) VisitGetPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishPolicyRequestObject struct {
+	Body *PublishPolicyJSONRequestBody
+}
+
+type PublishPolicyResponseObject interface {
+	VisitPublishPolicyResponse(w http.ResponseWriter) error
+}
+
+type PublishPolicy201JSONResponse Policy
+
+func (response PublishPolicy201JSONResponse) VisitPublishPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListScansRequestObject struct {
+	Params ListScansParams
+}
+
+type ListScansResponseObject interface {
+	VisitListScansResponse(w http.ResponseWriter) error
+}
+
+type ListScans200JSONResponse []Scan
+
+func (response ListScans200JSONResponse) VisitListScansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestScanRequestObject struct {
+	Body *RequestScanJSONRequestBody
+}
+
+type RequestScanResponseObject interface {
+	VisitRequestScanResponse(w http.ResponseWriter) error
+}
+
+type RequestScan201JSONResponse Scan
+
+func (response RequestScan201JSONResponse) VisitRequestScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSourcesRequestObject struct {
 }
 
@@ -657,6 +1137,12 @@ type StrictServerInterface interface {
 	// (POST /agents/{agentId}/revoke)
 	RevokeAgent(ctx context.Context, request RevokeAgentRequestObject) (RevokeAgentResponseObject, error)
 
+	// (GET /catalog/changes)
+	ListCatalogChanges(ctx context.Context, request ListCatalogChangesRequestObject) (ListCatalogChangesResponseObject, error)
+
+	// (GET /catalog/columns)
+	ListCatalogColumns(ctx context.Context, request ListCatalogColumnsRequestObject) (ListCatalogColumnsResponseObject, error)
+
 	// (POST /enrollment-tokens)
 	CreateEnrollmentToken(ctx context.Context, request CreateEnrollmentTokenRequestObject) (CreateEnrollmentTokenResponseObject, error)
 
@@ -668,6 +1154,18 @@ type StrictServerInterface interface {
 
 	// (GET /me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+
+	// (GET /policy)
+	GetPolicy(ctx context.Context, request GetPolicyRequestObject) (GetPolicyResponseObject, error)
+
+	// (PUT /policy)
+	PublishPolicy(ctx context.Context, request PublishPolicyRequestObject) (PublishPolicyResponseObject, error)
+
+	// (GET /scans)
+	ListScans(ctx context.Context, request ListScansRequestObject) (ListScansResponseObject, error)
+
+	// (POST /scans)
+	RequestScan(ctx context.Context, request RequestScanRequestObject) (RequestScanResponseObject, error)
 
 	// (GET /sources)
 	ListSources(ctx context.Context, request ListSourcesRequestObject) (ListSourcesResponseObject, error)
@@ -761,6 +1259,58 @@ func (sh *strictHandler) RevokeAgent(w http.ResponseWriter, r *http.Request, age
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeAgentResponseObject); ok {
 		if err := validResponse.VisitRevokeAgentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCatalogChanges operation middleware
+func (sh *strictHandler) ListCatalogChanges(w http.ResponseWriter, r *http.Request, params ListCatalogChangesParams) {
+	var request ListCatalogChangesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCatalogChanges(ctx, request.(ListCatalogChangesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCatalogChanges")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCatalogChangesResponseObject); ok {
+		if err := validResponse.VisitListCatalogChangesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCatalogColumns operation middleware
+func (sh *strictHandler) ListCatalogColumns(w http.ResponseWriter, r *http.Request, params ListCatalogColumnsParams) {
+	var request ListCatalogColumnsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCatalogColumns(ctx, request.(ListCatalogColumnsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCatalogColumns")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCatalogColumnsResponseObject); ok {
+		if err := validResponse.VisitListCatalogColumnsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -871,6 +1421,118 @@ func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
 		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPolicy operation middleware
+func (sh *strictHandler) GetPolicy(w http.ResponseWriter, r *http.Request) {
+	var request GetPolicyRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPolicy(ctx, request.(GetPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPolicyResponseObject); ok {
+		if err := validResponse.VisitGetPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishPolicy operation middleware
+func (sh *strictHandler) PublishPolicy(w http.ResponseWriter, r *http.Request) {
+	var request PublishPolicyRequestObject
+
+	var body PublishPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishPolicy(ctx, request.(PublishPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishPolicyResponseObject); ok {
+		if err := validResponse.VisitPublishPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListScans operation middleware
+func (sh *strictHandler) ListScans(w http.ResponseWriter, r *http.Request, params ListScansParams) {
+	var request ListScansRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListScans(ctx, request.(ListScansRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListScans")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListScansResponseObject); ok {
+		if err := validResponse.VisitListScansResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RequestScan operation middleware
+func (sh *strictHandler) RequestScan(w http.ResponseWriter, r *http.Request) {
+	var request RequestScanRequestObject
+
+	var body RequestScanJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RequestScan(ctx, request.(RequestScanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RequestScan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RequestScanResponseObject); ok {
+		if err := validResponse.VisitRequestScanResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
