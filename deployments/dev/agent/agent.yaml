@@ -1,0 +1,55 @@
+# Agent of the local stand. It runs in a container next to the databases and
+# reads the audit logs from the same host directories the databases write to.
+center:
+  url: https://server:8443
+  ca_file: /etc/dataguard/ca/ca.crt
+state_dir: /var/lib/dataguard
+sources:
+  - key: crm-postgres
+    engine: postgresql
+    host: source-postgres
+    port: 5432
+    database: crm
+    username: dg_scanner
+    password_file: /run/secrets/source-scanner-password
+    tls: disable
+    max_connections: 2
+    audit:
+      directory: /var/log/dg-audit/postgres
+  - key: crm-mysql
+    engine: mysql
+    host: source-mysql
+    port: 3306
+    database: crm
+    username: dg_scanner
+    password_file: /run/secrets/source-scanner-password
+    tls: disable
+    max_connections: 2
+    audit:
+      directory: /var/log/dg-audit/mysql
+  - key: crm-mariadb
+    engine: mariadb
+    host: source-mariadb
+    port: 3306
+    database: crm
+    username: dg_scanner
+    password_file: /run/secrets/source-scanner-password
+    tls: disable
+    max_connections: 2
+    audit:
+      directory: /var/log/dg-audit/mariadb
+  - key: crm-mssql
+    engine: mssql
+    host: source-mssql
+    port: 1433
+    database: crm
+    username: dg_scanner
+    password_file: /run/secrets/source-mssql-scanner-password
+    tls: require
+    max_connections: 2
+    audit:
+      # SQL Server is read through SQL, so this is a path on the database server.
+      directory: /var/opt/mssql/dg-audit
+applications:
+  - id: crm
+    public_key_file: /etc/dataguard/apps/crm.pub

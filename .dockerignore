@@ -1,0 +1,11 @@
+# The build context must never carry stand secrets, audit logs or local builds.
+.git
+.idea
+bin
+**/node_modules
+web/dashboard/dist
+web/dashboard/src/schema.d.ts
+deployments/dev/.env
+deployments/dev/.state
+*.test
+coverage.out

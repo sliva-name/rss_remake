@@ -1,11 +1,12 @@
-// Walks the dashboard in a real browser against a running stand. Started by the
-// Go end-to-end test in hold mode, which writes the credentials file.
-import { readFileSync } from "node:fs";
-
+// Walks the dashboard in a real browser against a running platform. The Go
+// end-to-end test starts it in the browser-check container with an account it created.
 import { chromium } from "playwright";
 
-const credentials = JSON.parse(readFileSync(process.argv[2], "utf8"));
-const output = process.argv[3];
+const credentials = { api: process.env.DG_UI_URL, user: process.env.DG_UI_USER, password: process.env.DG_UI_PASSWORD };
+if (!credentials.api || !credentials.user || !credentials.password) {
+  throw new Error("DG_UI_URL, DG_UI_USER and DG_UI_PASSWORD are required");
+}
+const output = process.argv[2];
 
 const pages = [
   { path: "/overview", heading: "Обзор", expect: ["Покрытие за сутки", "Изменения в инвентаре", "Наблюдается"] },

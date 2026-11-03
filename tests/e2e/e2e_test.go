@@ -1,7 +1,8 @@
 //go:build e2e
 
-// Package e2e runs the real binaries against the real stand: Keycloak issues the
-// tokens, the agent is a separate process, and failures are real signals.
+// Package e2e drives the platform's containers on the real stand: Keycloak issues
+// the tokens, the server and the agent run from their images, and a browser in
+// its own container walks the dashboard.
 package e2e_test
 
 import (
@@ -14,24 +15,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	chdriver "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgx/v5"
 
-	"dataguard/internal/agent/config"
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/gen/restapi"
-	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/testkit/seed"
 	"dataguard/internal/testkit/stand"
 	"dataguard/internal/testkit/synthetic"
@@ -39,10 +37,13 @@ import (
 )
 
 const (
-	keycloak   = "http://127.0.0.1:25080"
-	realm      = "dataguard"
-	wait       = 60 * time.Second
-	seededRows = 200
+	keycloak    = "http://127.0.0.1:25080"
+	api         = "http://127.0.0.1:25800"
+	realm       = "dataguard"
+	wait        = 60 * time.Second
+	seededRows  = 200
+	agentConfig = "/etc/dataguard/agent.yaml"
+	agentVolume = "dataguard-dev_agent-state"
 )
 
 func root(t *testing.T) string {
@@ -54,148 +55,94 @@ func root(t *testing.T) string {
 	return directory
 }
 
-func freePort(t *testing.T) string {
+// compose runs docker compose on the stand and returns its standard output.
+func compose(t *testing.T, stdin io.Reader, env []string, arguments ...string) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	output, err := composeOutput(root(t), stdin, env, arguments...)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("docker compose %s: %v", strings.Join(arguments, " "), err)
 	}
-	defer func() { _ = listener.Close() }()
-	return listener.Addr().String()
+	return output
 }
 
-type process struct {
-	command *exec.Cmd
-	logPath string
-}
-
-// start ties the process to owner, which must outlive it: a subtest that restarts
-// a process must not kill it when the subtest ends.
-func start(owner *testing.T, logPath string, env []string, name string, arguments ...string) *process {
-	t := owner
-	t.Helper()
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		t.Fatal(err)
+func composeOutput(directory string, stdin io.Reader, env []string, arguments ...string) (string, error) {
+	base := []string{
+		"compose", "--project-name", "dataguard-dev", "--env-file", "deployments/dev/.env",
+		"-f", "deployments/dev/compose.yml", "--profile", "agent", "--profile", "check",
 	}
-	command := exec.Command(name, arguments...)
+	command := exec.Command("docker", append(base, arguments...)...)
+	command.Dir = directory
+	command.Stdin = stdin
 	command.Env = append(os.Environ(), env...)
-	command.Stdout, command.Stderr = log, log
-	if err := command.Start(); err != nil {
-		t.Fatalf("start %s: %v", name, err)
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	if err := command.Run(); err != nil {
+		return "", fmt.Errorf("%w\n%s%s", err, stdout.String(), stderr.String())
 	}
-	item := &process{command: command, logPath: logPath}
-	t.Cleanup(func() {
-		_ = log.Close()
-		item.kill(syscall.SIGKILL)
-	})
-	return item
-}
-
-func (p *process) kill(signal syscall.Signal) {
-	if p.command.Process == nil || p.command.ProcessState != nil {
-		return
-	}
-	_ = p.command.Process.Signal(signal)
-	_, _ = p.command.Process.Wait()
+	return stdout.String(), nil
 }
 
 type stack struct {
-	root       string
-	directory  string
-	serverBin  string
-	agentBin   string
-	serverEnv  []string
-	api        string
-	agentURL   string
-	server     *process
-	agent      *process
-	configPath string
-	stateDir   string
-	token      string
-	tenantID   string
-	ownerDSN   string
-	events     clickhouse.Settings
-	sources    []stand.Source
-	appKey     ed25519.PrivateKey
-	owner      *testing.T
+	token    string
+	tenantID string
+	password string
+	sources  []stand.Source
+	appKey   ed25519.PrivateKey
 }
 
-func build(t *testing.T, directory string) (string, string) {
-	t.Helper()
-	command := exec.Command("go", "build", "-o", directory+"/", "./cmd/...")
-	command.Dir = root(t)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, output)
-	}
-	return filepath.Join(directory, "server"), filepath.Join(directory, "agent")
-}
-
-func run(t *testing.T, env []string, name string, arguments ...string) {
-	t.Helper()
-	command := exec.Command(name, arguments...)
-	command.Env = append(os.Environ(), env...)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("%s %v: %v\n%s", name, arguments, err, output)
-	}
-}
-
+// bringUp builds the images and starts the center. The agent gets a new identity
+// and an empty queue on every run.
 func bringUp(t *testing.T) *stack {
 	t.Helper()
-	directory := t.TempDir()
-	env := stand.Env(t)
-	ownerDSN, runtimeDSN := stand.CenterDatabase(t)
-	events := stand.CenterEvents(t)
-	serverBin, agentBin := build(t, directory)
-	apiAddress, agentAddress := freePort(t), "127.0.0.1:25443"
-	if hold := os.Getenv("DG_E2E_HOLD"); hold != "" {
-		apiAddress = "127.0.0.1:25800"
+	compose(t, nil, nil, "build", "pki-init", "agent", "browser-check")
+	compose(t, nil, nil, "rm", "--stop", "--force", "agent")
+	if output, err := exec.Command("docker", "volume", "rm", "--force", agentVolume).CombinedOutput(); err != nil {
+		t.Fatalf("remove agent state: %v\n%s", err, output)
 	}
-	pkiDirectory := filepath.Join(directory, "pki")
-	serverEnv := []string{
-		"DG_PG_DSN=" + runtimeDSN, "DG_PG_MIGRATION_DSN=" + ownerDSN, "DG_PKI_DIR=" + pkiDirectory,
-		"DG_API_ADDR=" + apiAddress, "DG_AGENT_ADDR=" + agentAddress,
-		"DG_OIDC_ISSUER=" + keycloak + "/realms/" + realm, "DG_OIDC_CLIENT_ID=dataguard-dashboard",
-		"DG_CH_ADDR=" + events.Address, "DG_CH_DATABASE=" + events.Database,
-		"DG_CH_USER=" + events.Username, "DG_CH_PASSWORD=" + events.Password,
-		"DG_CH_MIGRATION_USER=dg_ch_admin", "DG_CH_MIGRATION_PASSWORD=" + env["CENTER_CH_ADMIN_PASSWORD"],
-		"DG_WEB_DIR=" + filepath.Join(root(t), "web", "dashboard", "dist"),
-	}
-	run(t, serverEnv, serverBin, "migrate")
-	run(t, serverEnv, serverBin, "pki-init", "--dir", pkiDirectory, "--hosts", "127.0.0.1")
-	item := &stack{
-		root: root(t), directory: directory, serverBin: serverBin, agentBin: agentBin, serverEnv: serverEnv,
-		api: "http://" + apiAddress, agentURL: "https://" + agentAddress, ownerDSN: ownerDSN, events: events,
-		stateDir: filepath.Join(directory, "state"), owner: t,
-	}
-	item.startServer(t)
-	return item
+	compose(t, nil, nil, "up", "--detach", "--wait", "server",
+		"source-postgres", "source-mysql", "source-mariadb", "source-mssql")
+	directory := root(t)
+	t.Cleanup(func() { _, _ = composeOutput(directory, nil, nil, "stop", "agent") })
+	waitReady(t)
+	return &stack{}
 }
 
-func (s *stack) startServer(t *testing.T) {
+func waitReady(t *testing.T) {
 	t.Helper()
-	s.server = start(s.owner, filepath.Join(s.directory, "server.log"), s.serverEnv, s.serverBin, "serve")
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
-		response, err := http.Get(s.api + "/readyz")
+		response, err := http.Get(api + "/readyz")
 		if err == nil {
 			_ = response.Body.Close()
 			if response.StatusCode == http.StatusOK {
 				return
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("server did not become ready:\n%s", s.logs(t, "server.log"))
+	t.Fatalf("server did not become ready:\n%s", logs(t, "server"))
 }
 
-func (s *stack) logs(t *testing.T, name string) string {
+func logs(t *testing.T, service string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(s.directory, name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
+	return compose(t, nil, nil, "logs", "--no-color", "--no-log-prefix", service)
+}
+
+func kill(t *testing.T, service string) {
+	t.Helper()
+	compose(t, nil, nil, "kill", "--signal", "SIGKILL", service)
+}
+
+// startAgent keeps the existing container, so its log covers every restart.
+func startAgent(t *testing.T) {
+	t.Helper()
+	compose(t, nil, nil, "up", "--detach", "--no-deps", "agent")
+}
+
+func startServer(t *testing.T) {
+	t.Helper()
+	compose(t, nil, nil, "start", "server")
+	waitReady(t)
 }
 
 func postForm(t *testing.T, address string, form url.Values) map[string]any {
@@ -304,7 +251,7 @@ func (s *stack) call(t *testing.T, token, method, path string, body any, into an
 		}
 		reader = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequest(method, s.api+"/api/v1"+path, reader)
+	request, err := http.NewRequest(method, api+"/api/v1"+path, reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,65 +289,32 @@ func (s *stack) onboard(t *testing.T) {
 		t.Fatalf("create tenant: %d", status)
 	}
 	s.tenantID = tenant.Id.String()
-	password := createUser(t, "dg-admin", "tenant_admin", s.tenantID)
-	s.token = login(t, "dg-admin", password)
-	if hold := os.Getenv("DG_E2E_HOLD"); hold != "" {
-		// The browser may run where this process is unreachable, so the hold file also
-		// tells how to start another server on the same databases.
-		credentials, err := json.Marshal(map[string]any{
-			"user": "dg-admin", "password": password, "api": s.api,
-			"server": s.serverBin, "directory": s.directory, "env": s.serverEnv,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(hold+".credentials", credentials, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	s.password = createUser(t, "dg-admin", "tenant_admin", s.tenantID)
+	s.token = login(t, "dg-admin", s.password)
 	var environment restapi.Environment
 	s.must(t, http.MethodPost, "/environments", restapi.NewEnvironment{Name: "production", Kind: restapi.Production}, &environment)
 	var token restapi.EnrollmentToken
 	s.must(t, http.MethodPost, "/enrollment-tokens", restapi.NewEnrollmentToken{EnvironmentId: environment.Id}, &token)
-	s.writeAgentConfig(t)
-	tokenPath := filepath.Join(s.directory, "token.txt")
-	if err := os.WriteFile(tokenPath, []byte(token.Token), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	run(t, nil, s.agentBin, "enroll", "--config", s.configPath, "--token-file", tokenPath)
-	s.startAgent(t)
-}
-
-func (s *stack) writeAgentConfig(t *testing.T) {
-	t.Helper()
 	s.sources = stand.AllSources(t)
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.appKey = private
-	keyPath := filepath.Join(s.directory, "crm.pub")
-	if err := os.WriteFile(keyPath, []byte(base64.StdEncoding.EncodeToString(public)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	settings := config.Config{
-		Center: config.Center{URL: s.agentURL, CAFile: filepath.Join(s.directory, "pki", "ca.crt")}, StateDir: s.stateDir,
-		Applications: []config.Application{{ID: "crm", PublicKeyFile: keyPath}},
-	}
-	for i := range s.sources {
-		source := s.sources[i].Config
-		source.Audit.Directory = stand.AuditDirectory(s.sources[i].Dialect.Name)
-		settings.Sources = append(settings.Sources, source)
-	}
-	s.configPath = filepath.Join(s.directory, "agent.yaml")
-	if err := os.WriteFile(s.configPath, encodeYAML(t, settings), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	s.appKey = applicationKey(t)
+	compose(t, strings.NewReader(token.Token), nil,
+		"run", "--rm", "--no-deps", "-T", "agent", "enroll", "--config", agentConfig, "--token-file", "/dev/stdin")
+	startAgent(t)
 }
 
-func (s *stack) startAgent(t *testing.T) {
+// applicationKey is the stand's signing key of the application "crm"; the agent
+// container has its public half.
+func applicationKey(t *testing.T) ed25519.PrivateKey {
 	t.Helper()
-	s.agent = start(s.owner, filepath.Join(s.directory, "agent.log"), nil, s.agentBin, "run", "--config", s.configPath)
+	encoded, err := os.ReadFile(filepath.Join(root(t), "deployments", "dev", ".state", "apps", "crm.seed"))
+	if err != nil {
+		t.Fatalf("application key is missing, run make dev-up: %v", err)
+	}
+	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		t.Fatal("crm.seed is not a base64 ed25519 seed")
+	}
+	return ed25519.NewKeyFromSeed(seed)
 }
 
 func eventually(t *testing.T, what string, condition func() bool) {
@@ -448,13 +362,24 @@ func sensitiveValues(t *testing.T, source *stand.Source) []string {
 			values = append(values, value.String)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(values) == 0 {
+		t.Fatal("no values to search for")
+	}
 	return values
 }
 
-func dumpPostgres(t *testing.T, dsn string) string {
+// dumpPostgres reads the center database as its owner, past row-level security.
+func dumpPostgres(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
-	connection, err := pgx.Connect(ctx, dsn)
+	dsn := url.URL{
+		Scheme: "postgres", User: url.UserPassword("dg_owner", stand.Env(t)["CENTER_PG_ADMIN_PASSWORD"]),
+		Host: "127.0.0.1:25442", Path: "/dataguard", RawQuery: "sslmode=disable",
+	}
+	connection, err := pgx.Connect(ctx, dsn.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,13 +407,13 @@ func dumpPostgres(t *testing.T, dsn string) string {
 	return dump.String()
 }
 
-func dumpClickHouse(t *testing.T, settings clickhouse.Settings) string {
+func dumpClickHouse(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 	admin := stand.Env(t)["CENTER_CH_ADMIN_PASSWORD"]
 	connection, err := chdriver.Open(&chdriver.Options{
-		Addr: []string{settings.Address},
-		Auth: chdriver.Auth{Database: settings.Database, Username: "dg_ch_admin", Password: admin},
+		Addr: []string{"127.0.0.1:25900"},
+		Auth: chdriver.Auth{Database: "dataguard", Username: "dg_ch_admin", Password: admin},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -634,14 +559,14 @@ func TestPlatformEndToEnd(t *testing.T) {
 	t.Run("agent killed with SIGKILL loses nothing", func(t *testing.T) {
 		source := &s.sources[0]
 		before := s.eventTotal(t, "&principal=dg_app&category=PERSONAL.EMAIL")
-		s.agent.kill(syscall.SIGKILL)
+		kill(t, "agent")
 		const statements = 20
 		for i := range statements {
 			if _, err := source.Admin.ExecContext(ctx, fmt.Sprintf(`SELECT email, %d FROM %s`, i, seed.Users)); err != nil {
 				t.Fatal(err)
 			}
 		}
-		s.startAgent(t)
+		startAgent(t)
 		eventually(t, "events from the outage", func() bool {
 			return s.eventTotal(t, "&principal=dg_app&category=PERSONAL.EMAIL")-before >= statements
 		})
@@ -650,7 +575,7 @@ func TestPlatformEndToEnd(t *testing.T) {
 	t.Run("server restart loses nothing", func(t *testing.T) {
 		source := &s.sources[1]
 		before := s.eventTotal(t, "&principal=dg_app&category=PERSONAL.PHONE")
-		s.server.kill(syscall.SIGKILL)
+		kill(t, "server")
 		const statements = 15
 		for i := range statements {
 			if _, err := source.Admin.ExecContext(ctx, fmt.Sprintf(`SELECT phone, %d FROM %s`, i, seed.Users)); err != nil {
@@ -658,33 +583,26 @@ func TestPlatformEndToEnd(t *testing.T) {
 			}
 		}
 		time.Sleep(3 * time.Second)
-		s.startServer(t)
+		startServer(t)
 		eventually(t, "events delivered after restart", func() bool {
 			return s.eventTotal(t, "&principal=dg_app&category=PERSONAL.PHONE")-before >= statements
 		})
 	})
 
 	t.Run("no source value left the source", func(t *testing.T) {
-		values := append(all, synthetic.CanaryMarker)
-		assertAbsent(t, "agent log", s.logs(t, "agent.log"), values)
-		assertAbsent(t, "server log", s.logs(t, "server.log"), values)
-		assertAbsent(t, "central postgres", dumpPostgres(t, s.ownerDSN), values)
-		assertAbsent(t, "clickhouse", dumpClickHouse(t, s.events), values)
+		values := append(slices.Clone(all), synthetic.CanaryMarker)
+		assertAbsent(t, "agent log", logs(t, "agent"), values)
+		assertAbsent(t, "server log", logs(t, "server"), values)
+		assertAbsent(t, "central postgres", dumpPostgres(t), values)
+		assertAbsent(t, "clickhouse", dumpClickHouse(t), values)
 		s.assertQueueClean(t, values)
 	})
 
-	if hold := os.Getenv("DG_E2E_HOLD"); hold != "" {
-		if err := os.WriteFile(hold+".ready", []byte("ok"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		deadline := time.Now().Add(20 * time.Minute)
-		for time.Now().Before(deadline) {
-			if _, err := os.Stat(hold + ".done"); err == nil {
-				break
-			}
-			time.Sleep(time.Second)
-		}
-	}
+	t.Run("dashboard works in a browser", func(t *testing.T) {
+		// Screenshots land in deployments/dev/.state/browser.
+		compose(t, nil, []string{"DG_UI_USER=dg-admin", "DG_UI_PASSWORD=" + s.password},
+			"run", "--rm", "-e", "DG_UI_USER", "-e", "DG_UI_PASSWORD", "browser-check")
+	})
 
 	t.Run("revoked agent stops immediately", func(t *testing.T) {
 		var agents []restapi.Agent
@@ -704,12 +622,20 @@ func TestPlatformEndToEnd(t *testing.T) {
 	})
 }
 
-// assertQueueClean opens the stopped agent's queue. The agent must be stopped,
-// because the file is locked while it runs.
+// assertQueueClean copies the stopped agent's state out of its container and
+// opens the queue. The agent must be stopped, because the file is locked while it runs.
 func (s *stack) assertQueueClean(t *testing.T, values []string) {
 	t.Helper()
-	s.agent.kill(syscall.SIGKILL)
-	stored, err := queue.Open(s.stateDir, 1<<24)
+	kill(t, "agent")
+	container := strings.TrimSpace(compose(t, nil, nil, "ps", "--all", "--quiet", "agent"))
+	if container == "" {
+		t.Fatal("agent container not found")
+	}
+	state := filepath.Join(t.TempDir(), "state")
+	if output, err := exec.Command("docker", "cp", container+":/var/lib/dataguard", state).CombinedOutput(); err != nil {
+		t.Fatalf("copy agent state: %v\n%s", err, output)
+	}
+	stored, err := queue.Open(state, 1<<24)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -726,5 +652,5 @@ func (s *stack) assertQueueClean(t *testing.T, values []string) {
 		t.Fatal(err)
 	}
 	assertAbsent(t, "agent queue", dump.String(), values)
-	s.startAgent(t)
+	startAgent(t)
 }

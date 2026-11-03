@@ -1,4 +1,7 @@
 version: "2"
+run:
+  # Tagged tests are code too: the leak searches live there.
+  build-tags: [integration, e2e, performance]
 linters:
   enable:
     - bodyclose

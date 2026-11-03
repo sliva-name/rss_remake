@@ -230,6 +230,9 @@ func sourceValues(t *testing.T, source stand.Source) []string {
 		}
 		values = append(values, row...)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 	if len(values) == 0 {
 		t.Fatal("no values to search for")
 	}

@@ -1,7 +1,7 @@
 GO_TOOL := go tool -modfile=tools/go.mod
 COMPOSE := docker compose --project-name dataguard-dev --env-file deployments/dev/.env -f deployments/dev/compose.yml
 
-.PHONY: check fmt fmt-check lint test test-integration vuln proto proto-lint api dev-env dev-up dev-down build
+.PHONY: check fmt fmt-check lint test test-integration vuln proto proto-lint api dev-env dev-up dev-down build images agent-enroll agent-up
 
 check: fmt-check proto-lint lint test vuln
 
@@ -39,11 +39,24 @@ proto-lint:
 dev-env:
 	./scripts/dev-env.sh
 
+# The whole stand: source databases, the center and its dependencies. The agent
+# starts separately, after enrollment.
 dev-up: dev-env
-	$(COMPOSE) up --detach --build --wait
+	$(COMPOSE) up --detach --build --wait --remove-orphans
+
+images:
+	$(COMPOSE) --profile agent --profile check build
+
+# The token is read from stdin, so it never appears in the command line or the image.
+agent-enroll:
+	@test -n "$(TOKEN_FILE)" || { echo "usage: make agent-enroll TOKEN_FILE=token.txt"; exit 1; }
+	$(COMPOSE) run --rm --no-deps -T agent enroll --config /etc/dataguard/agent.yaml --token-file /dev/stdin < "$(TOKEN_FILE)"
+
+agent-up:
+	$(COMPOSE) up --detach --no-deps agent
 
 dev-down:
-	$(COMPOSE) down --volumes
+	$(COMPOSE) --profile agent --profile check down --volumes
 
 .PHONY: web web-test
 
@@ -55,7 +68,8 @@ web-test:
 
 .PHONY: test-e2e test-performance
 
-test-e2e: build web
+# Drives the containers of dev-up; the test rebuilds the images it needs.
+test-e2e:
 	go test -tags=e2e -count=1 -timeout 15m ./tests/e2e/
 
 test-performance:

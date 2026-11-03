@@ -491,7 +491,7 @@ func restCall(t *testing.T, platform *platform, method, path, token, body string
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var payload json.RawMessage
 	_ = json.NewDecoder(response.Body).Decode(&payload)
 	return response.StatusCode, payload
