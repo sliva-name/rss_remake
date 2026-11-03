@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"math"
 
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/policy"
@@ -12,18 +15,34 @@ import (
 
 const (
 	defaultScanLimit    = 50
+	maxScanLimit        = 200
 	defaultCatalogLimit = 100
+	maxCatalogLimit     = 500
+	maxOffset           = math.MaxInt32
 )
 
-func orDefault(value *int, fallback int) int {
+// errInvalidParameter marks a query parameter outside the range the schema
+// declares. The generated server does not check ranges, so handlers do.
+var errInvalidParameter = errors.New("invalid parameter")
+
+// parameter applies the default and the declared range of an integer query
+// parameter.
+func parameter(name string, value *int, fallback, low, high int) (int, error) {
 	if value == nil {
-		return fallback
+		return fallback, nil
 	}
-	return *value
+	if *value < low || *value > high {
+		return 0, fmt.Errorf("%w: %s must be %d..%d", errInvalidParameter, name, low, high)
+	}
+	return *value, nil
 }
 
 func (s *Server) ListScans(ctx context.Context, request restapi.ListScansRequestObject) (restapi.ListScansResponseObject, error) {
-	jobs, err := s.scans.List(ctx, tenantOf(ctx), orDefault(request.Params.Limit, defaultScanLimit))
+	limit, err := parameter("limit", request.Params.Limit, defaultScanLimit, 1, maxScanLimit)
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := s.scans.List(ctx, tenantOf(ctx), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -51,10 +70,15 @@ func toScan(job scan.Job) restapi.Scan {
 }
 
 func (s *Server) ListCatalogColumns(ctx context.Context, request restapi.ListCatalogColumnsRequestObject) (restapi.ListCatalogColumnsResponseObject, error) {
-	filter := asset.CatalogFilter{
-		Limit:  orDefault(request.Params.Limit, defaultCatalogLimit),
-		Offset: orDefault(request.Params.Offset, 0),
+	limit, err := parameter("limit", request.Params.Limit, defaultCatalogLimit, 1, maxCatalogLimit)
+	if err != nil {
+		return nil, err
 	}
+	offset, err := parameter("offset", request.Params.Offset, 0, 0, maxOffset)
+	if err != nil {
+		return nil, err
+	}
+	filter := asset.CatalogFilter{Limit: limit, Offset: offset}
 	if request.Params.SourceId != nil {
 		filter.SourceID = *request.Params.SourceId
 	}
@@ -96,7 +120,11 @@ func (s *Server) GetCatalogSummary(ctx context.Context, _ restapi.GetCatalogSumm
 }
 
 func (s *Server) ListCatalogChanges(ctx context.Context, request restapi.ListCatalogChangesRequestObject) (restapi.ListCatalogChangesResponseObject, error) {
-	entries, err := s.catalog.ListHistory(ctx, tenantOf(ctx), orDefault(request.Params.Limit, defaultScanLimit))
+	limit, err := parameter("limit", request.Params.Limit, defaultScanLimit, 1, maxScanLimit)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.catalog.ListHistory(ctx, tenantOf(ctx), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +164,10 @@ func (s *Server) PublishPolicy(ctx context.Context, request restapi.PublishPolic
 			NamePattern:  stringValue(detector.NamePattern),
 		})
 	}
-	budget := fromBudget(request.Body.ScanBudget)
+	budget, err := fromBudget(request.Body.ScanBudget)
+	if err != nil {
+		return nil, err
+	}
 	version, err := s.policies.Publish(ctx, principal.TenantID, principal.Subject, detectors, budget)
 	if err != nil {
 		return nil, err
@@ -153,27 +184,50 @@ func stringValue(value *string) string {
 	return *value
 }
 
-func fromBudget(budget *restapi.ScanBudget) *agentv1.ScanBudget {
+// fromBudget rejects what the contract types cannot hold: a negative limit
+// would otherwise wrap around into an enormous one and be signed as such.
+func fromBudget(budget *restapi.ScanBudget) (*agentv1.ScanBudget, error) {
 	if budget == nil {
-		return nil
+		return nil, nil
 	}
 	converted := &agentv1.ScanBudget{}
-	if budget.MaxDurationSeconds != nil {
-		converted.MaxDurationSeconds = uint32(*budget.MaxDurationSeconds)
+	var err error
+	if converted.MaxDurationSeconds, err = budgetLimit32("maxDurationSeconds", budget.MaxDurationSeconds); err != nil {
+		return nil, err
 	}
-	if budget.MaxRowsPerTable != nil {
-		converted.MaxRowsPerTable = uint64(*budget.MaxRowsPerTable)
+	if converted.MaxRowsPerTable, err = budgetLimit64("maxRowsPerTable", budget.MaxRowsPerTable); err != nil {
+		return nil, err
 	}
-	if budget.MaxBytesPerTable != nil {
-		converted.MaxBytesPerTable = uint64(*budget.MaxBytesPerTable)
+	if converted.MaxBytesPerTable, err = budgetLimit64("maxBytesPerTable", budget.MaxBytesPerTable); err != nil {
+		return nil, err
 	}
-	if budget.MaxConnections != nil {
-		converted.MaxConnections = uint32(*budget.MaxConnections)
+	if converted.MaxConnections, err = budgetLimit32("maxConnections", budget.MaxConnections); err != nil {
+		return nil, err
 	}
-	if budget.MaxRowsPerSecond != nil {
-		converted.MaxRowsPerSecond = uint32(*budget.MaxRowsPerSecond)
+	if converted.MaxRowsPerSecond, err = budgetLimit32("maxRowsPerSecond", budget.MaxRowsPerSecond); err != nil {
+		return nil, err
 	}
-	return converted
+	return converted, nil
+}
+
+func budgetLimit32(name string, value *int) (uint32, error) {
+	if value == nil {
+		return 0, nil
+	}
+	if *value < 1 || *value > math.MaxUint32 {
+		return 0, fmt.Errorf("%w: %s must be 1..%d", policy.ErrInvalid, name, uint32(math.MaxUint32))
+	}
+	return uint32(*value), nil
+}
+
+func budgetLimit64(name string, value *int64) (uint64, error) {
+	if value == nil {
+		return 0, nil
+	}
+	if *value < 1 {
+		return 0, fmt.Errorf("%w: %s must be positive", policy.ErrInvalid, name)
+	}
+	return uint64(*value), nil
 }
 
 func toPolicy(source *agentv1.Policy) restapi.Policy {

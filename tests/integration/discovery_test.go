@@ -20,6 +20,7 @@ import (
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/agent/runtime"
 	"dataguard/internal/agent/sources"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/classifier"
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/fleet"
@@ -52,9 +53,10 @@ func (b *lockedBuffer) String() string {
 }
 
 type runningAgent struct {
-	logs   *lockedBuffer
-	audit  *runtime.Audit
-	events *queue.Queue
+	logs    *lockedBuffer
+	audit   *runtime.Audit
+	events  *queue.Queue
+	metrics *telemetry.Agent
 }
 
 // addSource defines a source the way an administrator does: the password is
@@ -126,11 +128,13 @@ func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, definitions 
 		TenantID: enrolled.store.TenantID(), AgentID: enrolled.store.AgentID(), Logger: logger,
 	}
 	discovery := runtime.NewDiscovery(enrolled.client, registry, 100*time.Millisecond, logger)
-	audit := runtime.NewAudit(enrolled.client, registry, events, nil, logger)
+	audit := runtime.NewAudit(enrolled.client, registry, events, nil, logger, enrolled.metrics)
 	control := runtime.NewControl(runtime.Options{
 		Client: enrolled.client, Identity: enrolled.store, Prober: registry, Sources: sourceSync, Health: audit,
 		Policies: discovery, Version: "test", HeartbeatInterval: 200 * time.Millisecond, Logger: logger,
+		Metrics: enrolled.metrics,
 	})
+	enrolled.metrics.Watch(audit, registry, enrolled.store)
 	var running sync.WaitGroup
 	running.Go(func() { control.Run(ctx) })
 	running.Go(func() { discovery.Run(ctx) })
@@ -142,7 +146,7 @@ func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, definitions 
 	for _, id := range ids {
 		waitForProbe(t, p, enrolled.store.TenantID(), id)
 	}
-	return &runningAgent{logs: logs, audit: audit, events: events}, ids
+	return &runningAgent{logs: logs, audit: audit, events: events, metrics: enrolled.metrics}, ids
 }
 
 // waitForProbe waits until the agent has opened the source and reported on it.

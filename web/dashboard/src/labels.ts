@@ -95,6 +95,7 @@ const reasons: Record<string, string> = {
   QUEUE_FULL: "очередь агента заполнена",
   LOG_UNREADABLE: "журнал недоступен",
   CATALOG_UNAVAILABLE: "каталог источника недоступен",
+  LOG_TIME_ZONE_UNKNOWN: "не удалось узнать часовой пояс журнала",
   STORE_FAILED: "не удалось сохранить события",
   NOT_STARTED: "сбор ещё не начался",
   AUDIT_DIRECTORY_NOT_SET: "у источника не указан каталог журналов",

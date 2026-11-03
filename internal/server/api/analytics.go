@@ -11,7 +11,9 @@ import (
 const (
 	defaultPeriod      = 7 * 24 * time.Hour
 	defaultCoverageHrs = 24
+	maxCoverageHrs     = 720
 	defaultEventLimit  = 100
+	maxEventLimit      = 500
 	typeAuthentication = "EVENT_TYPE_AUTHENTICATION"
 )
 
@@ -30,6 +32,14 @@ func period(from, to *time.Time) (time.Time, time.Time) {
 
 func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditEventsRequestObject) (restapi.ListAuditEventsResponseObject, error) {
 	params := request.Params
+	limit, err := parameter("limit", params.Limit, defaultEventLimit, 1, maxEventLimit)
+	if err != nil {
+		return nil, err
+	}
+	offset, err := parameter("offset", params.Offset, 0, 0, maxOffset)
+	if err != nil {
+		return nil, err
+	}
 	from, to := period(params.From, params.To)
 	if params.To == nil {
 		// Time parameters reach ClickHouse with second precision, so "until now"
@@ -38,8 +48,8 @@ func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditE
 	}
 	filter := audit.Filter{
 		From: from, To: to,
-		Limit:     orDefault(params.Limit, defaultEventLimit),
-		Offset:    orDefault(params.Offset, 0),
+		Limit:     limit,
+		Offset:    offset,
 		Principal: stringValue(params.Principal),
 		Category:  stringValue(params.Category),
 		Type:      stringValue(params.EventType),
@@ -63,7 +73,10 @@ func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditE
 	if err != nil {
 		return nil, err
 	}
-	page := restapi.AuditEventPage{Total: int64(total), Items: make([]restapi.AuditEvent, 0, len(events))}
+	page := restapi.AuditEventPage{
+		Total: int64(min(total, audit.CountLimit)), TotalExact: total <= audit.CountLimit,
+		Items: make([]restapi.AuditEvent, 0, len(events)),
+	}
 	for i := range events {
 		page.Items = append(page.Items, toAuditEvent(&events[i]))
 	}
@@ -87,8 +100,11 @@ func toAuditEvent(event *audit.Event) restapi.AuditEvent {
 }
 
 func (s *Server) GetAuditCoverage(ctx context.Context, request restapi.GetAuditCoverageRequestObject) (restapi.GetAuditCoverageResponseObject, error) {
-	window := time.Duration(orDefault(request.Params.WindowHours, defaultCoverageHrs)) * time.Hour
-	rows, err := s.coverage.Report(ctx, tenantOf(ctx), window)
+	hours, err := parameter("windowHours", request.Params.WindowHours, defaultCoverageHrs, 1, maxCoverageHrs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.coverage.Report(ctx, tenantOf(ctx), time.Duration(hours)*time.Hour)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -25,8 +26,15 @@ type Config struct {
 	// Applications lists keys that may sign user context. Without an entry, a
 	// context from that application is reported as an unverified claim.
 	Applications []Application `yaml:"applications"`
+	// Metrics is off unless an address is set (ADR-0008).
+	Metrics Metrics `yaml:"metrics"`
 
 	allowlist *Allowlist
+}
+
+// Metrics opens the agent's only listening port, serving GET /metrics.
+type Metrics struct {
+	Address string `yaml:"address"`
 }
 
 // Application is a client application allowed to attest its users.
@@ -82,6 +90,11 @@ func (c *Config) validate() error {
 	for i, application := range c.Applications {
 		if application.ID == "" || application.PublicKeyFile == "" {
 			return fmt.Errorf("application %d: id and public_key_file are required", i)
+		}
+	}
+	if c.Metrics.Address != "" {
+		if _, port, err := net.SplitHostPort(c.Metrics.Address); err != nil || port == "" {
+			return errors.New("metrics.address must be host:port, such as 127.0.0.1:9464")
 		}
 	}
 	allowlist, err := CompileAllowed(c.Allowed)

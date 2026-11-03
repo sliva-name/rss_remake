@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -14,6 +15,13 @@ import (
 )
 
 var categoryPattern = regexp.MustCompile(`^CUSTOM(\.[A-Z][A-Z0-9_]*)+$`)
+
+// Limits declared in the API schema. Every agent compiles and runs each pattern
+// on every sampled value, so they bound the agent's work, not only the request.
+const (
+	maxDetectors    = 200
+	maxPatternRunes = 512
+)
 
 var (
 	ErrNotFound = errors.New("policy not found")
@@ -82,7 +90,14 @@ func Decode(signed Signed) (*agentv1.Policy, error) {
 }
 
 func validateDetectors(detectors []*agentv1.CustomDetector) error {
+	if len(detectors) > maxDetectors {
+		return fmt.Errorf("%w: at most %d custom detectors", ErrInvalid, maxDetectors)
+	}
 	for _, detector := range detectors {
+		if utf8.RuneCountInString(detector.GetValuePattern()) > maxPatternRunes ||
+			utf8.RuneCountInString(detector.GetNamePattern()) > maxPatternRunes {
+			return fmt.Errorf("%w: a pattern is longer than %d characters", ErrInvalid, maxPatternRunes)
+		}
 		if !categoryPattern.MatchString(detector.GetCategoryId()) {
 			return fmt.Errorf("%w: custom category must look like CUSTOM.NAME", ErrInvalid)
 		}

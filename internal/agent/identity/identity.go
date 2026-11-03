@@ -193,6 +193,17 @@ func (s *Store) RenewalDue(now time.Time) (bool, error) {
 	return now.After(leaf.NotBefore.Add(leaf.NotAfter.Sub(leaf.NotBefore) / 2)), nil
 }
 
+// CertificateExpiry is when the current certificate stops being accepted.
+func (s *Store) CertificateExpiry() (time.Time, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	leaf, err := x509.ParseCertificate(s.certificate.Certificate[0])
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse agent certificate: %w", err)
+	}
+	return leaf.NotAfter, nil
+}
+
 // ReplaceCertificate installs a renewed certificate with its new key.
 func (s *Store) ReplaceCertificate(keyPEM, certificatePEM []byte) error {
 	if _, err := tls.X509KeyPair(certificatePEM, keyPEM); err != nil {

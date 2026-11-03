@@ -61,7 +61,7 @@ func startCollector(t *testing.T, source stand.Source, stateDir string, verifier
 		t.Fatalf("sources: %v", err)
 	}
 	connection, _, _ := registry.Acquire(sourceID)
-	item := sources.NewCollector(source.Config, connection, events, verifier, safelog.Discard())
+	item := sources.NewCollector(source.Config, connection, events, verifier, safelog.Discard(), nil)
 	if item == nil {
 		t.Fatal("no collector")
 	}

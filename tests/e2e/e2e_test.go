@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -392,6 +393,57 @@ func dumpClickHouse(t *testing.T) string {
 	return dump.String()
 }
 
+const (
+	serverMetrics = "http://127.0.0.1:25910/metrics"
+	agentMetrics  = "http://127.0.0.1:25964/metrics"
+)
+
+func scrapeOnce(url string) (string, error) {
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return "", err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("scrape %s: %d, %w", url, response.StatusCode, err)
+	}
+	return string(body), nil
+}
+
+func scrape(t *testing.T, url string) string {
+	t.Helper()
+	var body string
+	eventually(t, "metrics at "+url, func() bool {
+		var err error
+		body, err = scrapeOnce(url)
+		return err == nil
+	})
+	return body
+}
+
+// sample reads one series from the text format; series is the name with its
+// labels exactly as printed. A missing series reads as zero.
+func sample(t *testing.T, metrics, series string) float64 {
+	t.Helper()
+	for line := range strings.SplitSeq(metrics, "\n") {
+		value, found := strings.CutPrefix(line, series+" ")
+		if !found {
+			continue
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if err != nil {
+			t.Fatalf("series %s: %v", series, err)
+		}
+		return parsed
+	}
+	return 0
+}
+
 func assertAbsent(t *testing.T, where, haystack string, values []string) {
 	t.Helper()
 	if haystack == "" {
@@ -516,6 +568,7 @@ func TestPlatformEndToEnd(t *testing.T) {
 	t.Run("agent killed with SIGKILL loses nothing", func(t *testing.T) {
 		source := &s.sources[0]
 		before := s.eventTotal(t, "&principal=dg_app&category=PERSONAL.EMAIL")
+		started := sample(t, scrape(t, agentMetrics), "process_start_time_seconds")
 		kill(t, "agent")
 		const statements = 20
 		for i := range statements {
@@ -526,6 +579,12 @@ func TestPlatformEndToEnd(t *testing.T) {
 		startAgent(t)
 		eventually(t, "events from the outage", func() bool {
 			return s.eventTotal(t, "&principal=dg_app&category=PERSONAL.EMAIL")-before >= statements
+		})
+		// The restart and the catch-up are visible on the agent's own port.
+		eventually(t, "restarted agent reports delivery", func() bool {
+			metrics, err := scrapeOnce(agentMetrics)
+			return err == nil && sample(t, metrics, "process_start_time_seconds") > started &&
+				sample(t, metrics, "dataguard_agent_events_delivered_total") >= statements
 		})
 	})
 
@@ -544,6 +603,39 @@ func TestPlatformEndToEnd(t *testing.T) {
 		eventually(t, "events delivered after restart", func() bool {
 			return s.eventTotal(t, "&principal=dg_app&category=PERSONAL.PHONE")-before >= statements
 		})
+		if stored := sample(t, scrape(t, serverMetrics), `dataguard_server_events_ingested_total{result="stored"}`); stored < statements {
+			t.Fatalf("restarted server counted %v stored events, want at least %d", stored, statements)
+		}
+	})
+
+	t.Run("clickhouse outage is absorbed by the broker", func(t *testing.T) {
+		source := &s.sources[2]
+		before := s.eventTotal(t, "&principal=dg_app&category=PERSONAL.EMAIL")
+		acceptedBefore := sample(t, scrape(t, serverMetrics), "dataguard_server_events_accepted_total")
+		compose(t, nil, nil, "stop", "center-clickhouse")
+		const statements = 15
+		for i := range statements {
+			if _, err := source.Admin.ExecContext(ctx, fmt.Sprintf(`SELECT email, %d FROM %s`, i, seed.Users)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The center keeps acknowledging: the agent's queue drains into the broker.
+		eventually(t, "agent acknowledged during the outage", func() bool {
+			server, agent := scrape(t, serverMetrics), scrape(t, agentMetrics)
+			return sample(t, server, "dataguard_server_events_accepted_total")-acceptedBefore >= statements &&
+				sample(t, agent, "dataguard_agent_queue_pending_events") == 0
+		})
+		if lag := sample(t, scrape(t, serverMetrics), "dataguard_server_consumer_lag_records"); lag == 0 {
+			t.Fatal("the backlog must be visible as consumer lag")
+		}
+		compose(t, nil, nil, "up", "--detach", "--wait", "center-clickhouse")
+		// Reports read ClickHouse, so they fail until it is back; the consumer may
+		// still be in its backoff for a while after that.
+		eventually(t, "backlog stored after the outage", func() bool {
+			var page restapi.AuditEventPage
+			status := s.call(t, s.token, http.MethodGet, "/audit/events?limit=1&principal=dg_app&category=PERSONAL.EMAIL", nil, &page)
+			return status == http.StatusOK && page.Total-before >= statements
+		})
 	})
 
 	t.Run("no source value left the source", func(t *testing.T) {
@@ -554,6 +646,8 @@ func TestPlatformEndToEnd(t *testing.T) {
 		assertAbsent(t, "server log", logs(t, "server"), values)
 		assertAbsent(t, "central postgres", dumpPostgres(t), values)
 		assertAbsent(t, "clickhouse", dumpClickHouse(t), values)
+		assertAbsent(t, "agent metrics", scrape(t, agentMetrics), values)
+		assertAbsent(t, "server metrics", scrape(t, serverMetrics), values)
 		s.assertQueueClean(t, values)
 	})
 

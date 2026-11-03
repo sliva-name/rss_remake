@@ -16,9 +16,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/server/broker"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 	"dataguard/migrations"
@@ -100,11 +102,50 @@ func CenterDatabase(t *testing.T) (ownerDSN, runtimeDSN string) {
 
 const centerClickHouse = "127.0.0.1:25900"
 
+const centerBroker = "127.0.0.1:25092"
+
+// CenterBroker creates a private topic and consumer group, open to the stand's
+// server account only, and returns the server's settings for them.
+func CenterBroker(t *testing.T) broker.Settings {
+	t.Helper()
+	env := Env(t)
+	suffix := make([]byte, 6)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatal(err)
+	}
+	name := "test_" + hex.EncodeToString(suffix)
+	server := broker.Settings{
+		Brokers: []string{centerBroker}, Topic: name, Group: name,
+		User: "dg_broker_app", Password: env["CENTER_BROKER_APP_PASSWORD"],
+	}
+	admin := server
+	admin.User, admin.Password = "dg_broker_admin", env["CENTER_BROKER_ADMIN_PASSWORD"]
+	setup := broker.Setup{
+		Topic: name, Group: name, Partitions: 3, Replication: 1, Retention: time.Hour,
+		User: server.User, Password: server.Password,
+	}
+	if err := broker.Ensure(context.Background(), admin, setup); err != nil {
+		t.Fatalf("prepare broker topic: %v", err)
+	}
+	t.Cleanup(func() { _ = broker.Remove(context.Background(), admin, setup) })
+	return server
+}
+
 // CenterEvents creates a private migrated ClickHouse database and returns runtime
 // settings.
 func CenterEvents(t *testing.T) clickhouse.Settings {
 	t.Helper()
-	ctx := context.Background()
+	owner, runtime := EmptyCenterEvents(t)
+	if err := clickhouse.Migrate(context.Background(), owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
+		t.Fatalf("migrate clickhouse: %v", err)
+	}
+	return runtime
+}
+
+// EmptyCenterEvents creates a private ClickHouse database without migrating it and
+// returns the schema owner's and the runtime user's settings.
+func EmptyCenterEvents(t *testing.T) (owner, runtime clickhouse.Settings) {
+	t.Helper()
 	env := Env(t)
 	suffix := make([]byte, 6)
 	if _, err := rand.Read(suffix); err != nil {
@@ -112,16 +153,17 @@ func CenterEvents(t *testing.T) clickhouse.Settings {
 	}
 	name := "test_" + hex.EncodeToString(suffix)
 	admin := clickhouse.Settings{Address: centerClickHouse, Database: "default", Username: "dg_ch_admin", Password: env["CENTER_CH_ADMIN_PASSWORD"]}
-	if err := clickhouse.ExecAdmin(ctx, admin, "CREATE DATABASE "+name); err != nil {
+	if err := clickhouse.ExecAdmin(context.Background(), admin, "CREATE DATABASE "+name); err != nil {
 		t.Fatalf("create clickhouse database: %v", err)
 	}
-	t.Cleanup(func() { _ = clickhouse.ExecAdmin(context.Background(), admin, "DROP DATABASE "+name) })
-	owner := admin
+	t.Cleanup(func() {
+		// Row policies outlive the database they guard, so they are dropped first.
+		_ = clickhouse.ExecAdmin(context.Background(), admin, "DROP ROW POLICY IF EXISTS tenant_isolation ON "+name+".audit_events")
+		_ = clickhouse.ExecAdmin(context.Background(), admin, "DROP DATABASE "+name)
+	})
+	owner = admin
 	owner.Database = name
-	if err := clickhouse.Migrate(ctx, owner, "dg_ch_app", migrations.ClickHouse, "clickhouse"); err != nil {
-		t.Fatalf("migrate clickhouse: %v", err)
-	}
-	return clickhouse.Settings{Address: centerClickHouse, Database: name, Username: "dg_ch_app", Password: env["CENTER_CH_APP_PASSWORD"]}
+	return owner, clickhouse.Settings{Address: centerClickHouse, Database: name, Username: "dg_ch_app", Password: env["CENTER_CH_APP_PASSWORD"]}
 }
 
 func dropDatabase(admin, name string) {

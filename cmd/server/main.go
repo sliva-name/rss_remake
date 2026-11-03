@@ -12,20 +12,31 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/server/api"
 	"dataguard/internal/server/app"
+	"dataguard/internal/server/broker"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
+	"dataguard/internal/server/telemetry"
 	"dataguard/migrations"
 )
 
-const defaultCertificateTTL = 7 * 24 * time.Hour
+const (
+	defaultCertificateTTL = 7 * 24 * time.Hour
+	defaultTopic          = "dataguard.audit-events"
+	defaultGroup          = "dataguard-ingest"
+	defaultPartitions     = "12"
+	defaultRetention      = "168h"
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -63,7 +74,49 @@ func migrate(ctx context.Context) error {
 		Address: mustEnv("DG_CH_ADDR"), Database: mustEnv("DG_CH_DATABASE"),
 		Username: mustEnv("DG_CH_MIGRATION_USER"), Password: mustEnv("DG_CH_MIGRATION_PASSWORD"),
 	}
-	return clickhouse.Migrate(ctx, owner, mustEnv("DG_CH_USER"), migrations.ClickHouse, "clickhouse")
+	if err := clickhouse.Migrate(ctx, owner, mustEnv("DG_CH_USER"), migrations.ClickHouse, "clickhouse"); err != nil {
+		return err
+	}
+	return migrateBroker(ctx)
+}
+
+// migrateBroker prepares the topic and the server's broker account. Replication
+// has no default: one copy is fine for a stand and wrong for an installation.
+func migrateBroker(ctx context.Context) error {
+	replication, err := strconv.ParseInt(mustEnv("DG_BROKER_REPLICATION"), 10, 16)
+	if err != nil {
+		return fmt.Errorf("DG_BROKER_REPLICATION: %w", err)
+	}
+	partitions, err := strconv.ParseInt(envOr("DG_BROKER_PARTITIONS", defaultPartitions), 10, 32)
+	if err != nil {
+		return fmt.Errorf("DG_BROKER_PARTITIONS: %w", err)
+	}
+	retention, err := time.ParseDuration(envOr("DG_BROKER_RETENTION", defaultRetention))
+	if err != nil {
+		return fmt.Errorf("DG_BROKER_RETENTION: %w", err)
+	}
+	runtime := brokerSettings()
+	admin := runtime
+	admin.User, admin.Password = mustEnv("DG_BROKER_ADMIN_USER"), mustEnv("DG_BROKER_ADMIN_PASSWORD")
+	return broker.Ensure(ctx, admin, broker.Setup{
+		Topic: runtime.Topic, Group: runtime.Group, Partitions: int32(partitions), Replication: int16(replication),
+		Retention: retention, User: runtime.User, Password: runtime.Password,
+	})
+}
+
+func brokerSettings() broker.Settings {
+	return broker.Settings{
+		Brokers: strings.Split(mustEnv("DG_BROKERS"), ","),
+		Topic:   envOr("DG_BROKER_TOPIC", defaultTopic), Group: envOr("DG_BROKER_GROUP", defaultGroup),
+		User: mustEnv("DG_BROKER_USER"), Password: mustEnv("DG_BROKER_PASSWORD"), CAFile: os.Getenv("DG_BROKER_CA_FILE"),
+	}
+}
+
+func envOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func pkiInit(args []string) error {
@@ -143,17 +196,32 @@ func serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	settings := brokerSettings()
+	publisher, err := broker.NewPublisher(settings)
+	if err != nil {
+		return err
+	}
+	defer publisher.Close()
+
 	pkiDirectory := mustEnv("DG_PKI_DIR")
+	metrics := telemetry.New()
 	application, err := app.Build(app.Options{
-		Store: store, Events: events, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
+		Store: store, Events: events, Broker: publisher, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
 		Authenticator: authenticator, Logger: logger,
-		OIDCIssuer: issuer, OIDCClientID: clientID, WebDirectory: os.Getenv("DG_WEB_DIR"),
+		OIDCIssuer: issuer, OIDCClientID: clientID, WebDirectory: os.Getenv("DG_WEB_DIR"), Metrics: metrics,
 	})
 	if err != nil {
 		return err
 	}
+	consumer := broker.NewConsumer(settings, application.Events.Store, metrics, logger)
+	metrics.WatchLag(consumer.Lag)
 	logger.Info("server started")
-	return app.Serve(ctx, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), pkiDirectory)
+	group, groupContext := errgroup.WithContext(ctx)
+	group.Go(func() error { consumer.Run(groupContext); return nil })
+	group.Go(func() error {
+		return app.Serve(groupContext, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), os.Getenv("DG_METRICS_ADDR"), pkiDirectory, metrics)
+	})
+	return group.Wait()
 }
 
 func mustEnv(name string) string {

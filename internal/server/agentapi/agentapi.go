@@ -24,6 +24,7 @@ import (
 	"dataguard/internal/gen/dataguard/agent/v1/agentv1connect"
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/platform/safeerr"
+	"dataguard/internal/server/telemetry"
 )
 
 // CurrentSchemaVersion is the envelope version this server understands.
@@ -132,6 +133,8 @@ type Dependencies struct {
 	CACertificate   []byte
 	PolicyPublicKey []byte
 	Logger          *slog.Logger
+	// Metrics may be nil.
+	Metrics *telemetry.Server
 }
 
 // Handler mounts enrollment and agent RPC. Enrollment stays outside the
@@ -141,12 +144,13 @@ func Handler(dependencies Dependencies) http.Handler {
 	limit := connect.WithReadMaxBytes(maxMessageBytes)
 
 	enrollPath, enrollHandler := agentv1connect.NewEnrollmentServiceHandler(
-		&enrollmentHandler{dependencies: dependencies}, limit)
+		&enrollmentHandler{dependencies: dependencies}, limit,
+		connect.WithInterceptors(dependencies.Metrics.AgentInterceptor()))
 	mux.Handle(enrollPath, enrollHandler)
 
 	agentPath, agentHandler := agentv1connect.NewAgentServiceHandler(
 		&agentHandler{dependencies: dependencies}, limit,
-		connect.WithInterceptors(authorizeInterceptor(dependencies.Fleet, dependencies.Logger)))
+		connect.WithInterceptors(dependencies.Metrics.AgentInterceptor(), authorizeInterceptor(dependencies.Fleet, dependencies.Logger)))
 	mux.Handle(agentPath, agentHandler)
 
 	return withCertificateIdentity(mux)

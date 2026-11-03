@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"syscall"
+	"time"
 )
 
 // maxLineBytes bounds memory for one log line. A longer line is skipped and
@@ -209,6 +210,24 @@ const defaultReadBytes = 8 << 20
 func newFileReader(pattern string, parser lineParser) *fileReader {
 	return &fileReader{tail: tail{pattern: pattern, maxRead: defaultReadBytes}, parser: parser}
 }
+
+// locatedParser reads timestamps that mean nothing without the server's zone.
+type locatedParser interface {
+	lineParser
+	setLocation(location *time.Location)
+}
+
+// zonedFileReader is a fileReader whose parser needs the server's time zone.
+type zonedFileReader struct {
+	*fileReader
+	parser locatedParser
+}
+
+func newZonedFileReader(pattern string, parser locatedParser) *zonedFileReader {
+	return &zonedFileReader{fileReader: newFileReader(pattern, parser), parser: parser}
+}
+
+func (r *zonedFileReader) setLocation(location *time.Location) { r.parser.setLocation(location) }
 
 func (r *fileReader) resume(cursor []byte) error {
 	if r.restored {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dataguard/internal/agent/queue"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/connector"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safelog"
@@ -223,7 +224,7 @@ func TestGeneralLogSessionsSurviveRestart(t *testing.T) {
 
 func TestMariaDBLine(t *testing.T) {
 	line := `20261103 01:39:30,host,dg_app,127.0.0.1,1478,5150,QUERY,crm,'SELECT a, b FROM t WHERE c=\'x,y\'',1146`
-	records, ok := mariadbParser{}.feed([]byte(line), fileCursor{})
+	records, ok := newMariaDBParser().feed([]byte(line), fileCursor{})
 	if !ok || len(records) != 1 {
 		t.Fatalf("records = %+v, %v", records, ok)
 	}
@@ -343,6 +344,8 @@ func TestOversizedLineIsSkippedAndCounted(t *testing.T) {
 }
 
 type staticCatalog struct{}
+
+func (staticCatalog) LogLocation(context.Context) (*time.Location, error) { return time.UTC, nil }
 
 func (staticCatalog) Tables(context.Context) ([]connector.Table, error) {
 	return []connector.Table{{
@@ -592,5 +595,81 @@ func TestHeldSessionOverflowReleasesInsteadOfDropping(t *testing.T) {
 	}
 	if len(released) != 5 || len(parser.held) != maxHeldSessions {
 		t.Fatalf("released %d, held %d", len(released), len(parser.held))
+	}
+}
+
+// After rotation the held records sit in two files. The durable cursor must
+// point at the earlier one, or a crash would skip it.
+func TestOldestHeldSpansRotatedFiles(t *testing.T) {
+	for range 20 {
+		parser := newPostgresParser()
+		older := pgLine(t, map[string]any{"session_id": "s1", "vxid": "1/1", "message": audit("SELECT 1")})
+		newer := pgLine(t, map[string]any{"session_id": "s2", "vxid": "2/1", "message": audit("SELECT 2")})
+		parser.feed(older, fileCursor{Inode: 7, Offset: 900})
+		parser.feed(newer, fileCursor{Inode: 8, Offset: 10})
+		oldest, found := parser.oldestHeld()
+		if !found || oldest != (fileCursor{Inode: 7, Offset: 900}) {
+			t.Fatalf("oldest = %+v, want the record in the rotated file", oldest)
+		}
+	}
+}
+
+// A time fixed before queueing is what makes a redelivery recognizable at the
+// center (ADR-0007), so an implausible log time must not travel as is.
+func TestImplausibleLogTimeIsReplacedBeforeQueueing(t *testing.T) {
+	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	for _, testCase := range []struct {
+		at   time.Time
+		kept bool
+	}{
+		{now.Add(-time.Hour), true},
+		{now.Add(30 * time.Second), true},
+		{now.Add(2 * time.Minute), false},
+		{now.Add(-365 * 24 * time.Hour), false},
+		{time.Unix(0, 0), false},
+	} {
+		got := plausibleTime(testCase.at, now)
+		if testCase.kept != got.Equal(testCase.at) || !testCase.kept && !got.Equal(now) {
+			t.Errorf("plausibleTime(%s) = %s", testCase.at, got)
+		}
+	}
+}
+
+// Every way the collector learns of a loss reaches the metrics, so a scraper sees
+// blindness without reading the center (ADR-0008).
+func TestEveryGapIsCounted(t *testing.T) {
+	var records []Record
+	for i := range 50 {
+		records = append(records, statementRecord(i))
+	}
+	observer := telemetry.New()
+	reader := &scriptedReader{batches: []Batch{{Unparseable: 3, Cursor: []byte("first")}, {Gap: lostLogGap(), Cursor: []byte("second")}}}
+	item, _ := newTestCollector(t, reader, 1<<20)
+	item.options.Metrics = observer
+	item.tick(context.Background())
+	item.tick(context.Background())
+
+	full := &scriptedReader{batches: []Batch{{Records: records, Cursor: []byte("after")}}}
+	blocked, _ := newTestCollector(t, full, 512)
+	blocked.options.Metrics = observer
+	blocked.tick(context.Background())
+	full.batches = []Batch{{Gap: lostLogGap(), Cursor: []byte("resumed")}}
+	full.position = 0
+	blocked.tick(context.Background())
+
+	samples, err := observer.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]float64{
+		"dataguard_agent_audit_gaps_total|reason=GAP_REASON_UNPARSEABLE_RECORDS":        1,
+		"dataguard_agent_audit_lost_events_total|reason=GAP_REASON_UNPARSEABLE_RECORDS": 3,
+		"dataguard_agent_audit_gaps_total|reason=GAP_REASON_LOG_ROTATED":                1,
+		"dataguard_agent_audit_gaps_total|reason=GAP_REASON_QUEUE_FULL":                 1,
+		"dataguard_agent_events_queued_total|type=EVENT_TYPE_AUDIT_GAP":                 3,
+	} {
+		if samples[key] != want {
+			t.Errorf("%s = %v, want %v", key, samples[key], want)
+		}
 	}
 }

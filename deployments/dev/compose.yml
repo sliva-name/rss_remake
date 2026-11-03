@@ -157,6 +157,31 @@ services:
       timeout: 3s
       retries: 30
 
+  # Event broker between ingest and ClickHouse (ADR-0009). One node on the stand;
+  # an installation needs three.
+  center-redpanda:
+    image: redpandadata/redpanda:v26.2.5@sha256:badca2d958f81da675c3055a9ecb6ebb590325582bcf16936148ffd65e96e920
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://center-redpanda:9092,external://127.0.0.1:25092
+    environment:
+      RP_BOOTSTRAP_USER: dg_broker_admin:${CENTER_BROKER_ADMIN_PASSWORD}:SCRAM-SHA-256
+    ports:
+      - "127.0.0.1:25092:19092"
+    volumes:
+      - ./redpanda/bootstrap.yaml:/etc/redpanda/.bootstrap.yaml:ro
+      - center-redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.3.3
     # The browser reaches Keycloak through the published port and the server through
@@ -200,6 +225,8 @@ services:
         condition: service_healthy
       center-clickhouse:
         condition: service_healthy
+      center-redpanda:
+        condition: service_healthy
     command: ["migrate"]
     environment:
       DG_PG_MIGRATION_DSN: postgres://dg_owner:${CENTER_PG_ADMIN_PASSWORD}@center-postgres:5432/dataguard?sslmode=disable
@@ -208,6 +235,13 @@ services:
       DG_CH_USER: dg_ch_app
       DG_CH_MIGRATION_USER: dg_ch_admin
       DG_CH_MIGRATION_PASSWORD: ${CENTER_CH_ADMIN_PASSWORD}
+      DG_BROKERS: center-redpanda:9092
+      DG_BROKER_USER: dg_broker_app
+      DG_BROKER_PASSWORD: ${CENTER_BROKER_APP_PASSWORD}
+      DG_BROKER_ADMIN_USER: dg_broker_admin
+      DG_BROKER_ADMIN_PASSWORD: ${CENTER_BROKER_ADMIN_PASSWORD}
+      # One copy suits a single-node stand only; an installation uses 3.
+      DG_BROKER_REPLICATION: "1"
     restart: "no"
 
   server:
@@ -226,9 +260,14 @@ services:
       DG_OIDC_ISSUER: http://127.0.0.1:25080/realms/dataguard
       DG_OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dataguard
       DG_OIDC_CLIENT_ID: dataguard-dashboard
+      DG_METRICS_ADDR: ":9100"
+      DG_BROKERS: center-redpanda:9092
+      DG_BROKER_USER: dg_broker_app
+      DG_BROKER_PASSWORD: ${CENTER_BROKER_APP_PASSWORD}
     ports:
       - "127.0.0.1:25800:8080"
       - "127.0.0.1:25443:8443"
+      - "127.0.0.1:25910:9100"
     volumes:
       # The CA key stays in this volume; agents only get the certificate.
       - center-pki:/var/lib/dataguard/pki:ro
@@ -264,6 +303,8 @@ services:
       - ./.state/audit/postgres:/var/log/dg-audit/postgres:ro
       - ./.state/audit/mysql:/var/log/dg-audit/mysql:ro
       - ./.state/audit/mariadb:/var/log/dg-audit/mariadb:ro
+    ports:
+      - "127.0.0.1:25964:9464"
     restart: unless-stopped
 
   # The dashboard walk in a real browser. It uses the host network to open the
@@ -290,3 +331,4 @@ volumes:
   source-mssql-data:
   center-postgres-data:
   center-clickhouse-data:
+  center-redpanda-data:

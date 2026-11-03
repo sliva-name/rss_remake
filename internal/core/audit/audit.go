@@ -69,10 +69,37 @@ type Catalog interface {
 	CatalogVersion(ctx context.Context, tenantID, sourceID uuid.UUID) (time.Time, error)
 }
 
-// Sink stores events. It returns only after they are durable, because the agent
-// deletes its copy on acknowledgement.
+// EventKey addresses a stored event. A redelivered event carries the same time,
+// because the agent fixes it before queueing.
+type EventKey struct {
+	Time time.Time
+	ID   uuid.UUID
+}
+
+// Publisher hands accepted events to the broker (ADR-0009). It returns only after
+// they are durable there, because the agent deletes its copy on acknowledgement.
+type Publisher interface {
+	Publish(ctx context.Context, events []Event) error
+}
+
+// Sink stores events for reading. Insert returns only after they are durable,
+// because the consumer commits its position afterwards.
 type Sink interface {
+	// Stored reports which of these events are already durable.
+	Stored(ctx context.Context, tenantID uuid.UUID, keys []EventKey) (map[uuid.UUID]bool, error)
 	Insert(ctx context.Context, events []Event) error
+}
+
+// Observer learns what ingest did: counts and delays, never the events.
+type Observer interface {
+	Accepted(count int)
+	Ingested(stored, duplicates int, delays []time.Duration)
+}
+
+// AgentLocks serializes storing per agent across server instances. Without it a
+// consumer that lost its partition while still writing would race the new owner.
+type AgentLocks interface {
+	WithAgentLock(ctx context.Context, tenantID, agentID uuid.UUID, work func(context.Context) error) error
 }
 
 const (
@@ -89,16 +116,23 @@ type cachedColumns struct {
 
 // Service ingests events.
 type Service struct {
-	catalog Catalog
-	sink    Sink
-	now     func() time.Time
+	catalog   Catalog
+	locks     AgentLocks
+	sink      Sink
+	publisher Publisher
+	observer  Observer
+	now       func() time.Time
 
 	mu    sync.Mutex
 	cache map[uuid.UUID]cachedColumns
 }
 
-func NewService(catalog Catalog, sink Sink) *Service {
-	return &Service{catalog: catalog, sink: sink, now: time.Now, cache: map[uuid.UUID]cachedColumns{}}
+// NewService creates the service. The observer may be nil.
+func NewService(catalog Catalog, locks AgentLocks, sink Sink, publisher Publisher, observer Observer) *Service {
+	return &Service{
+		catalog: catalog, locks: locks, sink: sink, publisher: publisher, observer: observer,
+		now: time.Now, cache: map[uuid.UUID]cachedColumns{},
+	}
 }
 
 // columnsOf reuses a source's catalog until a scan changes it. Loading every
@@ -125,39 +159,121 @@ func (s *Service) columnsOf(ctx context.Context, tenantID, sourceID uuid.UUID) (
 	return columns, nil
 }
 
-// Ingest validates, enriches and stores a batch, returning accepted ids. The batch
-// is all-or-nothing: an event for a foreign source means the agent is misbehaving.
+// Ingest validates and enriches a batch and hands it to the broker, returning the
+// accepted ids. The batch is all-or-nothing: an event for a foreign source means
+// the agent is misbehaving. Duplicates are removed later, by Store.
 func (s *Service) Ingest(ctx context.Context, tenantID, agentID uuid.UUID, events []*agentv1.AuditEvent) ([]string, error) {
-	owned, err := s.catalog.AgentSources(ctx, tenantID, agentID)
+	converted, accepted, err := s.convertBatch(ctx, tenantID, agentID, events)
 	if err != nil {
 		return nil, err
 	}
+	if err := s.publisher.Publish(ctx, converted); err != nil {
+		return nil, err
+	}
+	if s.observer != nil {
+		s.observer.Accepted(len(accepted))
+	}
+	return accepted, nil
+}
+
+type agentKey struct{ tenantID, agentID uuid.UUID }
+
+// Store writes what the consumer read from the broker. Each agent's events are
+// checked against storage and inserted under that agent's lock, so a delivery
+// repeated by the agent, a re-read after a consumer failure and a partition moved
+// to another instance all end as one row.
+func (s *Service) Store(ctx context.Context, events []Event) error {
+	byAgent := map[agentKey][]Event{}
+	var order []agentKey
+	for _, event := range events {
+		key := agentKey{event.TenantID, event.AgentID}
+		if _, found := byAgent[key]; !found {
+			order = append(order, key)
+		}
+		byAgent[key] = append(byAgent[key], event)
+	}
+	for _, key := range order {
+		if err := s.storeAgent(ctx, key, byAgent[key]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) storeAgent(ctx context.Context, key agentKey, events []Event) error {
+	return s.locks.WithAgentLock(ctx, key.tenantID, key.agentID, func(ctx context.Context) error {
+		keys := make([]EventKey, len(events))
+		for i := range events {
+			keys[i] = EventKey{Time: events[i].Time, ID: events[i].ID}
+		}
+		stored, err := s.sink.Stored(ctx, key.tenantID, keys)
+		if err != nil {
+			return err
+		}
+		seen := make(map[uuid.UUID]bool, len(events))
+		fresh := make([]Event, 0, len(events))
+		for _, event := range events {
+			if stored[event.ID] || seen[event.ID] {
+				continue
+			}
+			seen[event.ID] = true
+			fresh = append(fresh, event)
+		}
+		if err := s.sink.Insert(ctx, fresh); err != nil {
+			return err
+		}
+		if s.observer != nil {
+			now := s.now()
+			delays := make([]time.Duration, len(fresh))
+			for i := range fresh {
+				delays[i] = now.Sub(fresh[i].Time)
+			}
+			s.observer.Ingested(len(fresh), len(events)-len(fresh), delays)
+		}
+		return nil
+	})
+}
+
+func (s *Service) convertBatch(ctx context.Context, tenantID, agentID uuid.UUID, events []*agentv1.AuditEvent) ([]Event, []string, error) {
+	owned, err := s.catalog.AgentSources(ctx, tenantID, agentID)
+	if err != nil {
+		return nil, nil, err
+	}
 	now := s.now()
-	stored := make([]Event, 0, len(events))
+	converted := make([]Event, 0, len(events))
 	accepted := make([]string, 0, len(events))
+	seen := make(map[uuid.UUID]bool, len(events))
+	// A batch names few sources, so each one's catalog is looked up once per batch.
+	batchColumns := map[uuid.UUID]map[ColumnKey]ColumnInfo{}
 	for _, event := range events {
 		sourceID, err := uuid.Parse(event.GetSourceId())
 		if err != nil || !slices.Contains(owned, sourceID) {
-			return nil, ErrForeignSource
+			return nil, nil, ErrForeignSource
 		}
-		columns, err := s.columnsOf(ctx, tenantID, sourceID)
+		columns, found := batchColumns[sourceID]
+		if !found {
+			if columns, err = s.columnsOf(ctx, tenantID, sourceID); err != nil {
+				return nil, nil, err
+			}
+			batchColumns[sourceID] = columns
+		}
+		item, err := convert(tenantID, agentID, sourceID, event, columns)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		converted, err := convert(tenantID, agentID, sourceID, event, columns)
-		if err != nil {
-			return nil, err
+		if item.Time.Before(now.Add(-maxEventAge)) || item.Time.After(now.Add(maxClockSkew)) {
+			item.Time = now
 		}
-		if converted.Time.Before(now.Add(-maxEventAge)) || converted.Time.After(now.Add(maxClockSkew)) {
-			converted.Time = now
-		}
-		stored = append(stored, converted)
+		// Storage keeps microseconds; the key must match what a redelivery will find.
+		item.Time = item.Time.Truncate(time.Microsecond)
 		accepted = append(accepted, event.GetEventId())
+		if seen[item.ID] {
+			continue
+		}
+		seen[item.ID] = true
+		converted = append(converted, item)
 	}
-	if err := s.sink.Insert(ctx, stored); err != nil {
-		return nil, err
-	}
-	return accepted, nil
+	return converted, accepted, nil
 }
 
 func convert(tenantID, agentID, sourceID uuid.UUID, event *agentv1.AuditEvent, columns map[ColumnKey]ColumnInfo) (Event, error) {
@@ -224,6 +340,10 @@ type SourceAccount struct {
 	SourceID  uuid.UUID
 	Principal string
 }
+
+// CountLimit caps how far a search counts its matches. An exact count over a wide
+// window costs more than the search itself; a total above the cap is a lower bound.
+const CountLimit = 10_000
 
 // Filter narrows an event search; zero values mean no filter.
 type Filter struct {

@@ -7,11 +7,14 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
+	_ "time/tzdata" // log time zones are resolved by name, whatever the image provides
 
 	"golang.org/x/sync/errgroup"
 
@@ -21,10 +24,14 @@ import (
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/agent/runtime"
 	"dataguard/internal/agent/sources"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/platform/safelog"
 )
 
-const version = "0.1.0"
+const (
+	version        = "0.1.0"
+	metricsTimeout = 10 * time.Second
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -74,7 +81,8 @@ func serve(ctx context.Context, settings *config.Config) error {
 	if err != nil {
 		return err
 	}
-	client, err := center.New(settings.Center.URL, settings.Center.CAFile, store)
+	observer := telemetry.New()
+	client, err := center.New(settings.Center.URL, settings.Center.CAFile, store, observer)
 	if err != nil {
 		return err
 	}
@@ -111,16 +119,39 @@ func serve(ctx context.Context, settings *config.Config) error {
 	if policy != nil {
 		discovery.ApplyPolicy(policy)
 	}
-	audit := runtime.NewAudit(client, registry, events, verifier, logger)
+	audit := runtime.NewAudit(client, registry, events, verifier, logger, observer)
 	control := runtime.NewControl(runtime.Options{
 		Client: client, Identity: store, Prober: registry, Sources: sourceSync, Health: audit,
-		Policies: discovery, Version: version, Logger: logger,
+		Policies: discovery, Version: version, Logger: logger, Metrics: observer,
 	})
+	observer.Watch(audit, registry, store)
 
 	logger.Info("agent started", "agent_id", store.AgentID().String(), "version", version)
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error { control.Run(groupContext); return nil })
 	group.Go(func() error { discovery.Run(groupContext); return nil })
 	group.Go(func() error { audit.Run(groupContext); return nil })
+	if settings.Metrics.Address != "" {
+		group.Go(func() error { return serveMetrics(groupContext, settings.Metrics.Address, observer, logger) })
+	}
 	return group.Wait()
+}
+
+// serveMetrics answers GET /metrics and nothing else. The port is read-only: no
+// request changes the agent or reaches a source.
+func serveMetrics(ctx context.Context, address string, observer *telemetry.Agent, logger *slog.Logger) error {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", observer.Handler())
+	server := &http.Server{Addr: address, Handler: mux, ReadHeaderTimeout: metricsTimeout, WriteTimeout: metricsTimeout}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), metricsTimeout)
+		defer cancel()
+		_ = server.Shutdown(shutdown)
+	}()
+	logger.Info("metrics listening", "address", address)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serve metrics: %w", err)
+	}
+	return nil
 }

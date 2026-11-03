@@ -28,7 +28,9 @@ import (
 	"dataguard/internal/agent/config"
 	"dataguard/internal/agent/identity"
 	"dataguard/internal/agent/runtime"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/contract/egress"
+	"dataguard/internal/core/audit"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/tenant"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
@@ -37,8 +39,10 @@ import (
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/server/api"
 	"dataguard/internal/server/app"
+	"dataguard/internal/server/broker"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
+	servertelemetry "dataguard/internal/server/telemetry"
 	"dataguard/internal/testkit/stand"
 )
 
@@ -64,6 +68,10 @@ type platform struct {
 	events        *clickhouse.Store
 	eventSettings clickhouse.Settings
 	gate          *outage
+	metrics       *servertelemetry.Server
+	storeDown     *atomic.Bool
+	runtimeDSN    string
+	broker        broker.Settings
 }
 
 // outage makes the center unreachable from an agent's point of view.
@@ -122,13 +130,62 @@ func startPlatform(t *testing.T) *platform {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	authn := staticAuthenticator{}
+	brokerSettings := stand.CenterBroker(t)
+	first := serve(t, store, events, pkiDir, authn, brokerSettings)
+	return &platform{
+		app: first.app, agents: first.agents, rest: first.rest, pkiDir: pkiDir, authn: authn,
+		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: first.gate,
+		metrics: first.metrics, storeDown: first.storeDown, runtimeDSN: runtimeDSN, broker: brokerSettings, caFile: filepath.Join(pkiDir, pki.CACertFile),
+	}
+}
+
+// instance is one running server: its own application, connection pools, caches,
+// metrics and ports.
+type instance struct {
+	app     *app.App
+	agents  *httptest.Server
+	rest    *httptest.Server
+	gate    *outage
+	metrics *servertelemetry.Server
+	// storeDown makes the consumer's writes to ClickHouse fail, as an outage would.
+	storeDown *atomic.Bool
+}
+
+// serve runs an instance with its broker consumer, as dataguard-server serve does.
+func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir string, authn staticAuthenticator, settings broker.Settings) instance {
+	t.Helper()
+	metrics := servertelemetry.New()
+	publisher, err := broker.NewPublisher(settings)
+	if err != nil {
+		t.Fatalf("NewPublisher: %v", err)
+	}
+	t.Cleanup(publisher.Close)
 	application, err := app.Build(app.Options{
-		Store: store, Events: events, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
-		Authenticator: authn, Logger: safelog.Discard(),
+		Store: store, Events: events, Broker: publisher, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
+		Authenticator: authn, Logger: safelog.Discard(), Metrics: metrics,
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
+	storeDown := &atomic.Bool{}
+	write := func(ctx context.Context, events []audit.Event) error {
+		if storeDown.Load() {
+			return errors.New("clickhouse unavailable")
+		}
+		return application.Events.Store(ctx, events)
+	}
+	consumer := broker.NewConsumer(settings, write, metrics, safelog.Discard())
+	metrics.WatchLag(consumer.Lag)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		consumer.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	tlsConfig, err := app.AgentTLSConfig(pkiDir)
 	if err != nil {
 		t.Fatalf("AgentTLSConfig: %v", err)
@@ -142,12 +199,26 @@ func startPlatform(t *testing.T) *platform {
 
 	rest := httptest.NewServer(application.APIHandler)
 	t.Cleanup(rest.Close)
+	return instance{app: application, agents: agents, rest: rest, gate: gate, metrics: metrics, storeDown: storeDown}
+}
 
-	return &platform{
-		app: application, agents: agents, rest: rest, pkiDir: pkiDir, authn: authn,
-		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: gate,
-		caFile: filepath.Join(pkiDir, pki.CACertFile),
+// secondInstance starts another server on the same databases and PKI, the way a
+// second container behind a load balancer would run. It shares no memory with
+// the first: pools, caches and metrics are its own.
+func (p *platform) secondInstance(t *testing.T) instance {
+	t.Helper()
+	ctx := context.Background()
+	store, err := postgres.Open(ctx, p.runtimeDSN)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
 	}
+	t.Cleanup(store.Close)
+	events, err := clickhouse.Open(ctx, p.eventSettings)
+	if err != nil {
+		t.Fatalf("clickhouse.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = events.Close() })
+	return serve(t, store, events, p.pkiDir, p.authn, p.broker)
 }
 
 func (p *platform) newTenant(t *testing.T, name string) (tenant.Tenant, tenant.Environment) {
@@ -165,12 +236,19 @@ func (p *platform) newTenant(t *testing.T, name string) (tenant.Tenant, tenant.E
 }
 
 type enrolledAgent struct {
-	client *center.Client
-	store  *identity.Store
-	dir    string
+	client  *center.Client
+	store   *identity.Store
+	dir     string
+	metrics *telemetry.Agent
 }
 
 func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrolledAgent {
+	t.Helper()
+	return p.enrollThrough(t, tenantID, environmentID, p.agents.URL)
+}
+
+// enrollThrough registers an agent that talks to the center at url.
+func (p *platform) enrollThrough(t *testing.T, tenantID, environmentID uuid.UUID, url string) enrolledAgent {
 	t.Helper()
 	ctx := context.Background()
 	token, _, err := p.app.Fleet.CreateEnrollmentToken(ctx, tenantID, environmentID)
@@ -178,7 +256,7 @@ func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrol
 		t.Fatalf("CreateEnrollmentToken: %v", err)
 	}
 	dir := t.TempDir()
-	settings := &config.Config{StateDir: dir, Center: config.Center{URL: p.agents.URL, CAFile: p.caFile}}
+	settings := &config.Config{StateDir: dir, Center: config.Center{URL: url, CAFile: p.caFile}}
 	if err := runtime.Enroll(ctx, settings, token, "1.0.0"); err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -186,11 +264,12 @@ func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrol
 	if err != nil {
 		t.Fatalf("identity.Open: %v", err)
 	}
-	client, err := center.New(p.agents.URL, p.caFile, store)
+	observer := telemetry.New()
+	client, err := center.New(url, p.caFile, store, observer)
 	if err != nil {
 		t.Fatalf("center.New: %v", err)
 	}
-	return enrolledAgent{client: client, store: store, dir: dir}
+	return enrolledAgent{client: client, store: store, dir: dir, metrics: observer}
 }
 
 func TestRuntimeRoleMustNotBypassRowSecurity(t *testing.T) {

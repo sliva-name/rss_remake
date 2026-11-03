@@ -18,6 +18,7 @@ import (
 	"dataguard/internal/agent/config"
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/agent/sources"
+	"dataguard/internal/agent/telemetry"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/retry"
 	"dataguard/sdk/go/appcontext"
@@ -68,6 +69,7 @@ type Audit struct {
 	events   *queue.Queue
 	verifier collector.Verifier
 	logger   *slog.Logger
+	metrics  *telemetry.Agent
 	backoff  retry.Backoff
 
 	mu         sync.Mutex
@@ -83,10 +85,11 @@ type runningCollector struct {
 	release  func()
 }
 
-// NewAudit creates the runtime.
-func NewAudit(client *center.Client, registry *sources.Registry, events *queue.Queue, verifier collector.Verifier, logger *slog.Logger) *Audit {
+// NewAudit creates the runtime. Metrics may be nil.
+func NewAudit(client *center.Client, registry *sources.Registry, events *queue.Queue, verifier collector.Verifier,
+	logger *slog.Logger, metrics *telemetry.Agent) *Audit {
 	return &Audit{
-		client: client, registry: registry, events: events, verifier: verifier, logger: logger,
+		client: client, registry: registry, events: events, verifier: verifier, logger: logger, metrics: metrics,
 		backoff: retry.Backoff{Base: backoffBase, Max: backoffMax}, collectors: map[string]*runningCollector{},
 	}
 }
@@ -135,7 +138,7 @@ func (a *Audit) reconcile(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		item := sources.NewCollector(plan.Definition, source, a.events, a.verifier, a.logger)
+		item := sources.NewCollector(plan.Definition, source, a.events, a.verifier, a.logger, a.metrics)
 		if item == nil {
 			release()
 			continue
@@ -232,5 +235,9 @@ func (a *Audit) sendBatch(ctx context.Context) (int, error) {
 	if len(sequences) == 0 {
 		return 0, errors.New("center accepted nothing")
 	}
-	return len(sequences), a.events.Ack(sequences)
+	if err := a.events.Ack(sequences); err != nil {
+		return 0, err
+	}
+	a.metrics.Delivered(len(sequences))
+	return len(sequences), nil
 }

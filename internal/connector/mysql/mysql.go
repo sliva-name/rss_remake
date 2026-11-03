@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 
@@ -99,6 +100,19 @@ func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilitySta
 		return append(statuses, connector.Configured(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, enabled, reason))
 	}
 	return append(statuses, connector.Status(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, agentv1.Support_SUPPORT_UNAVAILABLE, "GENERAL_LOG_HAS_NO_OUTCOME"))
+}
+
+// LogLocation reports the zone of server_audit timestamps, which are the
+// server process's local time without an offset. The offset is fixed at the
+// moment of the call; the collector asks again every few minutes, so a daylight
+// saving change misplaces records by an hour for at most that long.
+func (s *Source) LogLocation(ctx context.Context) (*time.Location, error) {
+	const query = `SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', 'SYSTEM'))`
+	var offset int
+	if err := s.db.QueryRowContext(ctx, query).Scan(&offset); err != nil {
+		return nil, safeerr.New("read log time zone", safeerr.CodeQuery, err)
+	}
+	return time.FixedZone("", offset), nil
 }
 
 const catalogQuery = `

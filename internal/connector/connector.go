@@ -91,6 +91,13 @@ type AuditRow struct {
 	Statement  string
 }
 
+// LogClock reports the time zone a server writes log timestamps in. File logs
+// that print local time without an offset, or with only an abbreviation, need
+// it to place their records in time.
+type LogClock interface {
+	LogLocation(ctx context.Context) (*time.Location, error)
+}
+
 // AuditLogSource reads audit records through SQL.
 type AuditLogSource interface {
 	AuditRows(ctx context.Context, pattern, file string, offset int64) ([]AuditRow, error)

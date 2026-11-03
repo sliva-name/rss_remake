@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"dataguard/internal/agent/identity"
+	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/contract/egress"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/gen/dataguard/agent/v1/agentv1connect"
@@ -40,6 +42,23 @@ func egressInterceptor() connect.UnaryInterceptorFunc {
 				return nil, err
 			}
 			return next(ctx, request)
+		}
+	}
+}
+
+// metricsInterceptor sits outside the egress check, so a blocked message counts as
+// a call that never left the agent.
+func metricsInterceptor(observer *telemetry.Agent) connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+			response, err := next(ctx, request)
+			observer.Request(path.Base(request.Spec().Procedure), err)
+			if errors.Is(err, egress.ErrBlocked) {
+				if message, ok := request.Any().(proto.Message); ok {
+					observer.Blocked(string(message.ProtoReflect().Descriptor().Name()))
+				}
+			}
+			return response, err
 		}
 	}
 }
@@ -86,15 +105,16 @@ type Client struct {
 	identity *identity.Store
 }
 
-// New creates a client that presents the agent's certificate.
-func New(url, caFile string, store *identity.Store) (*Client, error) {
+// New creates a client that presents the agent's certificate. Metrics may be nil.
+func New(url, caFile string, store *identity.Store, observer *telemetry.Agent) (*Client, error) {
 	roots, err := trustedRoots(caFile)
 	if err != nil {
 		return nil, err
 	}
 	transport := httpClient(&tls.Config{RootCAs: roots, GetClientCertificate: store.ClientCertificate})
 	return &Client{
-		rpc:      agentv1connect.NewAgentServiceClient(transport, url, connect.WithInterceptors(egressInterceptor())),
+		rpc: agentv1connect.NewAgentServiceClient(transport, url,
+			connect.WithInterceptors(metricsInterceptor(observer), egressInterceptor())),
 		identity: store,
 	}, nil
 }

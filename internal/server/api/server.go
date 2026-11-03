@@ -20,6 +20,7 @@ import (
 	"dataguard/internal/core/tenant"
 	"dataguard/internal/gen/restapi"
 	"dataguard/internal/platform/safeerr"
+	"dataguard/internal/server/telemetry"
 )
 
 const maxRequestBytes = 1 << 20
@@ -47,7 +48,7 @@ type Server struct {
 }
 
 // Handler builds the HTTP handler with authentication and authorization.
-func Handler(server *Server, authenticator Authenticator, logger *slog.Logger) http.Handler {
+func Handler(server *Server, authenticator Authenticator, logger *slog.Logger, metrics *telemetry.Server) http.Handler {
 	strict := restapi.NewStrictHandlerWithOptions(server, []restapi.StrictMiddlewareFunc{authorize},
 		restapi.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, _ error) {
@@ -57,13 +58,14 @@ func Handler(server *Server, authenticator Authenticator, logger *slog.Logger) h
 				writeError(w, logger, err)
 			},
 		})
+	router := http.NewServeMux()
 	routes := restapi.HandlerWithOptions(strict, restapi.StdHTTPServerOptions{
-		BaseURL: "/api/v1",
+		BaseURL: "/api/v1", BaseRouter: router,
 		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, _ error) {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", "request is malformed")
 		},
 	})
-	return limitBody(authenticate(authenticator, routes))
+	return metrics.API(router, limitBody(authenticate(authenticator, routes)))
 }
 
 // New creates the REST adapter.
@@ -91,7 +93,8 @@ func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeProblem(w, http.StatusNotFound, "not_found", "resource not found")
 	case errors.Is(err, tenant.ErrConflict), errors.Is(err, fleet.ErrConflict):
 		writeProblem(w, http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid):
+	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid),
+		errors.Is(err, errInvalidParameter):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 	default:
 		logger.Error("request failed", "error", err, "code", string(safeerr.CodeOf(err)))

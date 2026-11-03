@@ -37,6 +37,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if loaded.QueueCap <= 0 || loaded.Allowlist() == nil {
 		t.Fatalf("unexpected config: %+v", loaded)
 	}
+	if loaded.Metrics.Address != "" {
+		t.Fatal("the metrics port must stay closed unless configured")
+	}
 }
 
 func TestLoadRejectsInvalid(t *testing.T) {
@@ -48,6 +51,7 @@ func TestLoadRejectsInvalid(t *testing.T) {
 		"relative audit":    strings.ReplaceAll(valid, "/var/log/postgresql", "var/log"),
 		"unclean audit":     strings.ReplaceAll(valid, "/var/log/postgresql", "/var/log/../etc"),
 		"sources in config": valid + "sources: []\n",
+		"metrics no port":   valid + "metrics: {address: 127.0.0.1}\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
