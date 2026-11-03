@@ -1,0 +1,9 @@
+# Cluster properties applied when the stand's broker starts for the first time.
+# Every Kafka listener requires SASL, and ACLs are enforced; only the bootstrap
+# user is a superuser (ADR-0009).
+enable_sasl: true
+superusers: [dg_broker_admin]
+auto_create_topics_enabled: false
+# Every test creates its own consumer group; waiting for more members before the
+# first assignment would add seconds to each of them.
+group_initial_rebalance_delay: 0

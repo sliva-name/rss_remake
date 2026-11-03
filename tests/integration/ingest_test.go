@@ -268,6 +268,27 @@ func TestCenterOutageLosesNothingAndDuplicatesNothing(t *testing.T) {
 	}
 }
 
+// awaitStored waits for the broker consumer to store exactly want events of the
+// tenant, then checks that no more arrive: a duplicate would show up late.
+func (p *platform) awaitStored(t *testing.T, tenantID uuid.UUID, want int) {
+	t.Helper()
+	deadline := time.Now().Add(auditWait)
+	for {
+		_, total := p.search(t, tenantID, searchWindow())
+		if total == uint64(want) {
+			break
+		}
+		if total > uint64(want) || time.Now().After(deadline) {
+			t.Fatalf("stored %d events, want %d", total, want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, total := p.search(t, tenantID, searchWindow()); total != uint64(want) {
+		t.Fatalf("stored %d events after settling, want %d", total, want)
+	}
+}
+
 func gather(t *testing.T, read func() (map[string]float64, error)) map[string]float64 {
 	t.Helper()
 	samples, err := read()
@@ -293,9 +314,7 @@ func TestRedeliveryStoresOneRow(t *testing.T) {
 			t.Fatalf("SubmitEvents = %v, %v", accepted, err)
 		}
 	}
-	if _, total := platform.search(t, created.ID, searchWindow()); total != 1 {
-		t.Fatalf("stored %d rows", total)
-	}
+	platform.awaitStored(t, created.ID, 1)
 	samples := gather(t, platform.metrics.Gather)
 	if samples["dataguard_server_events_ingested_total|result=stored"] != 1 ||
 		samples["dataguard_server_events_ingested_total|result=duplicate"] != 2 ||
@@ -334,6 +353,7 @@ func TestConcurrentRedeliveryStoresEachEventOnce(t *testing.T) {
 	for err := range errs {
 		t.Fatal(err)
 	}
+	platform.awaitStored(t, created.ID, len(batch))
 	events, total := platform.search(t, created.ID, searchWindow())
 	identifiers := map[uuid.UUID]bool{}
 	for _, event := range events {
@@ -480,6 +500,64 @@ func TestEventTableMigrationKeepsEventsOnceAndStaysIsolated(t *testing.T) {
 	}
 }
 
+// The reason for the broker (ADR-0009): while ClickHouse cannot be written, agents
+// are still acknowledged, so their queues do not grow; the backlog waits in the
+// broker and is stored once when ClickHouse returns.
+func TestStorageOutageIsAbsorbedByTheBroker(t *testing.T) {
+	ctx := context.Background()
+	platform := startPlatform(t)
+	created, environment := platform.newTenant(t, "Acme")
+	enrolled := platform.enroll(t, created.ID, environment.ID)
+	sourceID := platform.addSource(t, enrolled, placeholderSource()).String()
+
+	platform.storeDown.Store(true)
+	const batches, perBatch = 5, 40
+	for range batches {
+		batch := make([]*agentv1.AuditEvent, perBatch)
+		for i := range batch {
+			batch[i] = &agentv1.AuditEvent{
+				EventId: uuid.NewString(), SourceId: sourceID,
+				EventTime: timestamppb.Now(), EventType: agentv1.EventType_EVENT_TYPE_DATA_ACCESS,
+			}
+		}
+		// Sent twice, as an agent does when an acknowledgement is lost.
+		for range 2 {
+			if accepted, err := enrolled.client.SubmitEvents(ctx, batch); err != nil || len(accepted) != perBatch {
+				t.Fatalf("ingest must accept while storage is down: %d, %v", len(accepted), err)
+			}
+		}
+	}
+	deadline := time.Now().Add(auditWait)
+	for {
+		samples := gather(t, platform.metrics.Gather)
+		if samples["dataguard_server_consumer_restarts_total"] > 0 && samples["dataguard_server_consumer_lag_records"] >= 2*batches*perBatch {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the outage is not visible: restarts %v, lag %v",
+				samples["dataguard_server_consumer_restarts_total"], samples["dataguard_server_consumer_lag_records"])
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if _, total := platform.search(t, created.ID, searchWindow()); total != 0 {
+		t.Fatalf("stored %d events while storage was down", total)
+	}
+
+	platform.storeDown.Store(false)
+	platform.awaitStored(t, created.ID, batches*perBatch)
+	samples := gather(t, platform.metrics.Gather)
+	if samples["dataguard_server_events_ingested_total|result=duplicate"] != batches*perBatch {
+		t.Fatalf("duplicates = %v, want %d", samples["dataguard_server_events_ingested_total|result=duplicate"], batches*perBatch)
+	}
+	deadline = time.Now().Add(auditWait)
+	for gather(t, platform.metrics.Gather)["dataguard_server_consumer_lag_records"] != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the consumer did not catch up")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func TestAgentCannotReportOnAnotherAgentsSource(t *testing.T) {
 	ctx := context.Background()
 	platform := startPlatform(t)
@@ -534,6 +612,8 @@ func TestRowPolicyHoldsWithoutTheApplicationFilter(t *testing.T) {
 		return total, err
 	}
 	scoped := chdriver.Context(ctx, chdriver.WithSettings(chdriver.Settings{"SQL_tenant_id": chdriver.CustomSetting{Value: first.ID.String()}}))
+	platform.awaitStored(t, first.ID, 1)
+	platform.awaitStored(t, second.ID, 1)
 	if total, err := count(scoped); err != nil || total != 1 {
 		t.Fatalf("scoped count = %d, %v", total, err)
 	}
@@ -556,6 +636,8 @@ func TestTenantsSeeOnlyTheirOwnAnalytics(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	// The event must be stored first, or the check below would pass on an empty table.
+	platform.awaitStored(t, first.ID, 1)
 	platform.authn["other"] = api.Principal{Subject: "o", TenantID: second.ID, Roles: []string{api.RoleAuditor}}
 	for _, path := range []string{"/api/v1/audit/events", "/api/v1/analytics/principals", "/api/v1/audit/coverage"} {
 		status, payload := restCall(t, platform, http.MethodGet, path, "other", "")

@@ -49,6 +49,8 @@ type Options struct {
 	Logger         *slog.Logger
 	OIDCIssuer     string
 	OIDCClientID   string
+	// Broker receives accepted events (ADR-0009).
+	Broker Broker
 	// Metrics may be nil.
 	Metrics *telemetry.Server
 	// WebDirectory is the built dashboard; empty disables serving it.
@@ -61,9 +63,17 @@ type App struct {
 	Fleet    *fleet.Service
 	Policies *policy.Service
 	Scans    *scan.Service
+	// Events stores what the broker consumer reads.
+	Events *audit.Service
 
 	APIHandler   http.Handler
 	AgentHandler http.Handler
+}
+
+// Broker is where ingest hands events over.
+type Broker interface {
+	audit.Publisher
+	Ping(ctx context.Context) error
 }
 
 // Build composes the application.
@@ -92,15 +102,17 @@ func Build(options Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	events := audit.NewService(options.Store, options.Store, options.Events, options.Broker, options.Metrics)
 	return &App{
 		Tenants:    tenants,
 		Fleet:      fleetService,
 		Policies:   policies,
 		Scans:      scans,
+		Events:     events,
 		APIHandler: apiRoutes,
 		AgentHandler: agentapi.Handler(agentapi.Dependencies{
 			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,
-			Audit: audit.NewService(options.Store, options.Store, options.Events, options.Metrics), Health: options.Store,
+			Audit: events, Health: options.Store,
 			Metrics:       options.Metrics,
 			CACertificate: authority.CertificatePEM(), PolicyPublicKey: signer.PublicKey(),
 		}),
@@ -125,7 +137,7 @@ func apiHandler(options Options, services api.Services) (http.Handler, error) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		if err := errors.Join(options.Store.Ping(r.Context()), options.Events.Ping(r.Context())); err != nil {
+		if err := errors.Join(options.Store.Ping(r.Context()), options.Events.Ping(r.Context()), options.Broker.Ping(r.Context())); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}

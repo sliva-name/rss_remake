@@ -16,9 +16,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/server/broker"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 	"dataguard/migrations"
@@ -99,6 +101,35 @@ func CenterDatabase(t *testing.T) (ownerDSN, runtimeDSN string) {
 }
 
 const centerClickHouse = "127.0.0.1:25900"
+
+const centerBroker = "127.0.0.1:25092"
+
+// CenterBroker creates a private topic and consumer group, open to the stand's
+// server account only, and returns the server's settings for them.
+func CenterBroker(t *testing.T) broker.Settings {
+	t.Helper()
+	env := Env(t)
+	suffix := make([]byte, 6)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatal(err)
+	}
+	name := "test_" + hex.EncodeToString(suffix)
+	server := broker.Settings{
+		Brokers: []string{centerBroker}, Topic: name, Group: name,
+		User: "dg_broker_app", Password: env["CENTER_BROKER_APP_PASSWORD"],
+	}
+	admin := server
+	admin.User, admin.Password = "dg_broker_admin", env["CENTER_BROKER_ADMIN_PASSWORD"]
+	setup := broker.Setup{
+		Topic: name, Group: name, Partitions: 3, Replication: 1, Retention: time.Hour,
+		User: server.User, Password: server.Password,
+	}
+	if err := broker.Ensure(context.Background(), admin, setup); err != nil {
+		t.Fatalf("prepare broker topic: %v", err)
+	}
+	t.Cleanup(func() { _ = broker.Remove(context.Background(), admin, setup) })
+	return server
+}
 
 // CenterEvents creates a private migrated ClickHouse database and returns runtime
 // settings.

@@ -166,17 +166,21 @@ func TestAgentMovesBetweenInstancesWithoutLossOrDuplicates(t *testing.T) {
 	if uint64(len(identifiers)) != total {
 		t.Fatalf("%d unique of %d stored", len(identifiers), total)
 	}
-	stored := map[string]float64{}
+	// Ingest happens where the agent connects; storing, where the consumer owns the
+	// agent's partition.
+	accepted, stored := map[string]float64{}, map[string]float64{}
 	for name, metrics := range map[string]func() (map[string]float64, error){"first": first.metrics.Gather, "second": second.metrics.Gather} {
-		stored[name] = gather(t, metrics)["dataguard_server_events_ingested_total|result=stored"]
+		samples := gather(t, metrics)
+		accepted[name] = samples["dataguard_server_events_accepted_total"]
+		stored[name] = samples["dataguard_server_events_ingested_total|result=stored"]
 	}
-	if stored["first"] == 0 || stored["second"] == 0 {
-		t.Fatalf("both instances must have stored events: %v", stored)
+	if accepted["first"] == 0 || accepted["second"] == 0 {
+		t.Fatalf("both instances must have accepted events: %v", accepted)
 	}
 	if uint64(stored["first"]+stored["second"]) != total {
 		t.Fatalf("instances stored %v rows in total, the table holds %d", stored, total)
 	}
-	t.Logf("stored by instance: %v, total %d", stored, total)
+	t.Logf("accepted by instance: %v, stored: %v, total %d", accepted, stored, total)
 }
 
 // TestInstancesAgreeUnderConcurrentRequests sends the same request to both
@@ -250,9 +254,7 @@ func TestInstancesAgreeUnderConcurrentRequests(t *testing.T) {
 		for err := range failures {
 			t.Fatal(err)
 		}
-		if _, total := first.search(t, created.ID, searchWindow()); total != uint64(len(batch)) {
-			t.Fatalf("stored %d rows, want %d", total, len(batch))
-		}
+		first.awaitStored(t, created.ID, len(batch))
 	})
 
 	t.Run("each scan job is leased once", func(t *testing.T) {

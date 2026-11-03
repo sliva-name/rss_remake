@@ -23,9 +23,18 @@ if [ ! -f "$apps/crm.pub" ]; then
   chmod 0644 "$apps/crm.pub"
 fi
 
-[ -f "$env_file" ] && exit 0
-
 secret() { openssl rand -hex 16; }
+
+# A stand created before a component existed gets only the passwords it lacks.
+add_missing() {
+  grep -q "^$1=" "$env_file" || echo "$1=$(secret)" >> "$env_file"
+}
+
+if [ -f "$env_file" ]; then
+  add_missing CENTER_BROKER_ADMIN_PASSWORD
+  add_missing CENTER_BROKER_APP_PASSWORD
+  exit 0
+fi
 
 umask 077
 {
@@ -41,4 +50,6 @@ umask 077
   echo "CENTER_CH_ADMIN_PASSWORD=$(secret)"
   echo "CENTER_CH_APP_PASSWORD=$(secret)"
   echo "KEYCLOAK_ADMIN_PASSWORD=$(secret)"
+  echo "CENTER_BROKER_ADMIN_PASSWORD=$(secret)"
+  echo "CENTER_BROKER_APP_PASSWORD=$(secret)"
 } > "$env_file"

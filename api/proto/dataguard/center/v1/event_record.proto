@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package dataguard.center.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "dataguard/internal/gen/dataguard/center/v1;centerv1";
+
+// EventRecord is an event accepted from an agent and waiting in the broker for
+// ClickHouse (ADR-0009). It never leaves the center. The fields mirror the
+// stored event: the agent contract already removed every value, and the tenant
+// and agent come from the agent's certificate, not from what it sent.
+message EventRecord {
+  string tenant_id = 1;
+  string event_id = 2;
+  google.protobuf.Timestamp event_time = 3;
+  string event_type = 4;
+  string agent_id = 5;
+  string source_id = 6;
+  string database_principal = 7;
+  string application_principal = 8;
+  string application_id = 9;
+  string identity_confidence = 10;
+  string client_address = 11;
+  string operation = 12;
+  repeated string tables = 13;
+  repeated string columns = 14;
+  repeated string column_ids = 15;
+  repeated string categories = 16;
+  string query_fingerprint = 17;
+  string execution_status = 18;
+  string error_code = 19;
+  string evidence_level = 20;
+  string object_resolution = 21;
+  string session_id = 22;
+  string transaction_id = 23;
+  string trace_id = 24;
+  string gap_reason = 25;
+  optional uint64 gap_lost_events = 26;
+}

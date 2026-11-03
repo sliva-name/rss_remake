@@ -30,6 +30,7 @@ import (
 	"dataguard/internal/agent/runtime"
 	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/contract/egress"
+	"dataguard/internal/core/audit"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/tenant"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
@@ -38,6 +39,7 @@ import (
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/server/api"
 	"dataguard/internal/server/app"
+	"dataguard/internal/server/broker"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 	servertelemetry "dataguard/internal/server/telemetry"
@@ -67,7 +69,9 @@ type platform struct {
 	eventSettings clickhouse.Settings
 	gate          *outage
 	metrics       *servertelemetry.Server
+	storeDown     *atomic.Bool
 	runtimeDSN    string
+	broker        broker.Settings
 }
 
 // outage makes the center unreachable from an agent's point of view.
@@ -126,11 +130,12 @@ func startPlatform(t *testing.T) *platform {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	authn := staticAuthenticator{}
-	first := serve(t, store, events, pkiDir, authn)
+	brokerSettings := stand.CenterBroker(t)
+	first := serve(t, store, events, pkiDir, authn, brokerSettings)
 	return &platform{
 		app: first.app, agents: first.agents, rest: first.rest, pkiDir: pkiDir, authn: authn,
 		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: first.gate,
-		metrics: first.metrics, runtimeDSN: runtimeDSN, caFile: filepath.Join(pkiDir, pki.CACertFile),
+		metrics: first.metrics, storeDown: first.storeDown, runtimeDSN: runtimeDSN, broker: brokerSettings, caFile: filepath.Join(pkiDir, pki.CACertFile),
 	}
 }
 
@@ -142,18 +147,45 @@ type instance struct {
 	rest    *httptest.Server
 	gate    *outage
 	metrics *servertelemetry.Server
+	// storeDown makes the consumer's writes to ClickHouse fail, as an outage would.
+	storeDown *atomic.Bool
 }
 
-func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir string, authn staticAuthenticator) instance {
+// serve runs an instance with its broker consumer, as dataguard-server serve does.
+func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir string, authn staticAuthenticator, settings broker.Settings) instance {
 	t.Helper()
 	metrics := servertelemetry.New()
+	publisher, err := broker.NewPublisher(settings)
+	if err != nil {
+		t.Fatalf("NewPublisher: %v", err)
+	}
+	t.Cleanup(publisher.Close)
 	application, err := app.Build(app.Options{
-		Store: store, Events: events, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
+		Store: store, Events: events, Broker: publisher, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
 		Authenticator: authn, Logger: safelog.Discard(), Metrics: metrics,
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
+	storeDown := &atomic.Bool{}
+	write := func(ctx context.Context, events []audit.Event) error {
+		if storeDown.Load() {
+			return errors.New("clickhouse unavailable")
+		}
+		return application.Events.Store(ctx, events)
+	}
+	consumer := broker.NewConsumer(settings, write, metrics, safelog.Discard())
+	metrics.WatchLag(consumer.Lag)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		consumer.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	tlsConfig, err := app.AgentTLSConfig(pkiDir)
 	if err != nil {
 		t.Fatalf("AgentTLSConfig: %v", err)
@@ -167,7 +199,7 @@ func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir
 
 	rest := httptest.NewServer(application.APIHandler)
 	t.Cleanup(rest.Close)
-	return instance{app: application, agents: agents, rest: rest, gate: gate, metrics: metrics}
+	return instance{app: application, agents: agents, rest: rest, gate: gate, metrics: metrics, storeDown: storeDown}
 }
 
 // secondInstance starts another server on the same databases and PKI, the way a
@@ -186,7 +218,7 @@ func (p *platform) secondInstance(t *testing.T) instance {
 		t.Fatalf("clickhouse.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = events.Close() })
-	return serve(t, store, events, p.pkiDir, p.authn)
+	return serve(t, store, events, p.pkiDir, p.authn, p.broker)
 }
 
 func (p *platform) newTenant(t *testing.T, name string) (tenant.Tenant, tenant.Environment) {

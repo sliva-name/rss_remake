@@ -282,6 +282,7 @@ func TestScannerReadsAreHiddenUnlessAsked(t *testing.T) {
 	if err != nil || len(accepted) != len(events) {
 		t.Fatalf("accepted %v: %v", accepted, err)
 	}
+	platform.awaitStored(t, created.ID, len(events))
 	totals := map[string]int{}
 	for _, query := range []string{"", "?includeScanner=true"} {
 		status, payload := restCall(t, platform, http.MethodGet, "/api/v1/audit/events"+query, "analyst", "")

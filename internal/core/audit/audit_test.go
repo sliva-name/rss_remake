@@ -76,10 +76,21 @@ func (f *fakeLocks) requireHeld() {
 	}
 }
 
+// directPublisher stores at once, standing in for the broker and its consumer.
+type directPublisher struct {
+	service *audit.Service
+}
+
+func (p *directPublisher) Publish(ctx context.Context, events []audit.Event) error {
+	return p.service.Store(ctx, events)
+}
+
 func newService(t *testing.T, catalog audit.Catalog) (*audit.Service, *fakeSink) {
 	locks := &fakeLocks{t: t}
 	sink := &fakeSink{locks: locks}
-	return audit.NewService(catalog, locks, sink, nil), sink
+	publisher := &directPublisher{}
+	publisher.service = audit.NewService(catalog, locks, sink, publisher, nil)
+	return publisher.service, sink
 }
 
 func event(sourceID uuid.UUID) *agentv1.AuditEvent {
@@ -238,4 +249,37 @@ func TestEventTimeIsKeptToTheMicrosecond(t *testing.T) {
 	if len(sink.events) != 1 || sink.events[0].Time.Nanosecond()%1000 != 0 {
 		t.Fatalf("stored %d events, time %s", len(sink.events), sink.events[0].Time)
 	}
+}
+
+// A consumer reads events of many agents at once; each agent is stored under its
+// own lock, and a record read twice is stored once.
+func TestStoreSeparatesAgentsAndDropsRepeats(t *testing.T) {
+	locks := &countingLocks{fakeLocks: fakeLocks{t: t}, agents: map[uuid.UUID]int{}}
+	sink := &fakeSink{locks: &locks.fakeLocks}
+	service := audit.NewService(fakeCatalog{}, locks, sink, nil, nil)
+	tenantID, first, second := uuid.New(), uuid.New(), uuid.New()
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	repeated := audit.Event{ID: uuid.New(), TenantID: tenantID, AgentID: first, Time: at}
+	batch := []audit.Event{repeated, {ID: uuid.New(), TenantID: tenantID, AgentID: second, Time: at}, repeated}
+	for range 2 {
+		if err := service.Store(context.Background(), batch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sink.events) != 2 {
+		t.Fatalf("stored %d events, want 2", len(sink.events))
+	}
+	if locks.agents[first] != 2 || locks.agents[second] != 2 {
+		t.Fatalf("locks taken = %v, want one per agent per call", locks.agents)
+	}
+}
+
+type countingLocks struct {
+	fakeLocks
+	agents map[uuid.UUID]int
+}
+
+func (c *countingLocks) WithAgentLock(ctx context.Context, tenantID, agentID uuid.UUID, work func(context.Context) error) error {
+	c.agents[agentID]++
+	return c.fakeLocks.WithAgentLock(ctx, tenantID, agentID, work)
 }

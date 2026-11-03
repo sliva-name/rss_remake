@@ -16,6 +16,8 @@ import (
 	"dataguard/internal/platform/metrics"
 )
 
+const lagTimeout = 3 * time.Second
+
 var (
 	durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30}
 	// Delays run from a live tail to an agent that was offline for a day.
@@ -34,6 +36,9 @@ type Server struct {
 	apiRequests   *metrics.Counter
 	apiDuration   *metrics.Histogram
 	ingested      *metrics.Counter
+	accepted      *metrics.Counter
+	restarts      *metrics.Counter
+	rejected      *metrics.Counter
 	deliveryDelay *metrics.Histogram
 	ingestBatches *metrics.Counter
 }
@@ -54,8 +59,14 @@ func New() *Server {
 		apiDuration: registry.Histogram("api_request_duration_seconds",
 			"REST handling time by route template.", durationBuckets, metrics.Route("route")),
 		ingested: registry.Counter("events_ingested_total",
-			"Events accepted from agents: stored, or already stored by an earlier delivery.",
+			"Events the consumer read from the broker: stored, or already stored by an earlier delivery.",
 			metrics.Enum("result", "stored", "duplicate")),
+		accepted: registry.Counter("events_accepted_total",
+			"Events acknowledged to agents once the broker held them."),
+		restarts: registry.Counter("consumer_restarts_total",
+			"Times the broker consumer left its group after a failure and read again from the last commit."),
+		rejected: registry.Counter("broker_records_rejected_total",
+			"Broker records that could not be decoded and were skipped. Only the server writes the topic, so any is corruption."),
 		deliveryDelay: registry.Histogram("event_delivery_delay_seconds",
 			"Time from the event in the source log to its storage in the center.", delayBuckets),
 		ingestBatches: registry.Counter("ingest_batches_total", "Event batches stored."),
@@ -67,6 +78,46 @@ func (s *Server) Handler() http.Handler { return s.registry.Handler() }
 
 // Gather returns the current samples, for tests.
 func (s *Server) Gather() (map[string]float64, error) { return s.registry.Gather() }
+
+// Accepted implements audit.Observer.
+func (s *Server) Accepted(count int) {
+	if s == nil {
+		return
+	}
+	s.accepted.Add(float64(count))
+}
+
+// ConsumerFailed implements broker.Observer.
+func (s *Server) ConsumerFailed() {
+	if s == nil {
+		return
+	}
+	s.restarts.Inc()
+}
+
+// RecordRejected implements broker.Observer.
+func (s *Server) RecordRejected() {
+	if s == nil {
+		return
+	}
+	s.rejected.Inc()
+}
+
+// WatchLag reports how many broker records the consumer group has not committed.
+// The lag is read from the broker on each scrape, so it shows a backlog even while
+// no consumer runs.
+func (s *Server) WatchLag(read func(ctx context.Context) (int64, error)) {
+	if s == nil {
+		return
+	}
+	s.registry.Snapshot("consumer_lag_records", "Broker records not yet stored in ClickHouse.", func(emit metrics.Emit) {
+		ctx, cancel := context.WithTimeout(context.Background(), lagTimeout)
+		defer cancel()
+		if lag, err := read(ctx); err == nil {
+			emit(float64(lag))
+		}
+	})
+}
 
 // Ingested implements audit.Observer.
 func (s *Server) Ingested(stored, duplicates int, delays []time.Duration) {

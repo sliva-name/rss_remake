@@ -22,7 +22,7 @@ make demo
 make check
 ```
 
-Каждая часть платформы работает в контейнере: сервер вместе с Dashboard, агент, миграции и выпуск PKI (ADR-0005). Стенд — отдельный compose-проект `dataguard-dev`: исходные СУБД, центральные PostgreSQL и ClickHouse, Keycloak и сама платформа. Порты из диапазона `25xxx` слушают только loopback, пароли генерируются в `deployments/dev/.env`. Метрики сервера — http://127.0.0.1:25910/metrics, агента — http://127.0.0.1:25964/metrics. Без демонстрационных данных стенд поднимается так:
+Каждая часть платформы работает в контейнере: сервер вместе с Dashboard, агент, миграции и выпуск PKI (ADR-0005). Стенд — отдельный compose-проект `dataguard-dev`: исходные СУБД, центральные PostgreSQL, ClickHouse и Redpanda, Keycloak и сама платформа. Порты из диапазона `25xxx` слушают только loopback, пароли генерируются в `deployments/dev/.env`. Метрики сервера — http://127.0.0.1:25910/metrics, агента — http://127.0.0.1:25964/metrics. Без демонстрационных данных стенд поднимается так:
 
 ```bash
 make dev-up
@@ -91,6 +91,8 @@ docker build --target agent -t dataguard/agent .
 - `DG_OIDC_DISCOVERY_URL` — необязательно: адрес провайдера, если сервер видит его не так, как браузер;
 - `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD`;
 - `DG_CH_MIGRATION_USER` и `DG_CH_MIGRATION_PASSWORD`;
+- `DG_BROKERS`, `DG_BROKER_USER`, `DG_BROKER_PASSWORD` — брокер Redpanda и учётная запись сервера в нём. Необязательно: `DG_BROKER_TOPIC`, `DG_BROKER_GROUP`, `DG_BROKER_CA_FILE` для TLS;
+- для `migrate` ещё `DG_BROKER_ADMIN_USER`, `DG_BROKER_ADMIN_PASSWORD` и `DG_BROKER_REPLICATION`: 1 только для стенда, при установке 3 узла и 3. Необязательно: `DG_BROKER_PARTITIONS` (12) и `DG_BROKER_RETENTION` (`168h`);
 - `DG_METRICS_ADDR` — необязательно: адрес порта метрик Prometheus, например `:9100`. Порт без аутентификации, открывайте его только во внутренней сети.
 
 Подкоманды образа сервера:

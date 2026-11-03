@@ -18,6 +18,9 @@ require (
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20261102172809-e343a53e558f
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/prometheus/client_golang v1.25.0
+	github.com/twmb/franz-go v1.22.2
+	github.com/twmb/franz-go/pkg/kadm v1.19.0
+	github.com/twmb/franz-go/pkg/kmsg v1.15.0
 	github.com/wasilibs/go-pgquery v0.0.0-20261027025405-3048dd293555
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/sync v0.24.0
@@ -44,7 +47,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/kamstrup/intmap v0.5.2 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect

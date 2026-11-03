@@ -76,8 +76,8 @@ github.com/jackc/puddle/v2 v2.2.3/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFr
 github.com/juju/gnuflag v0.0.0-20171113085948-2ce1bb71843d/go.mod h1:2PavIy+JPciBPrBUjwbNvtwB6RQlve+hkpll6QSNmOE=
 github.com/kamstrup/intmap v0.5.2 h1:qnwBm1mh4XAnW9W9Ue9tZtTff8pS6+s6iKF6JRIV2Dk=
 github.com/kamstrup/intmap v0.5.2/go.mod h1:gWUVWHKzWj8xpJVFf5GC0O26bWmv3GqdnIX/LMT6Aq4=
-github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
-github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
+github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTfY5j4=
+github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
 github.com/kr/pretty v0.3.0 h1:WgNl7dwNpEZ6jJ9k1snq4pZsg7DOEN8hP9Xw0Tsjwk0=
 github.com/kr/pretty v0.3.0/go.mod h1:640gp4NfQd8pI5XOwp5fnNeVWj67G7CFk/SaSQn7NBk=
@@ -151,6 +151,12 @@ github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a h1:SJy1Pu0eH1C29X
 github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a/go.mod h1:DFSS3NAGHthKo1gTlmEcSBiZrRJXi28rLNd/1udP1c8=
 github.com/tetratelabs/wazero v1.12.0 h1:DuWcpNu/FzgEXgGBDp8J1Spc+CWOvvtvVyjKlaZopYU=
 github.com/tetratelabs/wazero v1.12.0/go.mod h1:LvKtzl2RqO4gyF27BiXU+nKAjcV8f38U+kP/q2vgxh0=
+github.com/twmb/franz-go v1.22.2 h1:EdwIHGzD/4mgCpl/sNS0C74JYn6cL/r2KYS+8UC96Ww=
+github.com/twmb/franz-go v1.22.2/go.mod h1:HzZMc00pBWNfe0hNcNK4NxnsDNyKOoXnlTBkB4SUTjI=
+github.com/twmb/franz-go/pkg/kadm v1.19.0 h1:5Nx/WWFkpNUi8Z55Skxvn9x5HOCjw+BUntSNB1kLglk=
+github.com/twmb/franz-go/pkg/kadm v1.19.0/go.mod h1:emmsx5J7YPU9A7UHcSoz0fBMYVmCcJO2etylJeU0VHU=
+github.com/twmb/franz-go/pkg/kmsg v1.15.0 h1:mILdOQm4JkWojbSYVQ7KJNJ1qMdYNsLrdNOBUVKM6IA=
+github.com/twmb/franz-go/pkg/kmsg v1.15.0/go.mod h1:sGkGxKexpRLBThFHJLjjywcyfkK09qB/g+X+wFWZQ/A=
 github.com/wasilibs/go-pgquery v0.0.0-20261027025405-3048dd293555 h1:aBMNXPjZKwRTB8QRa2/w3W6IXAtwv5aZTG9BiLyouMg=
 github.com/wasilibs/go-pgquery v0.0.0-20261027025405-3048dd293555/go.mod h1:HQrmSEL6Ds3tzmX3jqVpKUzdZnFt3OZPtTfQ4HObOik=
 github.com/wasilibs/wazero-helpers v0.0.0-20250123031827-cd30c44769bb h1:gQ+ZV4wJke/EBKYciZ2MshEouEHFuinB85dY3f5s1q8=

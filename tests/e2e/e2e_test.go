@@ -608,6 +608,36 @@ func TestPlatformEndToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("clickhouse outage is absorbed by the broker", func(t *testing.T) {
+		source := &s.sources[2]
+		before := s.eventTotal(t, "&principal=dg_app&category=PERSONAL.EMAIL")
+		acceptedBefore := sample(t, scrape(t, serverMetrics), "dataguard_server_events_accepted_total")
+		compose(t, nil, nil, "stop", "center-clickhouse")
+		const statements = 15
+		for i := range statements {
+			if _, err := source.Admin.ExecContext(ctx, fmt.Sprintf(`SELECT email, %d FROM %s`, i, seed.Users)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The center keeps acknowledging: the agent's queue drains into the broker.
+		eventually(t, "agent acknowledged during the outage", func() bool {
+			server, agent := scrape(t, serverMetrics), scrape(t, agentMetrics)
+			return sample(t, server, "dataguard_server_events_accepted_total")-acceptedBefore >= statements &&
+				sample(t, agent, "dataguard_agent_queue_pending_events") == 0
+		})
+		if lag := sample(t, scrape(t, serverMetrics), "dataguard_server_consumer_lag_records"); lag == 0 {
+			t.Fatal("the backlog must be visible as consumer lag")
+		}
+		compose(t, nil, nil, "up", "--detach", "--wait", "center-clickhouse")
+		// Reports read ClickHouse, so they fail until it is back; the consumer may
+		// still be in its backoff for a while after that.
+		eventually(t, "backlog stored after the outage", func() bool {
+			var page restapi.AuditEventPage
+			status := s.call(t, s.token, http.MethodGet, "/audit/events?limit=1&principal=dg_app&category=PERSONAL.EMAIL", nil, &page)
+			return status == http.StatusOK && page.Total-before >= statements
+		})
+	})
+
 	t.Run("no source value left the source", func(t *testing.T) {
 		// The scanner passwords must not reach the center either: it holds them sealed.
 		env := stand.Env(t)
