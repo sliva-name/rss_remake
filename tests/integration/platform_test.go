@@ -3,16 +3,19 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -64,9 +67,14 @@ type platform struct {
 }
 
 // outage makes the center unreachable from an agent's point of view.
+// It also keeps every request body, so a test can search what actually crossed
+// the wire rather than what the server chose to store.
 type outage struct {
 	next http.Handler
 	down atomic.Bool
+
+	mu   sync.Mutex
+	wire bytes.Buffer
 }
 
 func (o *outage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +82,22 @@ func (o *outage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "unreadable", http.StatusBadRequest)
+		return
+	}
+	o.mu.Lock()
+	o.wire.Write(body)
+	o.mu.Unlock()
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	o.next.ServeHTTP(w, r)
+}
+
+func (o *outage) recorded() []byte {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return bytes.Clone(o.wire.Bytes())
 }
 
 func startPlatform(t *testing.T) *platform {

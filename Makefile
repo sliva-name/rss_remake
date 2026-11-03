@@ -52,3 +52,11 @@ web:
 
 web-test:
 	cd web/dashboard && npm test
+
+.PHONY: test-e2e test-performance
+
+test-e2e: build web
+	go test -tags=e2e -count=1 -timeout 15m ./tests/e2e/
+
+test-performance:
+	go test -tags=performance -count=1 -v ./tests/performance/

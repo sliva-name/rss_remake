@@ -192,6 +192,15 @@ func TestDiscoveryOnEveryEngine(t *testing.T) {
 			if strings.Contains(agent.logs.String(), synthetic.CanaryMarker) {
 				t.Fatal("agent logs contain a synthetic value")
 			}
+			wire := platform.gate.recorded()
+			if len(wire) == 0 {
+				t.Fatal("nothing was recorded, the wire check proves nothing")
+			}
+			for _, value := range sourceValues(t, source) {
+				if bytes.Contains(wire, []byte(value)) {
+					t.Fatal("a source value crossed the wire")
+				}
+			}
 		})
 	}
 }
@@ -203,6 +212,28 @@ func mustUUID(t *testing.T, value string) uuid.UUID {
 		t.Fatal(err)
 	}
 	return parsed
+}
+
+// sourceValues reads the sensitive values actually stored in the seeded table.
+func sourceValues(t *testing.T, source stand.Source) []string {
+	t.Helper()
+	rows, err := source.Admin.Query(`SELECT email, phone, inn, snils, card_number, passport FROM ` + seed.Users)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var values []string
+	for rows.Next() {
+		row := make([]string, 6)
+		if err := rows.Scan(&row[0], &row[1], &row[2], &row[3], &row[4], &row[5]); err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, row...)
+	}
+	if len(values) == 0 {
+		t.Fatal("no values to search for")
+	}
+	return values
 }
 
 func keys(found map[string]asset.CatalogEntry) []string {

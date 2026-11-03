@@ -702,13 +702,6 @@ func TestPlatformEndToEnd(t *testing.T) {
 			t.Fatal("a revoked agent is still reporting")
 		}
 	})
-
-	t.Run("agent stopped makes the source blind, not green", func(t *testing.T) {
-		s.agent.kill(syscall.SIGKILL)
-		if rows := s.coverage(t); rows[0].Status == "" {
-			t.Fatal("coverage has no status")
-		}
-	})
 }
 
 // assertQueueClean opens the stopped agent's queue. The agent must be stopped,

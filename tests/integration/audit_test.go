@@ -190,6 +190,12 @@ func TestAuditOnEveryEngine(t *testing.T) {
 				}
 			}
 			if sameQuery != 1 {
+				for _, event := range harness.all(t) {
+					if event.GetOperation().GetQueryFingerprint() == read.GetOperation().GetQueryFingerprint() {
+						t.Logf("id %s session %s tx %s time %s tables %v", event.GetEventId(), event.GetCorrelation().GetSessionId(),
+							event.GetCorrelation().GetTransactionId(), event.GetEventTime().AsTime().Format("15:04:05.000000"), event.GetOperation().GetTables())
+					}
+				}
 				t.Errorf("one join produced %d events", sameQuery)
 			}
 			if read.GetEvidence().GetObjectResolution() != agentv1.ObjectResolution_OBJECT_RESOLUTION_RESOLVED {

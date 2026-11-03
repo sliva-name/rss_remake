@@ -198,7 +198,8 @@ func TestBudgetIsPassedToTheConnector(t *testing.T) {
 	source := &fakeSource{tables: []connector.Table{table("users")}, rows: 1}
 	run(source, &agentv1.ScanBudget{MaxRowsPerTable: 7, MaxBytesPerTable: 9, MaxRowsPerSecond: 11})
 
-	if source.lastLimits.MaxRows != 7 || source.lastLimits.MaxBytes != 9 || source.lastLimits.Limiter.Burst() != 11 {
+	if source.lastLimits.MaxRows != 7 || source.lastLimits.MaxBytes != 9 || source.lastLimits.Limiter.Limit() != 11 ||
+		source.lastLimits.Limiter.Burst() > 11 {
 		t.Fatalf("limits = %+v", source.lastLimits)
 	}
 }

@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	limiterBatch = 256
+	// LimiterBatch is how many rows are paid for at once.
+	LimiterBatch = 256
 	// Pool lifetimes keep a scanner from pinning sessions on a production server.
 	connectionMaxLifetime = 5 * time.Minute
 	connectionMaxIdle     = time.Minute
@@ -110,10 +111,10 @@ func drain(ctx context.Context, rows *sql.Rows, columnCount int, limits connecto
 }
 
 func throttle(ctx context.Context, limits connector.Limits, rowsSoFar uint64) error {
-	if limits.Limiter == nil || rowsSoFar%limiterBatch != 0 {
+	if limits.Limiter == nil || rowsSoFar%LimiterBatch != 0 {
 		return nil
 	}
-	if err := limits.Limiter.WaitN(ctx, min(limiterBatch, limits.Limiter.Burst())); err != nil {
+	if err := limits.Limiter.WaitN(ctx, min(LimiterBatch, limits.Limiter.Burst())); err != nil {
 		return safeerr.New("throttle sample", safeerr.CodeCanceled, err)
 	}
 	return nil

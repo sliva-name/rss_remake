@@ -57,10 +57,10 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 	if err := r.resume(cursor); err != nil {
 		return Batch{}, err
 	}
-	position := mssqlCursor{File: mssqlFreshStart}
-	if r.live != nil {
-		position = *r.live
+	if r.live == nil {
+		return r.seekEnd(ctx)
 	}
+	position := *r.live
 	rows, err := r.source.AuditRows(ctx, r.pattern, position.File, position.Offset)
 	if err != nil {
 		return Batch{}, err
@@ -69,7 +69,9 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 	if r.live != nil && position.File != "" && !containsFile(rows, position.File) && len(rows) > 0 {
 		batch.Gap = lostLogGap()
 	}
-	next := position
+	// fn_get_audit_file restarts at the beginning of the offset, so ordinals are
+	// counted from zero again; the first position.Seen of them were delivered.
+	next := mssqlCursor{File: position.File, Offset: position.Offset}
 	var merged *Record
 	for i := range rows {
 		row := &rows[i]
@@ -81,13 +83,13 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 		if row.File == position.File && row.Offset == position.Offset && next.Seen <= position.Seen {
 			continue
 		}
-		if r.live == nil {
-			continue
-		}
 		merged = mergeRow(&batch, merged, row, next)
 	}
 	if merged != nil {
 		batch.Records = append(batch.Records, *merged)
+	}
+	if next.File == position.File && next.Offset == position.Offset && next.Seen < position.Seen {
+		next = position
 	}
 	r.live = &next
 	batch.Cursor, err = json.Marshal(next)
@@ -95,6 +97,47 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 		return Batch{}, fmt.Errorf("encode audit cursor: %w", err)
 	}
 	return batch, nil
+}
+
+// seekEnd skips the history that exists before the first start. Reads are paged,
+// so it pages until a read brings nothing new; stopping after one page would
+// replay old history as if it had just happened.
+func (r *sqlServerReader) seekEnd(ctx context.Context) (Batch, error) {
+	position := mssqlCursor{File: mssqlFreshStart}
+	for {
+		rows, err := r.source.AuditRows(ctx, r.pattern, position.File, position.Offset)
+		if err != nil {
+			return Batch{}, err
+		}
+		next := advance(position, rows)
+		if next == position {
+			break
+		}
+		position = next
+	}
+	r.live = &position
+	cursor, err := json.Marshal(position)
+	if err != nil {
+		return Batch{}, fmt.Errorf("encode audit cursor: %w", err)
+	}
+	return Batch{Cursor: cursor}, nil
+}
+
+// advance moves past rows; records sharing an offset are counted by ordinal.
+func advance(position mssqlCursor, rows []connector.AuditRow) mssqlCursor {
+	next := mssqlCursor{File: position.File, Offset: position.Offset}
+	for i := range rows {
+		row := &rows[i]
+		if row.File == next.File && row.Offset == next.Offset {
+			next.Seen++
+		} else {
+			next = mssqlCursor{File: row.File, Offset: row.Offset, Seen: 1}
+		}
+	}
+	if next.File == position.File && next.Offset == position.Offset && next.Seen <= position.Seen {
+		return position
+	}
+	return next
 }
 
 func containsFile(rows []connector.AuditRow, file string) bool {

@@ -501,3 +501,71 @@ func TestLiteralNeverReachesTheEvent(t *testing.T) {
 		t.Fatalf("value in event: %s", event)
 	}
 }
+
+type pagedAudit struct {
+	rows []connector.AuditRow
+	page int
+}
+
+// AuditRows mimics fn_get_audit_file: it starts at the given offset, inclusive.
+func (p *pagedAudit) AuditRows(_ context.Context, _, file string, offset int64) ([]connector.AuditRow, error) {
+	start := 0
+	if file != "" {
+		for start < len(p.rows) && (p.rows[start].File != file || p.rows[start].Offset < offset) {
+			start++
+		}
+	}
+	return p.rows[start:min(len(p.rows), start+p.page)], nil
+}
+
+func TestSQLServerFreshStartSkipsAllHistory(t *testing.T) {
+	audit := &pagedAudit{page: 3}
+	for i := range 10 {
+		audit.rows = append(audit.rows, connector.AuditRow{
+			File: "a.sqlaudit", Offset: int64(i / 2), Sequence: 1, Session: i, UserObject: true, Statement: "SELECT id FROM users",
+		})
+	}
+	reader := &sqlServerReader{source: audit, pattern: "*"}
+	first, err := reader.Read(context.Background(), nil)
+	if err != nil || len(first.Records) != 0 {
+		t.Fatalf("fresh start replayed history: %d records, %v", len(first.Records), err)
+	}
+	audit.rows = append(audit.rows, connector.AuditRow{
+		File: "a.sqlaudit", Offset: 4, Sequence: 1, Session: 99, UserObject: true, Statement: "SELECT id FROM users",
+	})
+	next, err := reader.Read(context.Background(), first.Cursor)
+	if err != nil || len(next.Records) != 1 || next.Records[0].Session != "99" {
+		t.Fatalf("records = %+v, %v", next.Records, err)
+	}
+}
+
+func TestSQLServerResumeInsideASharedOffsetDeliversEachRecordOnce(t *testing.T) {
+	audit := &pagedAudit{page: 100}
+	row := func(session int) connector.AuditRow {
+		return connector.AuditRow{File: "a.sqlaudit", Offset: 7, Sequence: 1, Session: session, UserObject: true, Statement: "SELECT id FROM users"}
+	}
+	reader := &sqlServerReader{source: audit, pattern: "*"}
+	start, err := reader.Read(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := start.Cursor
+	delivered := map[string]bool{}
+	for step := range 4 {
+		audit.rows = append(audit.rows, row(step))
+		batch, err := reader.Read(context.Background(), cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range batch.Records {
+			if delivered[record.Position] {
+				t.Fatalf("step %d: %s delivered twice", step, record.Position)
+			}
+			delivered[record.Position] = true
+		}
+		cursor = batch.Cursor
+	}
+	if len(delivered) != 4 {
+		t.Fatalf("delivered %d of 4", len(delivered))
+	}
+}

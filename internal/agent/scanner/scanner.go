@@ -114,7 +114,7 @@ func (s *Scanner) scanTables(ctx context.Context, source connector.Scannable, ta
 	limits := connector.Limits{
 		MaxRows:  budget.GetMaxRowsPerTable(),
 		MaxBytes: budget.GetMaxBytesPerTable(),
-		Limiter:  rate.NewLimiter(rate.Limit(budget.GetMaxRowsPerSecond()), int(budget.GetMaxRowsPerSecond())),
+		Limiter:  newLimiter(budget.GetMaxRowsPerSecond()),
 	}
 	var collected sync.Mutex
 	group := errgroup.Group{}
@@ -135,6 +135,12 @@ func (s *Scanner) scanTables(ctx context.Context, source connector.Scannable, ta
 	}
 	// Workers report through result and never return an error.
 	_ = group.Wait()
+}
+
+// newLimiter allows no more than one read batch ahead of the rate. A burst of a
+// full second would let a scan start at twice its budget.
+func newLimiter(rowsPerSecond uint32) *rate.Limiter {
+	return rate.NewLimiter(rate.Limit(rowsPerSecond), int(min(rowsPerSecond, sqlsource.LimiterBatch)))
 }
 
 func snapshot(table *connector.Table) *agentv1.TableSnapshot {
