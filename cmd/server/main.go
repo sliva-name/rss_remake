@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"dataguard/internal/platform/pki"
+	"dataguard/internal/platform/retry"
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/server/api"
 	"dataguard/internal/server/app"
@@ -36,6 +37,7 @@ const (
 	defaultGroup          = "dataguard-ingest"
 	defaultPartitions     = "12"
 	defaultRetention      = "168h"
+	defaultMigrateWait    = "2m"
 )
 
 func main() {
@@ -54,7 +56,7 @@ func run() error {
 
 	switch os.Args[1] {
 	case "migrate":
-		return migrate(ctx)
+		return migrateWhenReachable(ctx)
 	case "pki-init":
 		return pkiInit(os.Args[2:])
 	case "serve":
@@ -63,6 +65,30 @@ func run() error {
 		return ready(ctx)
 	default:
 		return fmt.Errorf("unknown command %q", os.Args[1])
+	}
+}
+
+// migrateWhenReachable waits for the databases to accept connections. A database
+// started next to it may still be initializing on a server other containers
+// cannot reach. Only a refused or failed dial is retried: such a run applied
+// nothing, and every step records what it applied, so repeating it is safe. Any
+// other error stops at once.
+func migrateWhenReachable(ctx context.Context) error {
+	wait, err := time.ParseDuration(envOr("DG_MIGRATE_WAIT", defaultMigrateWait))
+	if err != nil {
+		return fmt.Errorf("DG_MIGRATE_WAIT: %w", err)
+	}
+	deadline := time.Now().Add(wait)
+	for attempt := 0; ; attempt++ {
+		err := migrate(ctx)
+		var dial *net.OpError
+		if err == nil || !errors.As(err, &dial) || dial.Op != "dial" || time.Now().After(deadline) {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "dataguard-server: a database is not reachable yet, retrying")
+		if !retry.Sleep(ctx, retry.Backoff{Base: time.Second, Max: 5 * time.Second}.Delay(attempt)) {
+			return ctx.Err()
+		}
 	}
 }
 

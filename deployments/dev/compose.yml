@@ -48,7 +48,8 @@ services:
       # Bind mounts stand in for an agent installed on the database host.
       - ./.state/audit/postgres:/var/log/dg-audit
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dg_admin -d crm"]
+      # Over TCP: the init server of the image listens on the socket only.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U dg_admin -d crm"]
       interval: 3s
       timeout: 3s
       retries: 30
@@ -130,7 +131,8 @@ services:
       - ./center/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - center-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dg_owner -d dataguard"]
+      # Over TCP: the init server of the image listens on the socket only.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U dg_owner -d dataguard"]
       interval: 3s
       timeout: 3s
       retries: 30
@@ -152,7 +154,9 @@ services:
     ulimits:
       nofile: 262144
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8123/ping"]
+      # On the container's own address: the init server of the image listens on
+      # 127.0.0.1 only, and other containers cannot reach it yet.
+      test: ["CMD-SHELL", "wget -q --spider http://$$(hostname):8123/ping"]
       interval: 3s
       timeout: 3s
       retries: 30
