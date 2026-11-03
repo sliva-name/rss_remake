@@ -36,6 +36,30 @@ func (e AgentStatus) Valid() bool {
 	}
 }
 
+// Defines values for CoverageRowStatus.
+const (
+	BLIND         CoverageRowStatus = "BLIND"
+	DEGRADED      CoverageRowStatus = "DEGRADED"
+	NOTCONFIGURED CoverageRowStatus = "NOT_CONFIGURED"
+	OBSERVING     CoverageRowStatus = "OBSERVING"
+)
+
+// Valid indicates whether the value is a known member of the CoverageRowStatus enum.
+func (e CoverageRowStatus) Valid() bool {
+	switch e {
+	case BLIND:
+		return true
+	case DEGRADED:
+		return true
+	case NOTCONFIGURED:
+		return true
+	case OBSERVING:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EnvironmentKind.
 const (
 	Development EnvironmentKind = "development"
@@ -87,6 +111,15 @@ func (e ScanStatus) Valid() bool {
 	}
 }
 
+// AccessSummary defines model for AccessSummary.
+type AccessSummary struct {
+	Events          int64 `json:"events"`
+	FailedEvents    int64 `json:"failedEvents"`
+	Gaps            int64 `json:"gaps"`
+	Principals      int64 `json:"principals"`
+	SensitiveEvents int64 `json:"sensitiveEvents"`
+}
+
 // Agent defines model for Agent.
 type Agent struct {
 	CertificateExpires time.Time          `json:"certificateExpires"`
@@ -100,6 +133,34 @@ type Agent struct {
 
 // AgentStatus defines model for Agent.Status.
 type AgentStatus string
+
+// AuditEvent defines model for AuditEvent.
+type AuditEvent struct {
+	ApplicationPrincipal string             `json:"applicationPrincipal"`
+	Categories           []string           `json:"categories"`
+	Columns              []string           `json:"columns"`
+	DatabasePrincipal    string             `json:"databasePrincipal"`
+	ErrorCode            string             `json:"errorCode"`
+	EvidenceLevel        string             `json:"evidenceLevel"`
+	ExecutionStatus      string             `json:"executionStatus"`
+	GapLostEvents        *int64             `json:"gapLostEvents,omitempty"`
+	GapReason            string             `json:"gapReason"`
+	Id                   openapi_types.UUID `json:"id"`
+	IdentityConfidence   string             `json:"identityConfidence"`
+	ObjectResolution     string             `json:"objectResolution"`
+	Operation            string             `json:"operation"`
+	QueryFingerprint     string             `json:"queryFingerprint"`
+	SourceId             openapi_types.UUID `json:"sourceId"`
+	Tables               []string           `json:"tables"`
+	Time                 time.Time          `json:"time"`
+	Type                 string             `json:"type"`
+}
+
+// AuditEventPage defines model for AuditEventPage.
+type AuditEventPage struct {
+	Items []AuditEvent `json:"items"`
+	Total int64        `json:"total"`
+}
 
 // Capability defines model for Capability.
 type Capability struct {
@@ -148,6 +209,38 @@ type CatalogPage struct {
 	Items []CatalogColumn `json:"items"`
 	Total int64           `json:"total"`
 }
+
+// CategoryAccess defines model for CategoryAccess.
+type CategoryAccess struct {
+	Category   string    `json:"category"`
+	Events     int64     `json:"events"`
+	LastAccess time.Time `json:"lastAccess"`
+	Principals int64     `json:"principals"`
+	Sources    int64     `json:"sources"`
+}
+
+// CoverageRow Shares are absent when nothing was measured; absent never means zero.
+type CoverageRow struct {
+	ColumnsShare   *float64           `json:"columnsShare,omitempty"`
+	Engine         string             `json:"engine"`
+	Gaps           int64              `json:"gaps"`
+	LastEventAt    *time.Time         `json:"lastEventAt,omitempty"`
+	LastScanAt     *time.Time         `json:"lastScanAt,omitempty"`
+	LastScanStatus *string            `json:"lastScanStatus,omitempty"`
+	LostEvents     int64              `json:"lostEvents"`
+	PositionReadAt *time.Time         `json:"positionReadAt,omitempty"`
+	PrincipalShare *float64           `json:"principalShare,omitempty"`
+	ReadsAudited   bool               `json:"readsAudited"`
+	Reason         string             `json:"reason"`
+	SourceId       openapi_types.UUID `json:"sourceId"`
+	SourceKey      string             `json:"sourceKey"`
+	Statements     int64              `json:"statements"`
+	Status         CoverageRowStatus  `json:"status"`
+	VerifiedShare  *float64           `json:"verifiedShare,omitempty"`
+}
+
+// CoverageRowStatus defines model for CoverageRow.Status.
+type CoverageRowStatus string
 
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
@@ -214,6 +307,18 @@ type PolicyDraft struct {
 	ScanBudget      *ScanBudget      `json:"scanBudget,omitempty"`
 }
 
+// PrincipalAccess defines model for PrincipalAccess.
+type PrincipalAccess struct {
+	ApplicationPrincipal string    `json:"applicationPrincipal"`
+	Categories           []string  `json:"categories"`
+	DatabasePrincipal    string    `json:"databasePrincipal"`
+	Events               int64     `json:"events"`
+	IdentityConfidence   string    `json:"identityConfidence"`
+	LastAccess           time.Time `json:"lastAccess"`
+	SensitiveEvents      int64     `json:"sensitiveEvents"`
+	Sources              int64     `json:"sources"`
+}
+
 // Problem defines model for Problem.
 type Problem struct {
 	Code    string `json:"code"`
@@ -262,6 +367,41 @@ type Tenant struct {
 	Name      string             `json:"name"`
 }
 
+// ListAccessByCategoryParams defines parameters for ListAccessByCategory.
+type ListAccessByCategoryParams struct {
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// ListAccessByPrincipalParams defines parameters for ListAccessByPrincipal.
+type ListAccessByPrincipalParams struct {
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// GetAccessSummaryParams defines parameters for GetAccessSummary.
+type GetAccessSummaryParams struct {
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// GetAuditCoverageParams defines parameters for GetAuditCoverage.
+type GetAuditCoverageParams struct {
+	WindowHours *int `form:"windowHours,omitempty" json:"windowHours,omitempty"`
+}
+
+// ListAuditEventsParams defines parameters for ListAuditEvents.
+type ListAuditEventsParams struct {
+	SourceId  *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
+	Principal *string             `form:"principal,omitempty" json:"principal,omitempty"`
+	Category  *string             `form:"category,omitempty" json:"category,omitempty"`
+	EventType *string             `form:"eventType,omitempty" json:"eventType,omitempty"`
+	From      *time.Time          `form:"from,omitempty" json:"from,omitempty"`
+	To        *time.Time          `form:"to,omitempty" json:"to,omitempty"`
+	Limit     *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset    *int                `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // ListCatalogChangesParams defines parameters for ListCatalogChanges.
 type ListCatalogChangesParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -303,6 +443,21 @@ type ServerInterface interface {
 
 	// (POST /agents/{agentId}/revoke)
 	RevokeAgent(w http.ResponseWriter, r *http.Request, agentId openapi_types.UUID)
+
+	// (GET /analytics/categories)
+	ListAccessByCategory(w http.ResponseWriter, r *http.Request, params ListAccessByCategoryParams)
+
+	// (GET /analytics/principals)
+	ListAccessByPrincipal(w http.ResponseWriter, r *http.Request, params ListAccessByPrincipalParams)
+
+	// (GET /analytics/summary)
+	GetAccessSummary(w http.ResponseWriter, r *http.Request, params GetAccessSummaryParams)
+
+	// (GET /audit/coverage)
+	GetAuditCoverage(w http.ResponseWriter, r *http.Request, params GetAuditCoverageParams)
+
+	// (GET /audit/events)
+	ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams)
 
 	// (GET /catalog/changes)
 	ListCatalogChanges(w http.ResponseWriter, r *http.Request, params ListCatalogChangesParams)
@@ -384,6 +539,301 @@ func (siw *ServerInterfaceWrapper) RevokeAgent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RevokeAgent(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAccessByCategory operation middleware
+func (siw *ServerInterfaceWrapper) ListAccessByCategory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAccessByCategoryParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAccessByCategory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAccessByPrincipal operation middleware
+func (siw *ServerInterfaceWrapper) ListAccessByPrincipal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAccessByPrincipalParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAccessByPrincipal(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAccessSummary operation middleware
+func (siw *ServerInterfaceWrapper) GetAccessSummary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAccessSummaryParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAccessSummary(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAuditCoverage operation middleware
+func (siw *ServerInterfaceWrapper) GetAuditCoverage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAuditCoverageParams
+
+	// ------------- Optional query parameter "windowHours" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "windowHours", r.URL.Query(), &params.WindowHours, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "windowHours"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "windowHours", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAuditCoverage(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuditEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAuditEventsParams
+
+	// ------------- Optional query parameter "sourceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sourceId", r.URL.Query(), &params.SourceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sourceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "principal" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "principal", r.URL.Query(), &params.Principal, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "principal"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "principal", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "eventType" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "eventType", r.URL.Query(), &params.EventType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "eventType"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "eventType", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuditEvents(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -804,6 +1254,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scans", wrapper.RequestScan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/columns", wrapper.ListCatalogColumns)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/changes", wrapper.ListCatalogChanges)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/audit/events", wrapper.ListAuditEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/audit/coverage", wrapper.GetAuditCoverage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/summary", wrapper.GetAccessSummary)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/principals", wrapper.ListAccessByPrincipal)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/categories", wrapper.ListAccessByCategory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy", wrapper.GetPolicy)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/policy", wrapper.PublishPolicy)
 
@@ -845,6 +1300,116 @@ type RevokeAgent204Response struct {
 func (response RevokeAgent204Response) VisitRevokeAgentResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type ListAccessByCategoryRequestObject struct {
+	Params ListAccessByCategoryParams
+}
+
+type ListAccessByCategoryResponseObject interface {
+	VisitListAccessByCategoryResponse(w http.ResponseWriter) error
+}
+
+type ListAccessByCategory200JSONResponse []CategoryAccess
+
+func (response ListAccessByCategory200JSONResponse) VisitListAccessByCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAccessByPrincipalRequestObject struct {
+	Params ListAccessByPrincipalParams
+}
+
+type ListAccessByPrincipalResponseObject interface {
+	VisitListAccessByPrincipalResponse(w http.ResponseWriter) error
+}
+
+type ListAccessByPrincipal200JSONResponse []PrincipalAccess
+
+func (response ListAccessByPrincipal200JSONResponse) VisitListAccessByPrincipalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAccessSummaryRequestObject struct {
+	Params GetAccessSummaryParams
+}
+
+type GetAccessSummaryResponseObject interface {
+	VisitGetAccessSummaryResponse(w http.ResponseWriter) error
+}
+
+type GetAccessSummary200JSONResponse AccessSummary
+
+func (response GetAccessSummary200JSONResponse) VisitGetAccessSummaryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAuditCoverageRequestObject struct {
+	Params GetAuditCoverageParams
+}
+
+type GetAuditCoverageResponseObject interface {
+	VisitGetAuditCoverageResponse(w http.ResponseWriter) error
+}
+
+type GetAuditCoverage200JSONResponse []CoverageRow
+
+func (response GetAuditCoverage200JSONResponse) VisitGetAuditCoverageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEventsRequestObject struct {
+	Params ListAuditEventsParams
+}
+
+type ListAuditEventsResponseObject interface {
+	VisitListAuditEventsResponse(w http.ResponseWriter) error
+}
+
+type ListAuditEvents200JSONResponse AuditEventPage
+
+func (response ListAuditEvents200JSONResponse) VisitListAuditEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type ListCatalogChangesRequestObject struct {
@@ -1137,6 +1702,21 @@ type StrictServerInterface interface {
 	// (POST /agents/{agentId}/revoke)
 	RevokeAgent(ctx context.Context, request RevokeAgentRequestObject) (RevokeAgentResponseObject, error)
 
+	// (GET /analytics/categories)
+	ListAccessByCategory(ctx context.Context, request ListAccessByCategoryRequestObject) (ListAccessByCategoryResponseObject, error)
+
+	// (GET /analytics/principals)
+	ListAccessByPrincipal(ctx context.Context, request ListAccessByPrincipalRequestObject) (ListAccessByPrincipalResponseObject, error)
+
+	// (GET /analytics/summary)
+	GetAccessSummary(ctx context.Context, request GetAccessSummaryRequestObject) (GetAccessSummaryResponseObject, error)
+
+	// (GET /audit/coverage)
+	GetAuditCoverage(ctx context.Context, request GetAuditCoverageRequestObject) (GetAuditCoverageResponseObject, error)
+
+	// (GET /audit/events)
+	ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error)
+
 	// (GET /catalog/changes)
 	ListCatalogChanges(ctx context.Context, request ListCatalogChangesRequestObject) (ListCatalogChangesResponseObject, error)
 
@@ -1259,6 +1839,136 @@ func (sh *strictHandler) RevokeAgent(w http.ResponseWriter, r *http.Request, age
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeAgentResponseObject); ok {
 		if err := validResponse.VisitRevokeAgentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAccessByCategory operation middleware
+func (sh *strictHandler) ListAccessByCategory(w http.ResponseWriter, r *http.Request, params ListAccessByCategoryParams) {
+	var request ListAccessByCategoryRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAccessByCategory(ctx, request.(ListAccessByCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAccessByCategory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAccessByCategoryResponseObject); ok {
+		if err := validResponse.VisitListAccessByCategoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAccessByPrincipal operation middleware
+func (sh *strictHandler) ListAccessByPrincipal(w http.ResponseWriter, r *http.Request, params ListAccessByPrincipalParams) {
+	var request ListAccessByPrincipalRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAccessByPrincipal(ctx, request.(ListAccessByPrincipalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAccessByPrincipal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAccessByPrincipalResponseObject); ok {
+		if err := validResponse.VisitListAccessByPrincipalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAccessSummary operation middleware
+func (sh *strictHandler) GetAccessSummary(w http.ResponseWriter, r *http.Request, params GetAccessSummaryParams) {
+	var request GetAccessSummaryRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAccessSummary(ctx, request.(GetAccessSummaryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAccessSummary")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAccessSummaryResponseObject); ok {
+		if err := validResponse.VisitGetAccessSummaryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAuditCoverage operation middleware
+func (sh *strictHandler) GetAuditCoverage(w http.ResponseWriter, r *http.Request, params GetAuditCoverageParams) {
+	var request GetAuditCoverageRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAuditCoverage(ctx, request.(GetAuditCoverageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAuditCoverage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAuditCoverageResponseObject); ok {
+		if err := validResponse.VisitGetAuditCoverageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAuditEvents operation middleware
+func (sh *strictHandler) ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams) {
+	var request ListAuditEventsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAuditEvents(ctx, request.(ListAuditEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAuditEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAuditEventsResponseObject); ok {
+		if err := validResponse.VisitListAuditEventsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

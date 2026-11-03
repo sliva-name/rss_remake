@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 	"dataguard/migrations"
 )
@@ -79,6 +80,32 @@ func CenterDatabase(t *testing.T) (ownerDSN, runtimeDSN string) {
 		t.Fatalf("migrate: %v", err)
 	}
 	return ownerDSN, centerDSN("dg_runtime", env["CENTER_PG_APP_PASSWORD"], name)
+}
+
+const centerClickHouse = "127.0.0.1:25900"
+
+// CenterEvents creates a private migrated ClickHouse database and returns runtime
+// settings.
+func CenterEvents(t *testing.T) clickhouse.Settings {
+	t.Helper()
+	ctx := context.Background()
+	env := Env(t)
+	suffix := make([]byte, 6)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatal(err)
+	}
+	name := "test_" + hex.EncodeToString(suffix)
+	admin := clickhouse.Settings{Address: centerClickHouse, Database: "default", Username: "dg_ch_admin", Password: env["CENTER_CH_ADMIN_PASSWORD"]}
+	if err := clickhouse.ExecAdmin(ctx, admin, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("create clickhouse database: %v", err)
+	}
+	t.Cleanup(func() { _ = clickhouse.ExecAdmin(context.Background(), admin, "DROP DATABASE "+name) })
+	owner := admin
+	owner.Database = name
+	if err := clickhouse.Migrate(ctx, owner, "dg_ch_app", migrations.ClickHouse, "clickhouse"); err != nil {
+		t.Fatalf("migrate clickhouse: %v", err)
+	}
+	return clickhouse.Settings{Address: centerClickHouse, Database: name, Username: "dg_ch_app", Password: env["CENTER_CH_APP_PASSWORD"]}
 }
 
 func dropDatabase(admin, name string) {

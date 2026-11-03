@@ -40,6 +40,11 @@ var accessRules = map[string]accessRule{
 	"RequestScan":           {roles: scanRequesters, tenantScoped: true},
 	"ListCatalogColumns":    {roles: tenantReaders, tenantScoped: true},
 	"ListCatalogChanges":    {roles: tenantReaders, tenantScoped: true},
+	"ListAuditEvents":       {roles: tenantReaders, tenantScoped: true},
+	"GetAuditCoverage":      {roles: tenantReaders, tenantScoped: true},
+	"GetAccessSummary":      {roles: tenantReaders, tenantScoped: true},
+	"ListAccessByPrincipal": {roles: tenantReaders, tenantScoped: true},
+	"ListAccessByCategory":  {roles: tenantReaders, tenantScoped: true},
 	"GetPolicy":             {roles: tenantReaders, tenantScoped: true},
 	"PublishPolicy":         {roles: tenantAdmins, tenantScoped: true},
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"dataguard/internal/agent/config"
+	"dataguard/internal/agent/queue"
 	"dataguard/internal/agent/runtime"
 	"dataguard/internal/agent/sources"
 	"dataguard/internal/classifier"
@@ -48,7 +49,9 @@ func (b *lockedBuffer) String() string {
 }
 
 type runningAgent struct {
-	logs *lockedBuffer
+	logs   *lockedBuffer
+	audit  *runtime.Audit
+	events *queue.Queue
 }
 
 // startAgent runs the real control and discovery loops against the platform.
@@ -62,20 +65,28 @@ func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, settings []c
 	}
 	t.Cleanup(func() { _ = registry.Close() })
 
+	events, err := queue.Open(enrolled.dir, 1<<24)
+	if err != nil {
+		t.Fatalf("queue.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = events.Close() })
+
 	ctx, cancel := context.WithCancel(context.Background())
 	discovery := runtime.NewDiscovery(enrolled.client, registry, 100*time.Millisecond, logger)
+	audit := runtime.NewAudit(enrolled.client, registry, events, nil, logger)
 	control := runtime.NewControl(runtime.Options{
-		Client: enrolled.client, Identity: enrolled.store, Prober: registry, Assignments: registry,
+		Client: enrolled.client, Identity: enrolled.store, Prober: registry, Assignments: registry, Health: audit,
 		Policies: discovery, Version: "test", HeartbeatInterval: 200 * time.Millisecond, Logger: logger,
 	})
 	var running sync.WaitGroup
 	running.Go(func() { control.Run(ctx) })
 	running.Go(func() { discovery.Run(ctx) })
+	running.Go(func() { audit.Run(ctx) })
 	t.Cleanup(func() {
 		cancel()
 		running.Wait()
 	})
-	return &runningAgent{logs: logs}
+	return &runningAgent{logs: logs, audit: audit, events: events}
 }
 
 func waitForSource(t *testing.T, platform *platform, tenantID uuid.UUID, key string) uuid.UUID {

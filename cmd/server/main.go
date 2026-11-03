@@ -17,6 +17,7 @@ import (
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/server/api"
 	"dataguard/internal/server/app"
+	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 	"dataguard/migrations"
 )
@@ -39,7 +40,7 @@ func run() error {
 
 	switch os.Args[1] {
 	case "migrate":
-		return postgres.Migrate(ctx, mustEnv("DG_PG_MIGRATION_DSN"), migrations.Postgres, "postgres")
+		return migrate(ctx)
 	case "pki-init":
 		return pkiInit(os.Args[2:])
 	case "serve":
@@ -47,6 +48,17 @@ func run() error {
 	default:
 		return fmt.Errorf("unknown command %q", os.Args[1])
 	}
+}
+
+func migrate(ctx context.Context) error {
+	if err := postgres.Migrate(ctx, mustEnv("DG_PG_MIGRATION_DSN"), migrations.Postgres, "postgres"); err != nil {
+		return err
+	}
+	owner := clickhouse.Settings{
+		Address: mustEnv("DG_CH_ADDR"), Database: mustEnv("DG_CH_DATABASE"),
+		Username: mustEnv("DG_CH_MIGRATION_USER"), Password: mustEnv("DG_CH_MIGRATION_PASSWORD"),
+	}
+	return clickhouse.Migrate(ctx, owner, mustEnv("DG_CH_USER"), migrations.ClickHouse, "clickhouse")
 }
 
 func pkiInit(args []string) error {
@@ -70,13 +82,22 @@ func serve(ctx context.Context) error {
 	}
 	defer store.Close()
 
+	events, err := clickhouse.Open(ctx, clickhouse.Settings{
+		Address: mustEnv("DG_CH_ADDR"), Database: mustEnv("DG_CH_DATABASE"),
+		Username: mustEnv("DG_CH_USER"), Password: mustEnv("DG_CH_PASSWORD"),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = events.Close() }()
+
 	authenticator, err := api.NewOIDCAuthenticator(ctx, mustEnv("DG_OIDC_ISSUER"), mustEnv("DG_OIDC_CLIENT_ID"))
 	if err != nil {
 		return err
 	}
 	pkiDirectory := mustEnv("DG_PKI_DIR")
 	application, err := app.Build(app.Options{
-		Store: store, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
+		Store: store, Events: events, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
 		Authenticator: authenticator, Logger: logger,
 	})
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/server/api"
 	"dataguard/internal/server/app"
+	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 	"dataguard/internal/testkit/stand"
 )
@@ -48,14 +50,31 @@ func (a staticAuthenticator) Authenticate(_ context.Context, token string) (api.
 }
 
 type platform struct {
-	app      *app.App
-	agents   *httptest.Server
-	rest     *httptest.Server
-	caFile   string
-	pkiDir   string
-	authn    staticAuthenticator
-	store    *postgres.Store
-	ownerDSN string
+	app           *app.App
+	agents        *httptest.Server
+	rest          *httptest.Server
+	caFile        string
+	pkiDir        string
+	authn         staticAuthenticator
+	store         *postgres.Store
+	ownerDSN      string
+	events        *clickhouse.Store
+	eventSettings clickhouse.Settings
+	gate          *outage
+}
+
+// outage makes the center unreachable from an agent's point of view.
+type outage struct {
+	next http.Handler
+	down atomic.Bool
+}
+
+func (o *outage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if o.down.Load() {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	o.next.ServeHTTP(w, r)
 }
 
 func startPlatform(t *testing.T) *platform {
@@ -68,13 +87,20 @@ func startPlatform(t *testing.T) *platform {
 	}
 	t.Cleanup(store.Close)
 
+	eventSettings := stand.CenterEvents(t)
+	events, err := clickhouse.Open(ctx, eventSettings)
+	if err != nil {
+		t.Fatalf("clickhouse.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = events.Close() })
+
 	pkiDir := t.TempDir()
 	if err := pki.Bootstrap(pkiDir, []string{"127.0.0.1"}); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	authn := staticAuthenticator{}
 	application, err := app.Build(app.Options{
-		Store: store, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
+		Store: store, Events: events, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
 		Authenticator: authn, Logger: safelog.Discard(),
 	})
 	if err != nil {
@@ -84,7 +110,8 @@ func startPlatform(t *testing.T) *platform {
 	if err != nil {
 		t.Fatalf("AgentTLSConfig: %v", err)
 	}
-	agents := httptest.NewUnstartedServer(application.AgentHandler)
+	gate := &outage{next: application.AgentHandler}
+	agents := httptest.NewUnstartedServer(gate)
 	agents.TLS = tlsConfig
 	agents.EnableHTTP2 = true
 	agents.StartTLS()
@@ -95,7 +122,7 @@ func startPlatform(t *testing.T) *platform {
 
 	return &platform{
 		app: application, agents: agents, rest: rest, pkiDir: pkiDir, authn: authn,
-		store: store, ownerDSN: ownerDSN,
+		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: gate,
 		caFile: filepath.Join(pkiDir, pki.CACertFile),
 	}
 }

@@ -6,7 +6,7 @@
 
 ## Разработка
 
-Нужны Go 1.26, Docker с Compose и `openssl`. Инструменты (buf, golangci-lint, govulncheck) зафиксированы в `tools/go.mod`, ставить их отдельно не надо.
+Нужны Go 1.27, Docker с Compose и `openssl`. Инструменты (buf, golangci-lint, govulncheck) зафиксированы в `tools/go.mod`, ставить их отдельно не надо.
 
 ```bash
 make check
@@ -30,7 +30,7 @@ make proto
 
 ## Запуск
 
-Сервер настраивается переменными окружения: `DG_PG_DSN` (роль без `BYPASSRLS`), `DG_PG_MIGRATION_DSN` (владелец схемы), `DG_PKI_DIR`, `DG_API_ADDR`, `DG_AGENT_ADDR`, `DG_OIDC_ISSUER`, `DG_OIDC_CLIENT_ID`.
+Сервер настраивается переменными окружения: `DG_PG_DSN` (роль без `BYPASSRLS`), `DG_PG_MIGRATION_DSN` (владелец схемы), `DG_PKI_DIR`, `DG_API_ADDR`, `DG_AGENT_ADDR`, `DG_OIDC_ISSUER`, `DG_OIDC_CLIENT_ID`, `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD`, `DG_CH_MIGRATION_USER`, `DG_CH_MIGRATION_PASSWORD`.
 
 ```bash
 bin/server pki-init --dir ./pki --hosts center.example.com
@@ -61,6 +61,11 @@ sources:
     password_file: /etc/dataguard/crm.password
     tls: verify-full     # verify-full, require, disable
     max_connections: 2
+    audit:
+      directory: /var/log/postgresql   # каталог журналов; для SQL Server — путь на сервере
+applications:                          # необязательно: приложения, подписывающие контекст
+  - id: crm
+    public_key_file: /etc/dataguard/crm.pub
 ```
 
 ```bash

@@ -16,6 +16,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"dataguard/internal/core/audit"
+	"dataguard/internal/core/coverage"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/policy"
 	"dataguard/internal/core/scan"
@@ -23,6 +25,7 @@ import (
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/server/agentapi"
 	"dataguard/internal/server/api"
+	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 )
 
@@ -34,6 +37,7 @@ const (
 // Options are the dependencies chosen by the caller.
 type Options struct {
 	Store          *postgres.Store
+	Events         *clickhouse.Store
 	PKIDirectory   string
 	CertificateTTL time.Duration
 	Authenticator  api.Authenticator
@@ -68,7 +72,10 @@ func Build(options Options) (*App, error) {
 	fleetService := fleet.NewService(options.Store, agentapi.Issuer{Authority: authority})
 	policies := policy.NewService(options.Store, signer)
 	scans := scan.NewService(options.Store, options.Store)
-	services := api.Services{Tenants: tenants, Fleet: fleetService, Policies: policies, Scans: scans, Catalog: options.Store}
+	services := api.Services{
+		Tenants: tenants, Fleet: fleetService, Policies: policies, Scans: scans, Catalog: options.Store,
+		Events: options.Events, Coverage: coverage.NewService(fleetService, options.Store, options.Events),
+	}
 
 	return &App{
 		Tenants:    tenants,
@@ -78,6 +85,7 @@ func Build(options Options) (*App, error) {
 		APIHandler: apiHandler(options, services),
 		AgentHandler: agentapi.Handler(agentapi.Dependencies{
 			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,
+			Audit: audit.NewService(options.Store, options.Events), Health: options.Store,
 			CACertificate: authority.CertificatePEM(), PolicyPublicKey: signer.PublicKey(),
 		}),
 	}, nil
@@ -90,7 +98,7 @@ func apiHandler(options Options, services api.Services) http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		if err := options.Store.Ping(r.Context()); err != nil {
+		if err := errors.Join(options.Store.Ping(r.Context()), options.Events.Ping(r.Context())); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}

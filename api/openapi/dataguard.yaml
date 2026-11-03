@@ -165,6 +165,77 @@ paths:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/CatalogChange"}
+  /audit/events:
+    get:
+      operationId: listAuditEvents
+      parameters:
+        - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - {name: principal, in: query, schema: {type: string}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: eventType, in: query, schema: {type: string}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+      responses:
+        "200":
+          description: Matching events, newest first
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AuditEventPage"}
+  /audit/coverage:
+    get:
+      operationId: getAuditCoverage
+      parameters:
+        - {name: windowHours, in: query, schema: {type: integer, minimum: 1, maximum: 720, default: 24}}
+      responses:
+        "200":
+          description: What can and cannot be observed, per source
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/CoverageRow"}
+  /analytics/summary:
+    get:
+      operationId: getAccessSummary
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: Headline numbers of a period
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccessSummary"}
+  /analytics/principals:
+    get:
+      operationId: listAccessByPrincipal
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: Access grouped by who acted
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/PrincipalAccess"}
+  /analytics/categories:
+    get:
+      operationId: listAccessByCategory
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: Access grouped by data category
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/CategoryAccess"}
   /policy:
     get:
       operationId: getPolicy
@@ -370,3 +441,92 @@ components:
           required: [version]
           properties:
             version: {type: integer, format: int64}
+    AuditEvent:
+      type: object
+      required: [id, time, type, sourceId, databasePrincipal, applicationPrincipal, identityConfidence, operation, tables, columns, categories, queryFingerprint, executionStatus, errorCode, evidenceLevel, objectResolution, gapReason]
+      properties:
+        id: {type: string, format: uuid}
+        time: {type: string, format: date-time}
+        type: {type: string}
+        sourceId: {type: string, format: uuid}
+        databasePrincipal: {type: string}
+        applicationPrincipal: {type: string}
+        identityConfidence: {type: string}
+        operation: {type: string}
+        tables:
+          type: array
+          items: {type: string}
+        columns:
+          type: array
+          items: {type: string}
+        categories:
+          type: array
+          items: {type: string}
+        queryFingerprint: {type: string}
+        executionStatus: {type: string}
+        errorCode: {type: string}
+        evidenceLevel: {type: string}
+        objectResolution: {type: string}
+        gapReason: {type: string}
+        gapLostEvents: {type: integer, format: int64}
+    AuditEventPage:
+      type: object
+      required: [total, items]
+      properties:
+        total: {type: integer, format: int64}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/AuditEvent"}
+    CoverageRow:
+      type: object
+      description: Shares are absent when nothing was measured; absent never means zero.
+      required: [sourceId, sourceKey, engine, status, reason, readsAudited, statements, gaps, lostEvents]
+      properties:
+        sourceId: {type: string, format: uuid}
+        sourceKey: {type: string}
+        engine: {type: string}
+        status: {type: string, enum: [OBSERVING, DEGRADED, BLIND, NOT_CONFIGURED]}
+        reason: {type: string}
+        readsAudited: {type: boolean}
+        lastScanStatus: {type: string}
+        lastScanAt: {type: string, format: date-time}
+        lastEventAt: {type: string, format: date-time}
+        positionReadAt: {type: string, format: date-time}
+        statements: {type: integer, format: int64}
+        gaps: {type: integer, format: int64}
+        lostEvents: {type: integer, format: int64}
+        columnsShare: {type: number, format: double}
+        verifiedShare: {type: number, format: double}
+        principalShare: {type: number, format: double}
+    AccessSummary:
+      type: object
+      required: [events, sensitiveEvents, failedEvents, principals, gaps]
+      properties:
+        events: {type: integer, format: int64}
+        sensitiveEvents: {type: integer, format: int64}
+        failedEvents: {type: integer, format: int64}
+        principals: {type: integer, format: int64}
+        gaps: {type: integer, format: int64}
+    PrincipalAccess:
+      type: object
+      required: [databasePrincipal, applicationPrincipal, identityConfidence, events, sensitiveEvents, categories, sources, lastAccess]
+      properties:
+        databasePrincipal: {type: string}
+        applicationPrincipal: {type: string}
+        identityConfidence: {type: string}
+        events: {type: integer, format: int64}
+        sensitiveEvents: {type: integer, format: int64}
+        categories:
+          type: array
+          items: {type: string}
+        sources: {type: integer, format: int64}
+        lastAccess: {type: string, format: date-time}
+    CategoryAccess:
+      type: object
+      required: [category, events, principals, sources, lastAccess]
+      properties:
+        category: {type: string}
+        events: {type: integer, format: int64}
+        principals: {type: integer, format: int64}
+        sources: {type: integer, format: int64}
+        lastAccess: {type: string, format: date-time}

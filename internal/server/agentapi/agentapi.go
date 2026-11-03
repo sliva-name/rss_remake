@@ -15,6 +15,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"dataguard/internal/contract/egress"
+	"dataguard/internal/core/audit"
+	"dataguard/internal/core/coverage"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/policy"
 	"dataguard/internal/core/scan"
@@ -115,11 +117,18 @@ func checkEnvelope(envelope *agentv1.Envelope, identity pki.Identity) error {
 	return nil
 }
 
+// HealthStore records what collectors report.
+type HealthStore interface {
+	SaveHealth(ctx context.Context, tenantID, agentID uuid.UUID, reports []coverage.Health) error
+}
+
 // Dependencies are the services the agent API delegates to.
 type Dependencies struct {
 	Fleet           *fleet.Service
 	Policies        *policy.Service
 	Scans           *scan.Service
+	Audit           *audit.Service
+	Health          HealthStore
 	CACertificate   []byte
 	PolicyPublicKey []byte
 	Logger          *slog.Logger
@@ -186,11 +195,48 @@ func (h *agentHandler) Heartbeat(ctx context.Context, request *connect.Request[a
 	if err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID, request.Msg.GetAgentVersion()); err != nil {
 		return nil, h.internal("heartbeat", err)
 	}
+	if err := h.dependencies.Health.SaveHealth(ctx, identity.TenantID, identity.AgentID, healthReports(request.Msg.GetAuditSources())); err != nil {
+		return nil, h.internal("save audit health", err)
+	}
 	latest, err := h.dependencies.Policies.Latest(ctx, identity.TenantID)
 	if err != nil && !errors.Is(err, policy.ErrNotFound) {
 		return nil, h.internal("read policy", err)
 	}
 	return connect.NewResponse(&agentv1.HeartbeatResponse{LatestPolicyVersion: latest.Version}), nil
+}
+
+func healthReports(sources []*agentv1.AuditSourceHealth) []coverage.Health {
+	reports := make([]coverage.Health, 0, len(sources))
+	now := time.Now().UTC()
+	for _, source := range sources {
+		sourceID, err := uuid.Parse(source.GetSourceId())
+		if err != nil {
+			continue
+		}
+		report := coverage.Health{
+			SourceID: sourceID, State: source.GetState().String(), ReasonCode: source.GetReasonCode(),
+			LostEvents: int64(source.GetLostEventsTotal()), ReportedAt: now,
+		}
+		if at := source.GetPositionReadAt(); at != nil {
+			position := at.AsTime()
+			report.PositionReadAt = &position
+		}
+		reports = append(reports, report)
+	}
+	return reports
+}
+
+func (h *agentHandler) SubmitEvents(ctx context.Context, request *connect.Request[agentv1.SubmitEventsRequest]) (*connect.Response[agentv1.SubmitEventsResponse], error) {
+	identity, _ := identityFrom(ctx)
+	accepted, err := h.dependencies.Audit.Ingest(ctx, identity.TenantID, identity.AgentID, request.Msg.GetEvents())
+	if errors.Is(err, audit.ErrForeignSource) {
+		return nil, connect.NewError(connect.CodePermissionDenied, audit.ErrForeignSource)
+	}
+	if err != nil {
+		h.dependencies.Logger.Error("ingest events", "error", err, "agent_id", identity.AgentID.String())
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("events not stored"))
+	}
+	return connect.NewResponse(&agentv1.SubmitEventsResponse{AcceptedEventIds: accepted}), nil
 }
 
 func (h *agentHandler) ReportSources(ctx context.Context, request *connect.Request[agentv1.ReportSourcesRequest]) (*connect.Response[agentv1.ReportSourcesResponse], error) {

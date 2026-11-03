@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 
 	"dataguard/internal/core/asset"
+	"dataguard/internal/core/audit"
+	"dataguard/internal/core/coverage"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/policy"
 	"dataguard/internal/core/scan"
@@ -29,6 +31,8 @@ type Services struct {
 	Policies *policy.Service
 	Scans    *scan.Service
 	Catalog  asset.Reader
+	Events   audit.Reader
+	Coverage *coverage.Service
 }
 
 // Server implements the generated strict interface.
@@ -38,6 +42,8 @@ type Server struct {
 	policies *policy.Service
 	scans    *scan.Service
 	catalog  asset.Reader
+	events   audit.Reader
+	coverage *coverage.Service
 }
 
 // Handler builds the HTTP handler with authentication and authorization.
@@ -64,7 +70,7 @@ func Handler(server *Server, authenticator Authenticator, logger *slog.Logger) h
 func New(services Services) *Server {
 	return &Server{
 		tenants: services.Tenants, fleet: services.Fleet, policies: services.Policies,
-		scans: services.Scans, catalog: services.Catalog,
+		scans: services.Scans, catalog: services.Catalog, events: services.Events, coverage: services.Coverage,
 	}
 }
 

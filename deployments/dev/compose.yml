@@ -158,10 +158,12 @@ services:
       CLICKHOUSE_USER: dg_ch_admin
       CLICKHOUSE_PASSWORD: ${CENTER_CH_ADMIN_PASSWORD}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CENTER_CH_APP_PASSWORD: ${CENTER_CH_APP_PASSWORD}
     ports:
       - "127.0.0.1:25123:8123"
       - "127.0.0.1:25900:9000"
     volumes:
+      - ./center/clickhouse-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - center-clickhouse-data:/var/lib/clickhouse
     ulimits:
       nofile: 262144
