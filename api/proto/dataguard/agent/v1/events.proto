@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package dataguard.agent.v1;
+
+import "dataguard/agent/v1/common.proto";
+import "dataguard/agent/v1/options.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "dataguard/internal/gen/dataguard/agent/v1;agentv1";
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_DATA_ACCESS = 1;
+  EVENT_TYPE_DATA_MODIFICATION = 2;
+  EVENT_TYPE_DATA_DELETION = 3;
+  EVENT_TYPE_SCHEMA_CHANGE = 4;
+  EVENT_TYPE_PERMISSION_CHANGE = 5;
+  EVENT_TYPE_AUTHENTICATION = 6;
+  EVENT_TYPE_FAILED_ACCESS = 7;
+  EVENT_TYPE_AUDIT_GAP = 8;
+}
+
+// How far the evidence goes. Levels are cumulative and must never be inflated:
+// a statement that merely names a column is not proof that data was returned.
+enum EvidenceLevel {
+  EVIDENCE_LEVEL_UNSPECIFIED = 0;
+  EVIDENCE_LEVEL_REFERENCED = 1;
+  EVIDENCE_LEVEL_EXECUTED = 2;
+  EVIDENCE_LEVEL_ROWS_CONFIRMED = 3;
+  EVIDENCE_LEVEL_DELIVERED = 4;
+}
+
+// How the initiator is known. VERIFIED means the application signed the
+// context; it attests the application's claim, not a person's presence.
+enum IdentityConfidence {
+  IDENTITY_CONFIDENCE_UNSPECIFIED = 0;
+  IDENTITY_CONFIDENCE_VERIFIED = 1;
+  IDENTITY_CONFIDENCE_DB_PRINCIPAL_ONLY = 2;
+  IDENTITY_CONFIDENCE_UNVERIFIED_CLAIM = 3;
+  IDENTITY_CONFIDENCE_UNKNOWN = 4;
+}
+
+enum ObjectResolution {
+  OBJECT_RESOLUTION_UNSPECIFIED = 0;
+  OBJECT_RESOLUTION_RESOLVED = 1;
+  OBJECT_RESOLUTION_PARTIAL = 2;
+  OBJECT_RESOLUTION_UNRESOLVED = 3;
+}
+
+enum ExecutionStatus {
+  EXECUTION_STATUS_UNSPECIFIED = 0;
+  EXECUTION_STATUS_UNKNOWN = 1;
+  EXECUTION_STATUS_SUCCESS = 2;
+  EXECUTION_STATUS_FAILURE = 3;
+}
+
+enum EvidenceSource {
+  EVIDENCE_SOURCE_UNSPECIFIED = 0;
+  EVIDENCE_SOURCE_NATIVE_AUDIT = 1;
+}
+
+enum OperationType {
+  OPERATION_TYPE_UNSPECIFIED = 0;
+  OPERATION_TYPE_SELECT = 1;
+  OPERATION_TYPE_INSERT = 2;
+  OPERATION_TYPE_UPDATE = 3;
+  OPERATION_TYPE_DELETE = 4;
+  OPERATION_TYPE_MERGE = 5;
+  OPERATION_TYPE_DDL = 6;
+  OPERATION_TYPE_DCL = 7;
+  OPERATION_TYPE_LOGIN = 8;
+  OPERATION_TYPE_OTHER = 9;
+}
+
+message Actor {
+  string database_principal = 1 [(field_kind) = FIELD_KIND_PRINCIPAL];
+  string application_principal = 2 [(field_kind) = FIELD_KIND_PRINCIPAL];
+  string application_id = 3 [(field_kind) = FIELD_KIND_IDENTIFIER];
+  IdentityConfidence identity_confidence = 4;
+  string client_address = 5 [(field_kind) = FIELD_KIND_NETWORK_ADDRESS];
+}
+
+// Names here are produced by the Catalog Resolver, so they are known catalog
+// objects. Anything unresolved is dropped instead of being copied from a query.
+message AccessedColumn {
+  ColumnPath column = 1;
+  bool read = 2;
+  bool written = 3;
+}
+
+message Operation {
+  OperationType type = 1;
+  repeated TablePath tables = 2;
+  repeated AccessedColumn columns = 3;
+  string query_fingerprint = 4 [(field_kind) = FIELD_KIND_FINGERPRINT];
+}
+
+message Execution {
+  ExecutionStatus status = 1;
+  string error_code = 2 [(field_kind) = FIELD_KIND_CODE];
+  optional uint64 duration_ms = 3;
+  optional uint64 returned_rows = 4;
+}
+
+message Evidence {
+  EvidenceSource source = 1;
+  EvidenceLevel level = 2;
+  ObjectResolution object_resolution = 3;
+}
+
+message Correlation {
+  string session_id = 1 [(field_kind) = FIELD_KIND_CORRELATION_ID];
+  string transaction_id = 2 [(field_kind) = FIELD_KIND_CORRELATION_ID];
+  string trace_id = 3 [(field_kind) = FIELD_KIND_CORRELATION_ID];
+}
+
+enum GapReason {
+  GAP_REASON_UNSPECIFIED = 0;
+  GAP_REASON_QUEUE_FULL = 1;
+  GAP_REASON_LOG_ROTATED = 2;
+  GAP_REASON_SOURCE_UNAVAILABLE = 3;
+  GAP_REASON_UNPARSEABLE_RECORDS = 4;
+}
+
+message AuditGap {
+  GapReason reason = 1;
+  google.protobuf.Timestamp from_time = 2;
+  google.protobuf.Timestamp to_time = 3;
+  // Known lost records; absent when the size of the loss cannot be determined.
+  optional uint64 lost_events = 4;
+}
+
+message AuditEvent {
+  // Derived from the source and its log position, so a replay after a crash
+  // produces the same id and the server can deduplicate it.
+  string event_id = 1 [(field_kind) = FIELD_KIND_UUID];
+  EventType event_type = 2;
+  google.protobuf.Timestamp event_time = 3;
+  string source_id = 4 [(field_kind) = FIELD_KIND_UUID];
+  Actor actor = 5;
+  Operation operation = 6;
+  Execution execution = 7;
+  Evidence evidence = 8;
+  Correlation correlation = 9;
+  AuditGap gap = 10;
+}
+
+enum AuditSourceState {
+  AUDIT_SOURCE_STATE_UNSPECIFIED = 0;
+  // Reading works and the position is fresh; silence here means no activity.
+  AUDIT_SOURCE_STATE_OBSERVING = 1;
+  AUDIT_SOURCE_STATE_DEGRADED = 2;
+  // Reading fails; silence here means blindness, not absence of activity.
+  AUDIT_SOURCE_STATE_UNAVAILABLE = 3;
+  AUDIT_SOURCE_STATE_NOT_CONFIGURED = 4;
+}
+
+message AuditSourceHealth {
+  string source_id = 1 [(field_kind) = FIELD_KIND_UUID];
+  AuditSourceState state = 2;
+  string reason_code = 3 [(field_kind) = FIELD_KIND_CODE];
+  google.protobuf.Timestamp position_read_at = 4;
+  uint64 lost_events_total = 5;
+}

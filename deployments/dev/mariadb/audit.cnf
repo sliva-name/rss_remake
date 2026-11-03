@@ -1,0 +1,8 @@
+[mariadb]
+plugin_load_add = server_audit
+server_audit_logging = ON
+server_audit_events = CONNECT,QUERY_DML,QUERY_DDL,QUERY_DCL
+server_audit_output_type = FILE
+server_audit_file_path = /var/log/dg-audit/server_audit.log
+server_audit_file_rotate_size = 10000000
+server_audit_file_rotations = 3

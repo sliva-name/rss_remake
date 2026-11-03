@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package dataguard.agent.v1;
+
+import "dataguard/agent/v1/common.proto";
+import "dataguard/agent/v1/options.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "dataguard/internal/gen/dataguard/agent/v1;agentv1";
+
+enum TableKind {
+  TABLE_KIND_UNSPECIFIED = 0;
+  TABLE_KIND_TABLE = 1;
+  TABLE_KIND_VIEW = 2;
+  TABLE_KIND_MATERIALIZED_VIEW = 3;
+}
+
+// Comments and view definitions are deliberately absent: both are free text
+// that can embed literal values, so they stay on the agent.
+message ColumnSnapshot {
+  string name = 1 [(field_kind) = FIELD_KIND_IDENTIFIER];
+  string native_type = 2 [(field_kind) = FIELD_KIND_IDENTIFIER];
+  uint32 ordinal = 3;
+  bool nullable = 4;
+}
+
+message TableSnapshot {
+  TablePath path = 1;
+  TableKind kind = 2;
+  repeated ColumnSnapshot columns = 3;
+}
+
+message ClassificationEvidence {
+  bool name_match = 1;
+  bool type_match = 2;
+  bool context_match = 3;
+  // Share of inspected non-null values with a valid format, 0..1.
+  double format_match_ratio = 4;
+  // Share passing a checksum; absent when the detector has no checksum.
+  optional double checksum_valid_ratio = 5;
+}
+
+enum SamplingMethod {
+  SAMPLING_METHOD_UNSPECIFIED = 0;
+  // Decided from metadata alone; no values were read.
+  SAMPLING_METHOD_METADATA_ONLY = 1;
+  SAMPLING_METHOD_ENGINE_SAMPLE = 2;
+  SAMPLING_METHOD_BOUNDED_PREFIX = 3;
+  SAMPLING_METHOD_FULL_SCAN = 4;
+}
+
+// Aggregates only. Value-derived statistics such as min, max or most common
+// values are excluded because they are raw data.
+message ColumnProfile {
+  uint64 rows_inspected = 1;
+  uint64 rows_non_null = 2;
+  uint64 rows_matched = 3;
+  uint64 unique_estimate = 4;
+  SamplingMethod sampling_method = 5;
+}
+
+message ColumnClassification {
+  ColumnPath column = 1;
+  string category_id = 2 [(field_kind) = FIELD_KIND_CATEGORY_ID];
+  double confidence = 3;
+  ClassificationEvidence evidence = 4;
+  ColumnProfile profile = 5;
+}
+
+enum ScanOutcome {
+  SCAN_OUTCOME_UNSPECIFIED = 0;
+  SCAN_OUTCOME_COMPLETED = 1;
+  // Budget or partial errors stopped it; skipped tables are listed.
+  SCAN_OUTCOME_PARTIAL = 2;
+  SCAN_OUTCOME_FAILED = 3;
+  SCAN_OUTCOME_CANCELLED = 4;
+}
+
+message SkippedTable {
+  TablePath table = 1;
+  string reason_code = 2 [(field_kind) = FIELD_KIND_CODE];
+}
+
+message ScanResult {
+  string job_id = 1 [(field_kind) = FIELD_KIND_UUID];
+  string source_id = 2 [(field_kind) = FIELD_KIND_UUID];
+  ScanOutcome outcome = 3;
+  string failure_code = 4 [(field_kind) = FIELD_KIND_CODE];
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp finished_at = 6;
+  repeated TableSnapshot tables = 7;
+  repeated ColumnClassification classifications = 8;
+  repeated SkippedTable skipped_tables = 9;
+}

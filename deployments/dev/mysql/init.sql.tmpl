@@ -1,0 +1,4 @@
+CREATE USER 'dg_scanner'@'%' IDENTIFIED BY '${SOURCE_SCANNER_PASSWORD}';
+GRANT SELECT, SHOW VIEW ON *.* TO 'dg_scanner'@'%';
+CREATE USER 'dg_app'@'%' IDENTIFIED BY '${SOURCE_APP_PASSWORD}';
+GRANT ALL ON crm.* TO 'dg_app'@'%';

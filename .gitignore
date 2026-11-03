@@ -1,0 +1,7 @@
+/bin/
+/deployments/dev/.env
+/deployments/dev/.state/
+node_modules/
+/web/dashboard/dist/
+*.test
+coverage.out

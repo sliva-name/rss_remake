@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package dataguard.agent.v1;
+
+import "dataguard/agent/v1/options.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "dataguard/internal/gen/dataguard/agent/v1;agentv1";
+
+// Envelope accompanies every agent-to-center request. The server takes the
+// tenant from the client certificate; tenant_id here is only cross-checked.
+message Envelope {
+  uint32 schema_version = 1;
+  string message_id = 2 [(field_kind) = FIELD_KIND_UUID];
+  string tenant_id = 3 [(field_kind) = FIELD_KIND_UUID];
+  string agent_id = 4 [(field_kind) = FIELD_KIND_UUID];
+  google.protobuf.Timestamp created_at = 5;
+}
+
+enum Engine {
+  ENGINE_UNSPECIFIED = 0;
+  ENGINE_POSTGRESQL = 1;
+  ENGINE_MYSQL = 2;
+  ENGINE_MARIADB = 3;
+  ENGINE_MSSQL = 4;
+}
+
+message TablePath {
+  string database = 1 [(field_kind) = FIELD_KIND_IDENTIFIER];
+  string schema = 2 [(field_kind) = FIELD_KIND_IDENTIFIER];
+  string table = 3 [(field_kind) = FIELD_KIND_IDENTIFIER];
+}
+
+message ColumnPath {
+  TablePath table = 1;
+  string column = 2 [(field_kind) = FIELD_KIND_IDENTIFIER];
+}

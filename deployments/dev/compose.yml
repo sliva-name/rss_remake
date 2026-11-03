@@ -1,0 +1,185 @@
+# Local stand. Every port binds to loopback in the 25xxx range and the project
+# has its own network, so it cannot touch anything else running on the machine.
+name: dataguard-dev
+
+services:
+  source-postgres:
+    build: ./postgres
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pgaudit
+      - -c
+      - logging_collector=on
+      - -c
+      - log_destination=jsonlog
+      - -c
+      - log_directory=/var/log/dg-audit
+      - -c
+      - log_filename=postgresql-%Y%m%d-%H%M%S.log
+      - -c
+      - log_rotation_size=10MB
+      - -c
+      - log_file_mode=0644
+      - -c
+      - pgaudit.log=read,write,ddl,role,misc_set
+      - -c
+      - pgaudit.log_parameter=off
+      - -c
+      - pgaudit.log_relation=off
+      - -c
+      - pgaudit.log_statement_once=off
+    environment:
+      POSTGRES_DB: crm
+      POSTGRES_USER: dg_admin
+      POSTGRES_PASSWORD: ${SOURCE_ADMIN_PASSWORD}
+      SOURCE_SCANNER_PASSWORD: ${SOURCE_SCANNER_PASSWORD}
+      SOURCE_APP_PASSWORD: ${SOURCE_APP_PASSWORD}
+    ports: ["127.0.0.1:25432:5432"]
+    volumes:
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - source-postgres-data:/var/lib/postgresql/data
+      - source-postgres-audit:/var/log/dg-audit
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dg_admin -d crm"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  source-mysql:
+    image: mysql:8.4.6
+    environment:
+      MYSQL_DATABASE: crm
+      MYSQL_ROOT_PASSWORD: ${SOURCE_ADMIN_PASSWORD}
+      SOURCE_SCANNER_PASSWORD: ${SOURCE_SCANNER_PASSWORD}
+      SOURCE_APP_PASSWORD: ${SOURCE_APP_PASSWORD}
+      DG_CLIENT: mysql
+    ports: ["127.0.0.1:25306:3306"]
+    volumes:
+      - ./mysql/audit.cnf:/etc/mysql/conf.d/dg-audit.cnf:ro
+      - ./mysql/init.sql.tmpl:/dg/init.sql.tmpl:ro
+      - ./mysql/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - source-mysql-data:/var/lib/mysql
+      - source-mysql-audit:/var/log/dg-audit
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --silent -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  source-mariadb:
+    build: ./mariadb
+    environment:
+      MARIADB_DATABASE: crm
+      MYSQL_ROOT_PASSWORD: ${SOURCE_ADMIN_PASSWORD}
+      SOURCE_SCANNER_PASSWORD: ${SOURCE_SCANNER_PASSWORD}
+      SOURCE_APP_PASSWORD: ${SOURCE_APP_PASSWORD}
+      DG_CLIENT: mariadb
+    ports: ["127.0.0.1:25307:3306"]
+    volumes:
+      - ./mariadb/audit.cnf:/etc/mysql/conf.d/dg-audit.cnf:ro
+      - ./mysql/init.sql.tmpl:/dg/init.sql.tmpl:ro
+      - ./mysql/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - source-mariadb-data:/var/lib/mysql
+      - source-mariadb-audit:/var/log/dg-audit
+    healthcheck:
+      # server_audit fails with only a log warning, so health must assert it is on.
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized && test \"$$(mariadb -uroot -p$$MYSQL_ROOT_PASSWORD -Ne \"show variables like 'server_audit_logging'\" | cut -f2)\" = ON"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  source-mssql:
+    image: mcr.microsoft.com/mssql/server:2022-CU20-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${SOURCE_MSSQL_SA_PASSWORD}
+    ports: ["127.0.0.1:25433:1433"]
+    volumes:
+      - source-mssql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  source-mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-CU20-ubuntu-22.04
+    depends_on:
+      source-mssql:
+        condition: service_healthy
+    environment:
+      SQLCMDPASSWORD: ${SOURCE_MSSQL_SA_PASSWORD}
+      SCANNER_PASSWORD: ${SOURCE_MSSQL_SCANNER_PASSWORD}
+      APP_PASSWORD: ${SOURCE_MSSQL_APP_PASSWORD}
+    volumes:
+      - ./mssql/init.sql:/dg/init.sql:ro
+      - source-mssql-data:/var/opt/mssql
+    user: root
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        install -d -o mssql -m 0750 /var/opt/mssql/dg-audit
+        /opt/mssql-tools18/bin/sqlcmd -C -S source-mssql -U sa -b -i /dg/init.sql
+    restart: "no"
+
+  center-postgres:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: dataguard
+      POSTGRES_USER: dg_owner
+      POSTGRES_PASSWORD: ${CENTER_PG_ADMIN_PASSWORD}
+    ports: ["127.0.0.1:25442:5432"]
+    volumes:
+      - center-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dg_owner -d dataguard"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  center-clickhouse:
+    image: clickhouse/clickhouse-server:25.8.2.29-alpine
+    environment:
+      CLICKHOUSE_DB: dataguard
+      CLICKHOUSE_USER: dg_ch_admin
+      CLICKHOUSE_PASSWORD: ${CENTER_CH_ADMIN_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:25123:8123"
+      - "127.0.0.1:25900:9000"
+    volumes:
+      - center-clickhouse-data:/var/lib/clickhouse
+    ulimits:
+      nofile: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8123/ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.3
+    command: ["start-dev", "--import-realm", "--http-port=8080", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: dg_admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    ports: ["127.0.0.1:25080:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+volumes:
+  source-postgres-data:
+  source-postgres-audit:
+  source-mysql-data:
+  source-mysql-audit:
+  source-mariadb-data:
+  source-mariadb-audit:
+  source-mssql-data:
+  center-postgres-data:
+  center-clickhouse-data:

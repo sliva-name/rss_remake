@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package dataguard.agent.v1;
+
+import "dataguard/agent/v1/capabilities.proto";
+import "dataguard/agent/v1/common.proto";
+import "dataguard/agent/v1/discovery.proto";
+import "dataguard/agent/v1/events.proto";
+import "dataguard/agent/v1/options.proto";
+
+option go_package = "dataguard/internal/gen/dataguard/agent/v1;agentv1";
+
+// EnrollmentService is the only agent endpoint reachable without a client
+// certificate; a one-time token authorizes it.
+service EnrollmentService {
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+// AgentService requires a client certificate issued by the platform CA.
+service AgentService {
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc ReportSources(ReportSourcesRequest) returns (ReportSourcesResponse);
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+  rpc GetPolicy(GetPolicyRequest) returns (GetPolicyResponse);
+  rpc PullJobs(PullJobsRequest) returns (PullJobsResponse);
+  rpc SubmitScanResult(SubmitScanResultRequest) returns (SubmitScanResultResponse);
+  rpc SubmitEvents(SubmitEventsRequest) returns (SubmitEventsResponse);
+}
+
+message EnrollRequest {
+  string enrollment_token = 1 [(field_kind) = FIELD_KIND_ENROLLMENT_TOKEN];
+  bytes csr_pem = 2 [(field_kind) = FIELD_KIND_CSR];
+  string agent_version = 3 [(field_kind) = FIELD_KIND_VERSION];
+}
+
+message EnrollResponse {
+  string tenant_id = 1;
+  string agent_id = 2;
+  bytes certificate_pem = 3;
+  bytes ca_certificate_pem = 4;
+  bytes policy_public_key = 5;
+}
+
+message QueueHealth {
+  uint64 pending_events = 1;
+  uint64 pending_bytes = 2;
+  uint64 capacity_bytes = 3;
+}
+
+message HeartbeatRequest {
+  Envelope envelope = 1;
+  string agent_version = 2 [(field_kind) = FIELD_KIND_VERSION];
+  QueueHealth queue = 3;
+  repeated AuditSourceHealth audit_sources = 4;
+}
+
+message HeartbeatResponse {
+  uint64 latest_policy_version = 1;
+}
+
+message ReportSourcesRequest {
+  Envelope envelope = 1;
+  repeated SourceReport sources = 2;
+}
+
+message SourceAssignment {
+  string source_key = 1;
+  string source_id = 2;
+}
+
+message ReportSourcesResponse {
+  repeated SourceAssignment assignments = 1;
+}
+
+message RenewCertificateRequest {
+  Envelope envelope = 1;
+  bytes csr_pem = 2 [(field_kind) = FIELD_KIND_CSR];
+}
+
+message RenewCertificateResponse {
+  bytes certificate_pem = 1;
+}
+
+message GetPolicyRequest {
+  Envelope envelope = 1;
+}
+
+message CustomDetector {
+  string category_id = 1;
+  string value_pattern = 2;
+  string name_pattern = 3;
+}
+
+message ScanBudget {
+  uint32 max_duration_seconds = 1;
+  uint64 max_rows_per_table = 2;
+  uint64 max_bytes_per_table = 3;
+  uint32 max_connections = 4;
+  uint32 max_rows_per_second = 5;
+}
+
+// Policy is signed as serialized bytes so the signature never depends on
+// re-encoding, and its version only grows so an old policy cannot be replayed.
+message Policy {
+  uint64 version = 1;
+  string tenant_id = 2;
+  repeated CustomDetector custom_detectors = 3;
+  ScanBudget default_budget = 4;
+}
+
+message GetPolicyResponse {
+  bytes policy = 1 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+  bytes signature = 2 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+}
+
+message PullJobsRequest {
+  Envelope envelope = 1;
+  uint32 max_jobs = 2;
+}
+
+message ScanJob {
+  string job_id = 1;
+  string source_id = 2;
+  ScanBudget budget = 3;
+}
+
+message PullJobsResponse {
+  repeated ScanJob jobs = 1;
+}
+
+message SubmitScanResultRequest {
+  Envelope envelope = 1;
+  ScanResult result = 2;
+}
+
+message SubmitScanResultResponse {}
+
+message SubmitEventsRequest {
+  Envelope envelope = 1;
+  repeated AuditEvent events = 2;
+}
+
+// An acknowledged event is durable on the server, so the agent may drop it.
+message SubmitEventsResponse {
+  repeated string accepted_event_ids = 1;
+}

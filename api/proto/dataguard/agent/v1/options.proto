@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package dataguard.agent.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "dataguard/internal/gen/dataguard/agent/v1;agentv1";
+
+// FieldKind declares what a string or bytes field is allowed to contain.
+// Every string and bytes field must carry one: the Egress Guard validates the
+// value against its kind, so a field cannot silently become free-form text.
+enum FieldKind {
+  FIELD_KIND_UNSPECIFIED = 0;
+  FIELD_KIND_UUID = 1;
+  // Database object name taken from the catalog, never from query text.
+  FIELD_KIND_IDENTIFIER = 2;
+  // Dotted category id such as PERSONAL.EMAIL.
+  FIELD_KIND_CATEGORY_ID = 3;
+  // sha256:<hex> digest of sanitized structure, never of data values.
+  FIELD_KIND_FINGERPRINT = 4;
+  // Engine or agent version string.
+  FIELD_KIND_VERSION = 5;
+  // Database login or pseudonymous subject id, never a display name.
+  FIELD_KIND_PRINCIPAL = 6;
+  // W3C trace id, session id or transaction id.
+  FIELD_KIND_CORRELATION_ID = 7;
+  // IP address of the database client.
+  FIELD_KIND_NETWORK_ADDRESS = 8;
+  // Short machine-readable code, for example an SQLSTATE.
+  FIELD_KIND_CODE = 9;
+  // PEM-encoded certificate signing request.
+  FIELD_KIND_CSR = 10;
+  // One-time enrollment secret; travels only in EnrollRequest.
+  FIELD_KIND_ENROLLMENT_TOKEN = 11;
+  // Center-to-agent material; rejected in any agent-to-center message.
+  FIELD_KIND_INBOUND_ONLY = 12;
+}
+
+extend google.protobuf.FieldOptions {
+  FieldKind field_kind = 51000;
+}

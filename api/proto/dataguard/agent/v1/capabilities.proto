@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package dataguard.agent.v1;
+
+import "dataguard/agent/v1/common.proto";
+import "dataguard/agent/v1/options.proto";
+
+option go_package = "dataguard/internal/gen/dataguard/agent/v1;agentv1";
+
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_SCHEMA_DISCOVERY = 1;
+  CAPABILITY_COLUMN_PROFILING = 2;
+  CAPABILITY_NATIVE_AUDIT = 3;
+  // Reads are audited. A source auditing only writes must report this absent.
+  CAPABILITY_READ_AUDIT = 4;
+  CAPABILITY_TABLE_LEVEL_AUDIT = 5;
+  CAPABILITY_COLUMN_LEVEL_AUDIT = 6;
+  CAPABILITY_QUERY_TEXT = 7;
+  CAPABILITY_EXECUTION_STATUS = 8;
+  CAPABILITY_RETURNED_ROWS = 9;
+  CAPABILITY_APPLICATION_CONTEXT = 10;
+}
+
+enum Support {
+  SUPPORT_UNSPECIFIED = 0;
+  SUPPORT_AVAILABLE = 1;
+  // The engine can do it but this instance is not configured for it.
+  SUPPORT_NOT_CONFIGURED = 2;
+  // The engine or edition has no such mechanism.
+  SUPPORT_UNAVAILABLE = 3;
+  // The probe failed, so nothing is known. Never treated as available.
+  SUPPORT_UNKNOWN = 4;
+}
+
+message CapabilityStatus {
+  Capability capability = 1;
+  Support support = 2;
+  string reason_code = 3 [(field_kind) = FIELD_KIND_CODE];
+}
+
+message SourceReport {
+  // Name of the source in the agent's local configuration. Connection details
+  // stay on the agent, which keeps the center unable to retarget it.
+  string source_key = 1 [(field_kind) = FIELD_KIND_IDENTIFIER];
+  Engine engine = 2;
+  string engine_version = 3 [(field_kind) = FIELD_KIND_VERSION];
+  repeated CapabilityStatus capabilities = 4;
+}
