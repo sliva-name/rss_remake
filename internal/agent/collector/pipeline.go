@@ -29,6 +29,7 @@ const (
 	reasonQueueFull        = "QUEUE_FULL"
 	reasonLogUnreadable    = "LOG_UNREADABLE"
 	reasonCatalogFailed    = "CATALOG_UNAVAILABLE"
+	reasonTimeZoneUnknown  = "LOG_TIME_ZONE_UNKNOWN"
 )
 
 // eventNamespace scopes event ids to DataGuard.
@@ -72,6 +73,14 @@ type Collector struct {
 	queueFull   bool
 	catalog     *query.CachedCatalog
 	refreshedAt time.Time
+	locatedAt   time.Time
+}
+
+// zonedReader is a Reader whose log prints local time, so it must learn the
+// server's time zone before reading.
+type zonedReader interface {
+	Reader
+	setLocation(location *time.Location)
 }
 
 // New creates a collector in the state of not having read anything yet.
@@ -117,6 +126,11 @@ func (c *Collector) tick(ctx context.Context) {
 	if err := c.refreshCatalog(ctx); err != nil {
 		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, reasonCatalogFailed)
 		c.options.Logger.Warn("catalog refresh failed", "source_key", c.options.SourceKey, "error", err)
+		return
+	}
+	if err := c.refreshLocation(ctx); err != nil {
+		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, reasonTimeZoneUnknown)
+		c.options.Logger.Warn("log time zone unknown", "source_key", c.options.SourceKey, "error", err)
 		return
 	}
 	cursor, err := c.options.Queue.Cursor(c.options.SourceID)
@@ -179,6 +193,32 @@ func (c *Collector) refreshCatalog(ctx context.Context) error {
 	catalog := query.NewCatalog(c.options.Frontend, tables, c.options.Schema, c.options.FoldCase)
 	c.catalog = query.NewCachedCatalog(catalog, analysisCacheEntries)
 	c.refreshedAt = time.Now()
+	return nil
+}
+
+// refreshLocation keeps a zoned reader on the server's time zone. Until the zone
+// is known nothing is read: the cursor waits, while a guessed time would be
+// stored for good.
+func (c *Collector) refreshLocation(ctx context.Context) error {
+	reader, zoned := c.options.Reader.(zonedReader)
+	if !zoned || (!c.locatedAt.IsZero() && time.Since(c.locatedAt) < catalogRefreshInterval) {
+		return nil
+	}
+	clock, ok := c.options.Catalog.(connector.LogClock)
+	if !ok {
+		return &safeerr.Error{Op: "source cannot report its log time zone", Code: safeerr.CodeInvalid}
+	}
+	location, err := clock.LogLocation(ctx)
+	if err != nil {
+		if !c.locatedAt.IsZero() {
+			// The zone known a few minutes ago is almost certainly still right.
+			c.locatedAt = time.Now()
+			return nil
+		}
+		return err
+	}
+	reader.setLocation(location)
+	c.locatedAt = time.Now()
 	return nil
 }
 
@@ -370,7 +410,7 @@ func eventType(operation agentv1.OperationType, status agentv1.ExecutionStatus) 
 
 // NewPostgresReader tails pgAudit's jsonlog in directory.
 func NewPostgresReader(directory string) Reader {
-	return newFileReader(filepath.Join(directory, "*.json"), newPostgresParser())
+	return newZonedFileReader(filepath.Join(directory, "*.json"), newPostgresParser())
 }
 
 // NewMySQLReader tails the general log in directory.
@@ -380,7 +420,7 @@ func NewMySQLReader(directory string) Reader {
 
 // NewMariaDBReader tails server_audit in directory.
 func NewMariaDBReader(directory string) Reader {
-	return newFileReader(filepath.Join(directory, "server_audit.log*"), mariadbParser{})
+	return newZonedFileReader(filepath.Join(directory, "server_audit.log*"), newMariaDBParser())
 }
 
 // NewSQLServerReader reads audit files through the connection.

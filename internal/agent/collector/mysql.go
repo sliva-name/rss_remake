@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	generalLine    = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+(\d+)\s([A-Za-z][A-Za-z ]*?)\t(.*)$`)
+	generalLine    = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+(?:Z|[+-]\d{2}:\d{2}))\s+(\d+)\s([A-Za-z][A-Za-z ]*?)\t(.*)$`)
 	generalConnect = regexp.MustCompile(`^([^@\s]+)@(\S*) on `)
 	accessDenied   = regexp.MustCompile(`^Access denied for user '([^']*)'@'([^']*)'`)
 )
@@ -25,7 +25,8 @@ type generalSession struct {
 // generalParser reads the MySQL general log. It is the only auditing MySQL
 // Community has, and it writes before execution with no outcome, so every record
 // stays at status unknown. A statement may span lines, so a record is complete
-// only when the next header arrives.
+// only when the next header arrives. Timestamps end in Z or in an offset,
+// depending on log_timestamps, and both place them exactly.
 type generalParser struct {
 	sessions map[string]generalSession
 	current  *heldRecord
@@ -151,15 +152,22 @@ const (
 )
 
 // mariadbParser reads server_audit, whose lines are complete: each carries the
-// outcome, so nothing is held back.
-type mariadbParser struct{}
+// outcome, so nothing is held back. Timestamps are the server's local time
+// without an offset, so location says what they mean.
+type mariadbParser struct {
+	location *time.Location
+}
 
-func (mariadbParser) feed(line []byte, at fileCursor) ([]Record, bool) {
+func newMariaDBParser() *mariadbParser { return &mariadbParser{location: time.UTC} }
+
+func (p *mariadbParser) setLocation(location *time.Location) { p.location = location }
+
+func (p *mariadbParser) feed(line []byte, at fileCursor) ([]Record, bool) {
 	fields := bytes.SplitN(line, []byte(","), mariaFieldsBeforeQuery)
 	if len(fields) != mariaFieldsBeforeQuery {
 		return nil, false
 	}
-	timestamp, err := time.Parse(mariaTimeLayout, string(fields[0]))
+	timestamp, err := time.ParseInLocation(mariaTimeLayout, string(fields[0]), p.location)
 	if err != nil {
 		return nil, false
 	}

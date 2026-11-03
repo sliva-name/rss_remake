@@ -91,7 +91,8 @@ func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeProblem(w, http.StatusNotFound, "not_found", "resource not found")
 	case errors.Is(err, tenant.ErrConflict), errors.Is(err, fleet.ErrConflict):
 		writeProblem(w, http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid):
+	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid),
+		errors.Is(err, errInvalidParameter):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 	default:
 		logger.Error("request failed", "error", err, "code", string(safeerr.CodeOf(err)))

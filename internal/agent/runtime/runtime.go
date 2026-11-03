@@ -98,7 +98,14 @@ func (c *Control) Run(ctx context.Context) {
 	}
 }
 
+// tick renews the certificate whatever happened to the other steps: once it
+// expires the agent cannot even ask for a new one, and a step that keeps failing
+// would otherwise lock the agent out for good.
 func (c *Control) tick(ctx context.Context) error {
+	return errors.Join(c.synchronize(ctx), c.renewCertificate(ctx))
+}
+
+func (c *Control) synchronize(ctx context.Context) error {
 	latest, err := c.heartbeat(ctx)
 	if err != nil {
 		return err
@@ -109,10 +116,7 @@ func (c *Control) tick(ctx context.Context) error {
 	if err := c.refreshSources(ctx, latest.GetLatestSourcesVersion()); err != nil {
 		return err
 	}
-	if err := c.reportSources(ctx); err != nil {
-		return err
-	}
-	return c.renewCertificate(ctx)
+	return c.reportSources(ctx)
 }
 
 func (c *Control) reportSources(ctx context.Context) error {

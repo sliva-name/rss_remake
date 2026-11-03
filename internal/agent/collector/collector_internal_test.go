@@ -223,7 +223,7 @@ func TestGeneralLogSessionsSurviveRestart(t *testing.T) {
 
 func TestMariaDBLine(t *testing.T) {
 	line := `20261103 01:39:30,host,dg_app,127.0.0.1,1478,5150,QUERY,crm,'SELECT a, b FROM t WHERE c=\'x,y\'',1146`
-	records, ok := mariadbParser{}.feed([]byte(line), fileCursor{})
+	records, ok := newMariaDBParser().feed([]byte(line), fileCursor{})
 	if !ok || len(records) != 1 {
 		t.Fatalf("records = %+v, %v", records, ok)
 	}
@@ -343,6 +343,8 @@ func TestOversizedLineIsSkippedAndCounted(t *testing.T) {
 }
 
 type staticCatalog struct{}
+
+func (staticCatalog) LogLocation(context.Context) (*time.Location, error) { return time.UTC, nil }
 
 func (staticCatalog) Tables(context.Context) ([]connector.Table, error) {
 	return []connector.Table{{
@@ -592,5 +594,21 @@ func TestHeldSessionOverflowReleasesInsteadOfDropping(t *testing.T) {
 	}
 	if len(released) != 5 || len(parser.held) != maxHeldSessions {
 		t.Fatalf("released %d, held %d", len(released), len(parser.held))
+	}
+}
+
+// After rotation the held records sit in two files. The durable cursor must
+// point at the earlier one, or a crash would skip it.
+func TestOldestHeldSpansRotatedFiles(t *testing.T) {
+	for range 20 {
+		parser := newPostgresParser()
+		older := pgLine(t, map[string]any{"session_id": "s1", "vxid": "1/1", "message": audit("SELECT 1")})
+		newer := pgLine(t, map[string]any{"session_id": "s2", "vxid": "2/1", "message": audit("SELECT 2")})
+		parser.feed(older, fileCursor{Inode: 7, Offset: 900})
+		parser.feed(newer, fileCursor{Inode: 8, Offset: 10})
+		oldest, found := parser.oldestHeld()
+		if !found || oldest != (fileCursor{Inode: 7, Offset: 900}) {
+			t.Fatalf("oldest = %+v, want the record in the rotated file", oldest)
+		}
 	}
 }

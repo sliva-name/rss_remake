@@ -143,3 +143,27 @@ func TestImplausibleEventTimeIsReplaced(t *testing.T) {
 		}
 	}
 }
+
+type countingCatalog struct {
+	fakeCatalog
+	versionReads map[uuid.UUID]int
+}
+
+func (c *countingCatalog) CatalogVersion(_ context.Context, _, sourceID uuid.UUID) (time.Time, error) {
+	c.versionReads[sourceID]++
+	return time.Time{}, nil
+}
+
+// Each lookup is a transaction in PostgreSQL, so a batch must not pay one per event.
+func TestIngestReadsEachCatalogOncePerBatch(t *testing.T) {
+	first, second := uuid.New(), uuid.New()
+	catalog := &countingCatalog{fakeCatalog: fakeCatalog{owned: []uuid.UUID{first, second}}, versionReads: map[uuid.UUID]int{}}
+	service := audit.NewService(catalog, &fakeSink{})
+	batch := []*agentv1.AuditEvent{event(first), event(second), event(first), event(first), event(second)}
+	if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), batch); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.versionReads[first] != 1 || catalog.versionReads[second] != 1 {
+		t.Fatalf("catalog version reads = %v, want one per source", catalog.versionReads)
+	}
+}

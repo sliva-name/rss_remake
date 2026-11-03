@@ -46,6 +46,9 @@ type heldRecord struct {
 	record Record
 	at     fileCursor
 	seen   time.Time
+	// order counts lines as fed. Lines arrive in log order across rotated files,
+	// whose offsets cannot be compared with each other.
+	order uint64
 }
 
 // sessionContext remembers the signed context set in a transaction.
@@ -61,11 +64,19 @@ type postgresParser struct {
 	held     map[string]*heldRecord
 	contexts map[string]sessionContext
 	now      func() time.Time
+	fed      uint64
+	// location is log_timezone. A timestamp names only its abbreviation, which
+	// resolves to an offset within that zone and is ambiguous outside it.
+	location *time.Location
 }
 
 func newPostgresParser() *postgresParser {
-	return &postgresParser{held: map[string]*heldRecord{}, contexts: map[string]sessionContext{}, now: time.Now}
+	return &postgresParser{
+		held: map[string]*heldRecord{}, contexts: map[string]sessionContext{}, now: time.Now, location: time.UTC,
+	}
 }
+
+func (p *postgresParser) setLocation(location *time.Location) { p.location = location }
 
 func (p *postgresParser) feed(line []byte, at fileCursor) ([]Record, bool) {
 	var entry pgEntry
@@ -111,7 +122,8 @@ func (p *postgresParser) audit(entry *pgEntry, at fileCursor) ([]Record, bool) {
 	record := p.base(entry, at)
 	record.Statement = NewStatement(statement)
 	record.ContextToken = p.contextOf(entry)
-	settled = append(settled, p.hold(entry.SessionID, &heldRecord{record: record, at: at, seen: p.now()})...)
+	p.fed++
+	settled = append(settled, p.hold(entry.SessionID, &heldRecord{record: record, at: at, seen: p.now(), order: p.fed})...)
 	return settled, true
 }
 
@@ -132,7 +144,7 @@ func (p *postgresParser) contextOf(entry *pgEntry) string {
 func (p *postgresParser) base(entry *pgEntry, at fileCursor) Record {
 	return Record{
 		Position:      at.position(),
-		Time:          parsePostgresTime(entry.Timestamp),
+		Time:          parsePostgresTime(entry.Timestamp, p.location),
 		Principal:     entry.User,
 		ClientAddress: entry.RemoteHost,
 		Session:       entry.SessionID,
@@ -141,8 +153,8 @@ func (p *postgresParser) base(entry *pgEntry, at fileCursor) Record {
 	}
 }
 
-func parsePostgresTime(value string) time.Time {
-	parsed, err := time.Parse(pgTimeLayout, value)
+func parsePostgresTime(value string, location *time.Location) time.Time {
+	parsed, err := time.ParseInLocation(pgTimeLayout, value, location)
 	if err != nil {
 		return time.Time{}
 	}
@@ -225,14 +237,16 @@ func (p *postgresParser) flush() []Record {
 }
 
 func (p *postgresParser) oldestHeld() (fileCursor, bool) {
-	var oldest fileCursor
-	found := false
+	var oldest *heldRecord
 	for _, item := range p.held {
-		if !found || item.at.Inode != oldest.Inode || item.at.Offset < oldest.Offset {
-			oldest, found = item.at, true
+		if oldest == nil || item.order < oldest.order {
+			oldest = item
 		}
 	}
-	return oldest, found
+	if oldest == nil {
+		return fileCursor{}, false
+	}
+	return oldest.at, true
 }
 
 // state is empty: every line carries user and session, and contexts are bound to

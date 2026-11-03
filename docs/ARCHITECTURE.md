@@ -80,6 +80,7 @@ flowchart LR
 | Журнал ротирован раньше чтения | `AUDIT_GAP` с причиной `LOG_ROTATED` |
 | Запись журнала не разобрана | Счётчик, `AUDIT_GAP` с `UNPARSEABLE_RECORDS` |
 | Источник недоступен | `AuditSourceHealth = UNAVAILABLE` |
+| Часовой пояс журнала неизвестен | Журнал не читается, позиция не движется, источник в состоянии `DEGRADED` с причиной `LOG_TIME_ZONE_UNKNOWN`. Пояс берётся у СУБД: `log_timezone` у PostgreSQL, системный пояс у MariaDB |
 
 ## Решения
 

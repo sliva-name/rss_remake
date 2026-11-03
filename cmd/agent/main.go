@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	_ "time/tzdata" // log time zones are resolved by name, whatever the image provides
 
 	"golang.org/x/sync/errgroup"
 

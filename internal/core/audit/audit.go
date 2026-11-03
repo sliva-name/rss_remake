@@ -135,14 +135,19 @@ func (s *Service) Ingest(ctx context.Context, tenantID, agentID uuid.UUID, event
 	now := s.now()
 	stored := make([]Event, 0, len(events))
 	accepted := make([]string, 0, len(events))
+	// A batch names few sources, so each one's catalog is looked up once per batch.
+	batchColumns := map[uuid.UUID]map[ColumnKey]ColumnInfo{}
 	for _, event := range events {
 		sourceID, err := uuid.Parse(event.GetSourceId())
 		if err != nil || !slices.Contains(owned, sourceID) {
 			return nil, ErrForeignSource
 		}
-		columns, err := s.columnsOf(ctx, tenantID, sourceID)
-		if err != nil {
-			return nil, err
+		columns, found := batchColumns[sourceID]
+		if !found {
+			if columns, err = s.columnsOf(ctx, tenantID, sourceID); err != nil {
+				return nil, err
+			}
+			batchColumns[sourceID] = columns
 		}
 		converted, err := convert(tenantID, agentID, sourceID, event, columns)
 		if err != nil {

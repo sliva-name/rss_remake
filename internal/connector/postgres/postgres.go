@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the pgx database/sql driver
 
@@ -85,6 +86,20 @@ func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilitySta
 		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IN_NATIVE_AUDIT"),
 		connector.Configured(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, readable && audited("misc_set"), "PGAUDIT_MISC_SET_CLASS_REQUIRED"),
 	}
+}
+
+// LogLocation reports log_timezone, the zone jsonlog prints timestamps in. The
+// log carries only its abbreviation, which is ambiguous without the zone.
+func (s *Source) LogLocation(ctx context.Context) (*time.Location, error) {
+	var name string
+	if err := s.db.QueryRowContext(ctx, `SELECT current_setting('log_timezone')`).Scan(&name); err != nil {
+		return nil, safeerr.New("read log time zone", safeerr.CodeQuery, err)
+	}
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, safeerr.New("unknown log time zone", safeerr.CodeInvalid, err)
+	}
+	return location, nil
 }
 
 // catalogQuery reads pg_catalog rather than information_schema because the
