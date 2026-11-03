@@ -131,8 +131,10 @@ services:
       POSTGRES_DB: dataguard
       POSTGRES_USER: dg_owner
       POSTGRES_PASSWORD: ${CENTER_PG_ADMIN_PASSWORD}
+      CENTER_PG_APP_PASSWORD: ${CENTER_PG_APP_PASSWORD}
     ports: ["127.0.0.1:25442:5432"]
     volumes:
+      - ./center/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - center-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dg_owner -d dataguard"]
@@ -167,6 +169,8 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: dg_admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     ports: ["127.0.0.1:25080:8080"]
+    volumes:
+      - ./keycloak/dataguard-realm.json:/opt/keycloak/data/import/dataguard-realm.json:ro
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
       interval: 5s

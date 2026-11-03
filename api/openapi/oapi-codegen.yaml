@@ -1,0 +1,9 @@
+package: restapi
+output: internal/gen/restapi/restapi.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+output-options:
+  # Problem is returned by middleware, not by any single operation.
+  skip-prune: true

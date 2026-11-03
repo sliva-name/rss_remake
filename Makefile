@@ -30,6 +30,9 @@ vuln:
 proto:
 	$(GO_TOOL) buf generate
 
+api:
+	$(GO_TOOL) oapi-codegen -config api/openapi/oapi-codegen.yaml api/openapi/dataguard.yaml
+
 proto-lint:
 	$(GO_TOOL) buf lint
 

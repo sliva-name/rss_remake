@@ -1,0 +1,205 @@
+openapi: 3.0.3
+info:
+  title: DataGuard API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /me:
+    get:
+      operationId: getCurrentUser
+      responses:
+        "200":
+          description: Authenticated principal
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CurrentUser"}
+  /tenants:
+    get:
+      operationId: listTenants
+      responses:
+        "200":
+          description: All organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Tenant"}
+    post:
+      operationId: createTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewTenant"}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Tenant"}
+  /environments:
+    get:
+      operationId: listEnvironments
+      responses:
+        "200":
+          description: Environments of the current tenant
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Environment"}
+    post:
+      operationId: createEnvironment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewEnvironment"}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Environment"}
+  /enrollment-tokens:
+    post:
+      operationId: createEnrollmentToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewEnrollmentToken"}
+      responses:
+        "201":
+          description: The token is shown once and cannot be read again
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EnrollmentToken"}
+  /agents:
+    get:
+      operationId: listAgents
+      responses:
+        "200":
+          description: Agents of the current tenant
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Agent"}
+  /agents/{agentId}/revoke:
+    post:
+      operationId: revokeAgent
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Revoked
+  /sources:
+    get:
+      operationId: listSources
+      responses:
+        "200":
+          description: Data sources reported by agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Source"}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Problem:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+    CurrentUser:
+      type: object
+      required: [subject, roles]
+      properties:
+        subject: {type: string}
+        tenantId: {type: string, format: uuid}
+        roles:
+          type: array
+          items: {type: string}
+    NewTenant:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+    Tenant:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        createdAt: {type: string, format: date-time}
+    NewEnvironment:
+      type: object
+      required: [name, kind]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 100}
+        kind: {$ref: "#/components/schemas/EnvironmentKind"}
+    EnvironmentKind:
+      type: string
+      enum: [development, testing, production]
+    Environment:
+      type: object
+      required: [id, name, kind, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        kind: {$ref: "#/components/schemas/EnvironmentKind"}
+        createdAt: {type: string, format: date-time}
+    NewEnrollmentToken:
+      type: object
+      required: [environmentId]
+      properties:
+        environmentId: {type: string, format: uuid}
+    EnrollmentToken:
+      type: object
+      required: [token, expiresAt]
+      properties:
+        token: {type: string}
+        expiresAt: {type: string, format: date-time}
+    Agent:
+      type: object
+      required: [id, environmentId, status, version, certificateExpires, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        environmentId: {type: string, format: uuid}
+        status: {type: string, enum: [active, revoked]}
+        version: {type: string}
+        certificateExpires: {type: string, format: date-time}
+        lastSeenAt: {type: string, format: date-time}
+        createdAt: {type: string, format: date-time}
+    Capability:
+      type: object
+      required: [capability, support, reasonCode]
+      properties:
+        capability: {type: string}
+        support: {type: string}
+        reasonCode: {type: string}
+    Source:
+      type: object
+      required: [id, agentId, key, engine, engineVersion, capabilities, updatedAt]
+      properties:
+        id: {type: string, format: uuid}
+        agentId: {type: string, format: uuid}
+        key: {type: string}
+        engine: {type: string}
+        engineVersion: {type: string}
+        capabilities:
+          type: array
+          items: {$ref: "#/components/schemas/Capability"}
+        updatedAt: {type: string, format: date-time}

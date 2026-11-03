@@ -1,0 +1,206 @@
+// Package api serves the public REST API described by api/openapi. Handlers are
+// generated from that schema; this package only adapts them to the core.
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+
+	"github.com/google/uuid"
+
+	"dataguard/internal/core/fleet"
+	"dataguard/internal/core/tenant"
+	"dataguard/internal/gen/restapi"
+	"dataguard/internal/platform/safeerr"
+)
+
+const maxRequestBytes = 1 << 20
+
+// Server implements the generated strict interface.
+type Server struct {
+	tenants *tenant.Service
+	fleet   *fleet.Service
+}
+
+// Handler builds the HTTP handler with authentication and authorization.
+func Handler(server *Server, authenticator Authenticator, logger *slog.Logger) http.Handler {
+	strict := restapi.NewStrictHandlerWithOptions(server, []restapi.StrictMiddlewareFunc{authorize},
+		restapi.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, _ error) {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", "request is malformed")
+			},
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				writeError(w, logger, err)
+			},
+		})
+	routes := restapi.HandlerWithOptions(strict, restapi.StdHTTPServerOptions{
+		BaseURL: "/api/v1",
+		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, _ error) {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "request is malformed")
+		},
+	})
+	return limitBody(authenticate(authenticator, routes))
+}
+
+// New creates the REST adapter.
+func New(tenants *tenant.Service, fleetService *fleet.Service) *Server {
+	return &Server{tenants: tenants, fleet: fleetService}
+}
+
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
+	switch {
+	case errors.Is(err, errUnauthenticated):
+		writeProblem(w, http.StatusUnauthorized, "unauthenticated", err.Error())
+	case errors.Is(err, errForbidden), errors.Is(err, errNoTenant):
+		writeProblem(w, http.StatusForbidden, "forbidden", err.Error())
+	case errors.Is(err, fleet.ErrNotFound):
+		writeProblem(w, http.StatusNotFound, "not_found", "resource not found")
+	case errors.Is(err, tenant.ErrConflict):
+		writeProblem(w, http.StatusConflict, "conflict", err.Error())
+	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid):
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+	default:
+		logger.Error("request failed", "error", err, "code", string(safeerr.CodeOf(err)))
+		writeProblem(w, http.StatusInternalServerError, "internal", "internal error")
+	}
+}
+
+func writeProblem(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(restapi.Problem{Code: code, Message: message})
+}
+
+func tenantOf(ctx context.Context) uuid.UUID {
+	// The authorize middleware has already rejected callers without a tenant.
+	principal, _ := principalFrom(ctx)
+	return principal.TenantID
+}
+
+func (s *Server) GetCurrentUser(ctx context.Context, _ restapi.GetCurrentUserRequestObject) (restapi.GetCurrentUserResponseObject, error) {
+	principal, _ := principalFrom(ctx)
+	user := restapi.CurrentUser{Subject: principal.Subject, Roles: principal.Roles}
+	if principal.TenantID != uuid.Nil {
+		id := principal.TenantID
+		user.TenantId = &id
+	}
+	return restapi.GetCurrentUser200JSONResponse(user), nil
+}
+
+func (s *Server) ListTenants(ctx context.Context, _ restapi.ListTenantsRequestObject) (restapi.ListTenantsResponseObject, error) {
+	tenants, err := s.tenants.ListTenants(ctx)
+	if err != nil {
+		return nil, err
+	}
+	response := make(restapi.ListTenants200JSONResponse, 0, len(tenants))
+	for _, item := range tenants {
+		response = append(response, toTenant(item))
+	}
+	return response, nil
+}
+
+func (s *Server) CreateTenant(ctx context.Context, request restapi.CreateTenantRequestObject) (restapi.CreateTenantResponseObject, error) {
+	created, err := s.tenants.CreateTenant(ctx, request.Body.Name)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.CreateTenant201JSONResponse(toTenant(created)), nil
+}
+
+func (s *Server) ListEnvironments(ctx context.Context, _ restapi.ListEnvironmentsRequestObject) (restapi.ListEnvironmentsResponseObject, error) {
+	environments, err := s.tenants.ListEnvironments(ctx, tenantOf(ctx))
+	if err != nil {
+		return nil, err
+	}
+	response := make(restapi.ListEnvironments200JSONResponse, 0, len(environments))
+	for _, item := range environments {
+		response = append(response, toEnvironment(item))
+	}
+	return response, nil
+}
+
+func (s *Server) CreateEnvironment(ctx context.Context, request restapi.CreateEnvironmentRequestObject) (restapi.CreateEnvironmentResponseObject, error) {
+	created, err := s.tenants.CreateEnvironment(ctx, tenantOf(ctx), request.Body.Name, string(request.Body.Kind))
+	if err != nil {
+		return nil, err
+	}
+	return restapi.CreateEnvironment201JSONResponse(toEnvironment(created)), nil
+}
+
+func (s *Server) CreateEnrollmentToken(ctx context.Context, request restapi.CreateEnrollmentTokenRequestObject) (restapi.CreateEnrollmentTokenResponseObject, error) {
+	token, expiresAt, err := s.fleet.CreateEnrollmentToken(ctx, tenantOf(ctx), request.Body.EnvironmentId)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.CreateEnrollmentToken201JSONResponse{Token: token, ExpiresAt: expiresAt}, nil
+}
+
+func (s *Server) ListAgents(ctx context.Context, _ restapi.ListAgentsRequestObject) (restapi.ListAgentsResponseObject, error) {
+	agents, err := s.fleet.ListAgents(ctx, tenantOf(ctx))
+	if err != nil {
+		return nil, err
+	}
+	response := make(restapi.ListAgents200JSONResponse, 0, len(agents))
+	for _, item := range agents {
+		response = append(response, toAgent(item))
+	}
+	return response, nil
+}
+
+func (s *Server) RevokeAgent(ctx context.Context, request restapi.RevokeAgentRequestObject) (restapi.RevokeAgentResponseObject, error) {
+	if err := s.fleet.Revoke(ctx, tenantOf(ctx), request.AgentId); err != nil {
+		return nil, err
+	}
+	return restapi.RevokeAgent204Response{}, nil
+}
+
+func (s *Server) ListSources(ctx context.Context, _ restapi.ListSourcesRequestObject) (restapi.ListSourcesResponseObject, error) {
+	sources, err := s.fleet.ListSources(ctx, tenantOf(ctx))
+	if err != nil {
+		return nil, err
+	}
+	response := make(restapi.ListSources200JSONResponse, 0, len(sources))
+	for _, item := range sources {
+		response = append(response, toSource(item))
+	}
+	return response, nil
+}
+
+func toTenant(item tenant.Tenant) restapi.Tenant {
+	return restapi.Tenant{Id: item.ID, Name: item.Name, CreatedAt: item.CreatedAt}
+}
+
+func toEnvironment(item tenant.Environment) restapi.Environment {
+	return restapi.Environment{Id: item.ID, Name: item.Name, Kind: restapi.EnvironmentKind(item.Kind), CreatedAt: item.CreatedAt}
+}
+
+func toAgent(item fleet.Agent) restapi.Agent {
+	return restapi.Agent{
+		Id: item.ID, EnvironmentId: item.EnvironmentID, Status: restapi.AgentStatus(item.Status),
+		Version: item.Version, CertificateExpires: item.CertificateExpires,
+		LastSeenAt: item.LastSeenAt, CreatedAt: item.CreatedAt,
+	}
+}
+
+func toSource(item fleet.Source) restapi.Source {
+	capabilities := make([]restapi.Capability, 0, len(item.Capabilities))
+	for _, capability := range item.Capabilities {
+		capabilities = append(capabilities, restapi.Capability{
+			Capability: capability.Capability, Support: capability.Support, ReasonCode: capability.ReasonCode,
+		})
+	}
+	return restapi.Source{
+		Id: item.ID, AgentId: item.AgentID, Key: item.Key, Engine: item.Engine,
+		EngineVersion: item.EngineVersion, Capabilities: capabilities, UpdatedAt: item.UpdatedAt,
+	}
+}

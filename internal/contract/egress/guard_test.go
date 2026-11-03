@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"dataguard/internal/agent/egress"
+	"dataguard/internal/contract/egress"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 )
 
