@@ -14,8 +14,14 @@ import (
 )
 
 // Enroll registers this agent once. The private key is generated here and is
-// never sent; only the CSR proves possession of it.
+// never sent; only the CSR proves possession of it. Existing state is checked
+// first, so a refused enrollment does not spend the one-time token.
 func Enroll(ctx context.Context, settings *config.Config, token, version string) error {
+	if enrolled, err := identity.Enrolled(settings.StateDir); err != nil {
+		return err
+	} else if enrolled {
+		return identity.ErrAlreadyEnrolled
+	}
 	csr, key, err := pki.NewCSR()
 	if err != nil {
 		return err

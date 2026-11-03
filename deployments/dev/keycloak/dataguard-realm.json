@@ -27,15 +27,17 @@
       "directAccessGrantsEnabled": false,
       "redirectUris": [
         "http://127.0.0.1:25173/*",
-        "http://127.0.0.1:25800/*"
+        "http://127.0.0.1:25800/*",
+        "http://localhost:25800/*"
       ],
       "webOrigins": [
         "http://127.0.0.1:25173",
-        "http://127.0.0.1:25800"
+        "http://127.0.0.1:25800",
+        "http://localhost:25800"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://127.0.0.1:25173/##http://127.0.0.1:25800/"
+        "post.logout.redirect.uris": "http://127.0.0.1:25173/##http://127.0.0.1:25800/##http://localhost:25800/"
       },
       "protocolMappers": [
         {

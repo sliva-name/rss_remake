@@ -33,6 +33,10 @@ const (
 var (
 	// ErrNotEnrolled means the agent must run enrollment first.
 	ErrNotEnrolled = errors.New("agent is not enrolled")
+	// ErrAlreadyEnrolled refuses a second enrollment over existing state: the
+	// queue and log positions there belong to the first one, and their events
+	// would be delivered under the new identity, possibly of another tenant.
+	ErrAlreadyEnrolled = errors.New("agent is already enrolled, enroll again only with an empty state directory")
 	// ErrPolicyRollback rejects a policy older than the one already applied.
 	ErrPolicyRollback = errors.New("policy version is older than the applied one")
 )
@@ -64,8 +68,27 @@ type Enrollment struct {
 	PolicyPublicKey []byte
 }
 
-// Save persists a new enrollment.
+// Enrolled reports whether directory already holds an identity.
+func Enrolled(directory string) (bool, error) {
+	_, err := os.Stat(filepath.Join(filepath.Clean(directory), stateFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check identity: %w", err)
+	}
+	return true, nil
+}
+
+// Save persists a new enrollment. It never replaces an existing one.
 func Save(directory string, enrollment Enrollment) error {
+	enrolled, err := Enrolled(directory)
+	if err != nil {
+		return err
+	}
+	if enrolled {
+		return ErrAlreadyEnrolled
+	}
 	if err := os.MkdirAll(directory, directoryMode); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}

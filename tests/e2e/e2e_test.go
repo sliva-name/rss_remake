@@ -30,6 +30,7 @@ import (
 
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/gen/restapi"
+	"dataguard/internal/testkit/keycloak"
 	"dataguard/internal/testkit/seed"
 	"dataguard/internal/testkit/stand"
 	"dataguard/internal/testkit/synthetic"
@@ -37,9 +38,7 @@ import (
 )
 
 const (
-	keycloak    = "http://127.0.0.1:25080"
 	api         = "http://127.0.0.1:25800"
-	realm       = "dataguard"
 	wait        = 60 * time.Second
 	seededRows  = 200
 	agentConfig = "/etc/dataguard/agent.yaml"
@@ -145,82 +144,18 @@ func startServer(t *testing.T) {
 	waitReady(t)
 }
 
-func postForm(t *testing.T, address string, form url.Values) map[string]any {
-	t.Helper()
-	response, err := http.PostForm(address, form)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	var decoded map[string]any
-	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
-		t.Fatal(err)
-	}
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("%s: %d %v", address, response.StatusCode, decoded)
-	}
-	return decoded
-}
-
-func keycloakAdmin(t *testing.T) string {
-	t.Helper()
-	decoded := postForm(t, keycloak+"/realms/master/protocol/openid-connect/token", url.Values{
-		"grant_type": {"password"}, "client_id": {"admin-cli"}, "username": {"dg_admin"},
-		"password": {stand.Env(t)["KEYCLOAK_ADMIN_PASSWORD"]},
-	})
-	return decoded["access_token"].(string)
-}
-
-func keycloakCall(t *testing.T, token, method, path string, body any) *http.Response {
-	t.Helper()
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := http.NewRequest(method, keycloak+"/admin/realms/"+realm+path, bytes.NewReader(encoded))
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	request.Header.Set("Content-Type", "application/json")
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return response
-}
-
 // createUser replaces any user left by a previous run.
 func createUser(t *testing.T, name, role, tenantID string) string {
 	t.Helper()
-	admin := keycloakAdmin(t)
-	existing := keycloakCall(t, admin, http.MethodGet, "/users?exact=true&username="+name, nil)
-	var found []struct{ ID string }
-	_ = json.NewDecoder(existing.Body).Decode(&found)
-	_ = existing.Body.Close()
-	for _, user := range found {
-		_ = keycloakCall(t, admin, http.MethodDelete, "/users/"+user.ID, nil).Body.Close()
+	ctx := context.Background()
+	admin, err := keycloak.Connect(ctx, stand.Env(t)["KEYCLOAK_ADMIN_PASSWORD"])
+	if err != nil {
+		t.Fatal(err)
 	}
-	password := "Dg-" + hexToken(t)
-	attributes := map[string][]string{}
-	if tenantID != "" {
-		attributes["tenant_id"] = []string{tenantID}
+	password, err := admin.CreateUser(ctx, name, role, tenantID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	response := keycloakCall(t, admin, http.MethodPost, "/users", map[string]any{
-		"username": name, "enabled": true, "email": name + "@example.invalid", "emailVerified": true,
-		"firstName": name, "lastName": "Test", "attributes": attributes,
-		"credentials": []map[string]any{{"type": "password", "value": password, "temporary": false}},
-	})
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusCreated {
-		t.Fatalf("create user: %d", response.StatusCode)
-	}
-	userID := filepath.Base(response.Header.Get("Location"))
-	roleResponse := keycloakCall(t, admin, http.MethodGet, "/roles/"+role, nil)
-	var roleBody map[string]any
-	_ = json.NewDecoder(roleResponse.Body).Decode(&roleBody)
-	_ = roleResponse.Body.Close()
-	_ = keycloakCall(t, admin, http.MethodPost, "/users/"+userID+"/role-mappings/realm", []any{roleBody}).Body.Close()
 	return password
 }
 
@@ -235,10 +170,11 @@ func hexToken(t *testing.T) string {
 
 func login(t *testing.T, name, password string) string {
 	t.Helper()
-	decoded := postForm(t, keycloak+"/realms/"+realm+"/protocol/openid-connect/token", url.Values{
-		"grant_type": {"password"}, "client_id": {"dataguard-cli"}, "username": {name}, "password": {password}, "scope": {"openid"},
-	})
-	return decoded["access_token"].(string)
+	token, err := keycloak.Login(context.Background(), name, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
 }
 
 func (s *stack) call(t *testing.T, token, method, path string, body any, into any) int {

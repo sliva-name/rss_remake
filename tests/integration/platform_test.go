@@ -259,6 +259,10 @@ func TestEnrollmentTokenWorksOnce(t *testing.T) {
 	if err := runtime.Enroll(ctx, settings, token, "1.0.0"); err != nil {
 		t.Fatalf("first Enroll: %v", err)
 	}
+	if err := runtime.Enroll(ctx, settings, token, "1.0.0"); !errors.Is(err, identity.ErrAlreadyEnrolled) {
+		t.Fatalf("Enroll over existing state: %v", err)
+	}
+	settings.StateDir = t.TempDir()
 	err = runtime.Enroll(ctx, settings, token, "1.0.0")
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Fatalf("second Enroll: %v", err)

@@ -1,7 +1,7 @@
 GO_TOOL := go tool -modfile=tools/go.mod
 COMPOSE := docker compose --project-name dataguard-dev --env-file deployments/dev/.env -f deployments/dev/compose.yml
 
-.PHONY: check fmt fmt-check lint test test-integration vuln proto proto-lint api dev-env dev-up dev-down build images agent-enroll agent-up
+.PHONY: check fmt fmt-check lint test test-integration vuln proto proto-lint api dev-env dev-up dev-down build images dev-users agent-enroll agent-up agent-reset
 
 check: fmt-check proto-lint lint test vuln
 
@@ -47,6 +47,10 @@ dev-up: dev-env
 images:
 	$(COMPOSE) --profile agent --profile check build
 
+# Dashboard accounts on the stand. Every run issues new passwords.
+dev-users:
+	go run ./scripts/devusers
+
 # The token is read from stdin, so it never appears in the command line or the image.
 agent-enroll:
 	@test -n "$(TOKEN_FILE)" || { echo "usage: make agent-enroll TOKEN_FILE=token.txt"; exit 1; }
@@ -54,6 +58,11 @@ agent-enroll:
 
 agent-up:
 	$(COMPOSE) up --detach --no-deps agent
+
+# Removes the agent with its identity and queue, so it can be enrolled again.
+agent-reset:
+	$(COMPOSE) --profile agent rm --stop --force agent
+	docker volume rm --force dataguard-dev_agent-state
 
 dev-down:
 	$(COMPOSE) --profile agent --profile check down --volumes
