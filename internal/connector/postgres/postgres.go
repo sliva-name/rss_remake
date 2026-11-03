@@ -53,9 +53,37 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 		}
 	}
 	version, _, _ = strings.Cut(version, " ")
-	return version, []*agentv1.CapabilityStatus{
+	return version, append([]*agentv1.CapabilityStatus{
 		connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_AVAILABLE, ""),
 		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_AVAILABLE, ""),
+	}, s.auditCapabilities(ctx)...)
+}
+
+const auditSettingsQuery = `
+SELECT current_setting('shared_preload_libraries'), COALESCE(current_setting('pgaudit.log', true), ''),
+       current_setting('log_destination'), current_setting('logging_collector'),
+       current_setting('log_disconnections')`
+
+func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilityStatus {
+	var preload, classes, destination, collector, disconnections string
+	err := s.db.QueryRowContext(ctx, auditSettingsQuery).Scan(&preload, &classes, &destination, &collector, &disconnections)
+	if err != nil {
+		return []*agentv1.CapabilityStatus{connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED")}
+	}
+	installed := strings.Contains(preload, "pgaudit")
+	readable := installed && collector == "on" && strings.Contains(destination, "jsonlog")
+	audited := func(class string) bool {
+		return strings.Contains(classes, class) || strings.Contains(classes, "all")
+	}
+	return []*agentv1.CapabilityStatus{
+		connector.Configured(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, readable, "PGAUDIT_WITH_JSONLOG_REQUIRED"),
+		connector.Configured(agentv1.Capability_CAPABILITY_READ_AUDIT, readable && audited("read"), "PGAUDIT_READ_CLASS_REQUIRED"),
+		connector.Configured(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, readable, "DERIVED_FROM_QUERY_TEXT"),
+		connector.Configured(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, readable, "DERIVED_FROM_QUERY_TEXT"),
+		connector.Configured(agentv1.Capability_CAPABILITY_QUERY_TEXT, readable, ""),
+		connector.Configured(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, readable && disconnections == "on", "LOG_DISCONNECTIONS_REQUIRED"),
+		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IN_NATIVE_AUDIT"),
+		connector.Configured(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, readable && audited("misc_set"), "PGAUDIT_MISC_SET_CLASS_REQUIRED"),
 	}
 }
 

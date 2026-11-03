@@ -1,0 +1,145 @@
+package collector
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"time"
+
+	"dataguard/internal/connector"
+	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
+)
+
+// sqlServerReader reads SQL Server Audit through SQL. Records in one audit buffer
+// share file and offset, so a position needs the ordinal inside that offset.
+type sqlServerReader struct {
+	source  connector.AuditLogSource
+	pattern string
+	live    *mssqlCursor
+	loaded  bool
+}
+
+type mssqlCursor struct {
+	File   string `json:"file"`
+	Offset int64  `json:"offset"`
+	// Seen counts records of this offset already delivered.
+	Seen int `json:"seen"`
+}
+
+// mssqlFreshStart marks the first read ever: it only finds the end of the existing
+// log, because history before installation is not audited.
+const mssqlFreshStart = ""
+
+func (r *sqlServerReader) resume(cursor []byte) error {
+	if r.loaded {
+		return nil
+	}
+	r.loaded = true
+	if cursor == nil {
+		return nil
+	}
+	r.live = &mssqlCursor{}
+	if err := json.Unmarshal(cursor, r.live); err != nil {
+		return fmt.Errorf("decode audit cursor: %w", err)
+	}
+	return nil
+}
+
+// Rewind implements Reader.
+func (r *sqlServerReader) Rewind() {
+	r.loaded = false
+	r.live = nil
+}
+
+// Read implements Reader.
+func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error) {
+	if err := r.resume(cursor); err != nil {
+		return Batch{}, err
+	}
+	position := mssqlCursor{File: mssqlFreshStart}
+	if r.live != nil {
+		position = *r.live
+	}
+	rows, err := r.source.AuditRows(ctx, r.pattern, position.File, position.Offset)
+	if err != nil {
+		return Batch{}, err
+	}
+	var batch Batch
+	if r.live != nil && position.File != "" && !containsFile(rows, position.File) && len(rows) > 0 {
+		batch.Gap = lostLogGap()
+	}
+	next := position
+	var merged *Record
+	for i := range rows {
+		row := &rows[i]
+		if row.File == next.File && row.Offset == next.Offset {
+			next.Seen++
+		} else {
+			next = mssqlCursor{File: row.File, Offset: row.Offset, Seen: 1}
+		}
+		if row.File == position.File && row.Offset == position.Offset && next.Seen <= position.Seen {
+			continue
+		}
+		if r.live == nil {
+			continue
+		}
+		merged = mergeRow(&batch, merged, row, next)
+	}
+	if merged != nil {
+		batch.Records = append(batch.Records, *merged)
+	}
+	r.live = &next
+	batch.Cursor, err = json.Marshal(next)
+	if err != nil {
+		return Batch{}, fmt.Errorf("encode audit cursor: %w", err)
+	}
+	return batch, nil
+}
+
+func containsFile(rows []connector.AuditRow, file string) bool {
+	for i := range rows {
+		if rows[i].File == file {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeRow folds the rows of one statement. SQL Server writes one row per table,
+// which would otherwise count a join as several accesses, and splits long text
+// into numbered parts.
+func mergeRow(batch *Batch, current *Record, row *connector.AuditRow, position mssqlCursor) *Record {
+	if !row.UserObject {
+		return current
+	}
+	if current != nil && sameStatement(current, row) {
+		if row.Sequence > 1 {
+			current.Statement = NewStatement(current.Statement.Reveal() + row.Statement)
+		}
+		return current
+	}
+	if current != nil {
+		batch.Records = append(batch.Records, *current)
+	}
+	status := agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS
+	if !row.Succeeded {
+		status = agentv1.ExecutionStatus_EXECUTION_STATUS_FAILURE
+	}
+	return &Record{
+		Position:      row.File + ":" + strconv.FormatInt(position.Offset, 10) + ":" + strconv.Itoa(position.Seen),
+		Time:          row.Time.UTC().Truncate(time.Microsecond),
+		Statement:     NewStatement(row.Statement),
+		Principal:     row.Principal,
+		ClientAddress: row.ClientAddress,
+		Session:       strconv.Itoa(row.Session),
+		Transaction:   strconv.FormatInt(row.Transaction, 10),
+		Status:        status,
+	}
+}
+
+func sameStatement(current *Record, row *connector.AuditRow) bool {
+	return current.Session == strconv.Itoa(row.Session) &&
+		current.Transaction == strconv.FormatInt(row.Transaction, 10) &&
+		(row.Sequence > 1 || current.Statement.Reveal() == row.Statement)
+}

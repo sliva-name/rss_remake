@@ -5,6 +5,7 @@ package connector
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -73,6 +74,28 @@ type Sampler interface {
 	Sample(ctx context.Context, table Table, columns []Column, limits Limits, visit Visitor) (SampleStats, error)
 }
 
+// AuditRow is one record of a SQL-readable audit log. Statement holds raw query
+// text and must go straight to analysis.
+type AuditRow struct {
+	File          string
+	Offset        int64
+	Time          time.Time
+	Sequence      int
+	Succeeded     bool
+	Session       int
+	Transaction   int64
+	Principal     string
+	ClientAddress string
+	// UserObject is false for records about system objects.
+	UserObject bool
+	Statement  string
+}
+
+// AuditLogSource reads audit records through SQL.
+type AuditLogSource interface {
+	AuditRows(ctx context.Context, pattern, file string, offset int64) ([]AuditRow, error)
+}
+
 // Scannable is what the discovery scanner needs.
 type Scannable interface {
 	Source
@@ -101,6 +124,15 @@ type Credentials struct {
 	Username string
 	Password string
 	TLS      TLSMode
+}
+
+// Configured reports a capability the engine has, depending on this instance. The
+// reason stays only while it is missing: it tells an operator what to enable.
+func Configured(capability agentv1.Capability, enabled bool, reason string) *agentv1.CapabilityStatus {
+	if enabled {
+		return Status(capability, agentv1.Support_SUPPORT_AVAILABLE, "")
+	}
+	return Status(capability, agentv1.Support_SUPPORT_NOT_CONFIGURED, reason)
 }
 
 // Status is shorthand for building a capability entry.

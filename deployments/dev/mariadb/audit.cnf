@@ -6,3 +6,5 @@ server_audit_output_type = FILE
 server_audit_file_path = /var/log/dg-audit/server_audit.log
 server_audit_file_rotate_size = 10000000
 server_audit_file_rotations = 3
+# The default of 1024 cuts long statements, which then cannot be parsed.
+server_audit_query_log_limit = 1048576

@@ -18,6 +18,7 @@ import (
 	"dataguard/internal/agent/center"
 	"dataguard/internal/agent/config"
 	"dataguard/internal/agent/identity"
+	"dataguard/internal/agent/queue"
 	"dataguard/internal/agent/runtime"
 	"dataguard/internal/agent/sources"
 	"dataguard/internal/platform/safelog"
@@ -83,6 +84,16 @@ func serve(ctx context.Context, settings *config.Config) error {
 	}
 	defer func() { _ = registry.Close() }()
 
+	events, err := queue.Open(settings.StateDir, uint64(settings.QueueCap))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = events.Close() }()
+	verifier, err := runtime.NewContextVerifier(settings.Applications)
+	if err != nil {
+		return err
+	}
+
 	discovery := runtime.NewDiscovery(client, registry, 0, logger)
 	policy, err := store.LoadPolicy()
 	if err != nil {
@@ -91,8 +102,9 @@ func serve(ctx context.Context, settings *config.Config) error {
 	if policy != nil {
 		discovery.ApplyPolicy(policy)
 	}
+	audit := runtime.NewAudit(client, registry, events, verifier, logger)
 	control := runtime.NewControl(runtime.Options{
-		Client: client, Identity: store, Prober: registry, Assignments: registry,
+		Client: client, Identity: store, Prober: registry, Assignments: registry, Health: audit,
 		Policies: discovery, Version: version, Logger: logger,
 	})
 
@@ -100,5 +112,6 @@ func serve(ctx context.Context, settings *config.Config) error {
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error { control.Run(groupContext); return nil })
 	group.Go(func() error { discovery.Run(groupContext); return nil })
+	group.Go(func() error { audit.Run(groupContext); return nil })
 	return group.Wait()
 }

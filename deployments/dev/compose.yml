@@ -29,6 +29,12 @@ services:
       - pgaudit.log_relation=off
       - -c
       - pgaudit.log_statement_once=off
+      - -c
+      - pgaudit.log_catalog=off
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
     environment:
       POSTGRES_DB: crm
       POSTGRES_USER: dg_admin
@@ -39,7 +45,8 @@ services:
     volumes:
       - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - source-postgres-data:/var/lib/postgresql/data
-      - source-postgres-audit:/var/log/dg-audit
+      # Bind mounts stand in for an agent installed on the database host.
+      - ./.state/audit/postgres:/var/log/dg-audit
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dg_admin -d crm"]
       interval: 3s
@@ -54,13 +61,14 @@ services:
       SOURCE_SCANNER_PASSWORD: ${SOURCE_SCANNER_PASSWORD}
       SOURCE_APP_PASSWORD: ${SOURCE_APP_PASSWORD}
       DG_CLIENT: mysql
+      UMASK: "0644"
     ports: ["127.0.0.1:25306:3306"]
     volumes:
       - ./mysql/audit.cnf:/etc/mysql/conf.d/dg-audit.cnf:ro
       - ./mysql/init.sql.tmpl:/dg/init.sql.tmpl:ro
       - ./mysql/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - source-mysql-data:/var/lib/mysql
-      - source-mysql-audit:/var/log/dg-audit
+      - ./.state/audit/mysql:/var/log/dg-audit
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping --silent -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
       interval: 3s
@@ -75,13 +83,14 @@ services:
       SOURCE_SCANNER_PASSWORD: ${SOURCE_SCANNER_PASSWORD}
       SOURCE_APP_PASSWORD: ${SOURCE_APP_PASSWORD}
       DG_CLIENT: mariadb
+      UMASK: "0644"
     ports: ["127.0.0.1:25307:3306"]
     volumes:
       - ./mariadb/audit.cnf:/etc/mysql/conf.d/dg-audit.cnf:ro
       - ./mysql/init.sql.tmpl:/dg/init.sql.tmpl:ro
       - ./mysql/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - source-mariadb-data:/var/lib/mysql
-      - source-mariadb-audit:/var/log/dg-audit
+      - ./.state/audit/mariadb:/var/log/dg-audit
     healthcheck:
       # server_audit fails with only a log warning, so health must assert it is on.
       test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized && test \"$$(mariadb -uroot -p$$MYSQL_ROOT_PASSWORD -Ne \"show variables like 'server_audit_logging'\" | cut -f2)\" = ON"]
@@ -179,11 +188,8 @@ services:
 
 volumes:
   source-postgres-data:
-  source-postgres-audit:
   source-mysql-data:
-  source-mysql-audit:
   source-mariadb-data:
-  source-mariadb-audit:
   source-mssql-data:
   center-postgres-data:
   center-clickhouse-data:

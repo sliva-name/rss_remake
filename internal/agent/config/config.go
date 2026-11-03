@@ -38,6 +38,15 @@ type Config struct {
 	StateDir string   `yaml:"state_dir"`
 	QueueCap int64    `yaml:"queue_capacity_bytes"`
 	Sources  []Source `yaml:"sources"`
+	// Applications lists keys that may sign user context. Without an entry, a
+	// context from that application is reported as an unverified claim.
+	Applications []Application `yaml:"applications"`
+}
+
+// Application is a client application allowed to attest its users.
+type Application struct {
+	ID            string `yaml:"id"`
+	PublicKeyFile string `yaml:"public_key_file"`
 }
 
 // Center says how to reach the platform.
@@ -103,6 +112,11 @@ func (c *Config) validate() error {
 	}
 	if c.QueueCap <= 0 {
 		return errors.New("queue_capacity_bytes must be positive")
+	}
+	for i, application := range c.Applications {
+		if application.ID == "" || application.PublicKeyFile == "" {
+			return fmt.Errorf("application %d: id and public_key_file are required", i)
+		}
 	}
 	seen := make(map[string]bool, len(c.Sources))
 	for i := range c.Sources {

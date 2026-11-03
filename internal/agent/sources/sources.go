@@ -17,9 +17,10 @@ import (
 )
 
 type entry struct {
-	key    string
-	engine agentv1.Engine
-	source connector.Scannable
+	key     string
+	engine  agentv1.Engine
+	source  connector.Scannable
+	setting *config.Source
 }
 
 // Registry is the set of configured sources and their center-assigned ids.
@@ -53,7 +54,7 @@ func open(setting *config.Source) (*entry, error) {
 		Host: setting.Host, Port: setting.Port, Database: setting.Database,
 		Username: setting.Username, Password: password, TLS: connector.TLSMode(setting.TLS),
 	}
-	opened := &entry{key: setting.Key}
+	opened := &entry{key: setting.Key, setting: setting}
 	switch setting.Engine {
 	case config.EnginePostgreSQL:
 		opened.engine = agentv1.Engine_ENGINE_POSTGRESQL

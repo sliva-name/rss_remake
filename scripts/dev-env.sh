@@ -3,7 +3,12 @@
 # that restarting the stand does not invalidate already initialized volumes.
 set -euo pipefail
 
-env_file="$(dirname "$0")/../deployments/dev/.env"
+dev_dir="$(dirname "$0")/../deployments/dev"
+env_file="$dev_dir/.env"
+
+# Containers write as their own users, and the tests read as the host user.
+install -d -m 0777 "$dev_dir/.state/audit/postgres" "$dev_dir/.state/audit/mysql" "$dev_dir/.state/audit/mariadb"
+
 [ -f "$env_file" ] && exit 0
 
 secret() { openssl rand -hex 16; }

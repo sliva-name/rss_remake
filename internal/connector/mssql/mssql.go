@@ -61,9 +61,33 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED"),
 		}
 	}
-	return version, []*agentv1.CapabilityStatus{
+	return version, append([]*agentv1.CapabilityStatus{
 		connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_AVAILABLE, ""),
 		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_AVAILABLE, ""),
+	}, s.auditCapabilities(ctx)...)
+}
+
+const auditEnabledQuery = `
+SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.server_audits WHERE is_state_enabled = 1)
+             AND EXISTS (SELECT 1 FROM sys.database_audit_specifications WHERE is_state_enabled = 1)
+       THEN 1 ELSE 0 END`
+
+func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilityStatus {
+	const reason = "SERVER_AUDIT_REQUIRED"
+	var enabled int
+	if err := s.db.QueryRowContext(ctx, auditEnabledQuery).Scan(&enabled); err != nil {
+		return []*agentv1.CapabilityStatus{connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED")}
+	}
+	active := enabled == 1
+	return []*agentv1.CapabilityStatus{
+		connector.Configured(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, active, reason),
+		connector.Configured(agentv1.Capability_CAPABILITY_READ_AUDIT, active, reason),
+		connector.Configured(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, active, reason),
+		connector.Configured(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, active, "DERIVED_FROM_QUERY_TEXT"),
+		connector.Configured(agentv1.Capability_CAPABILITY_QUERY_TEXT, active, reason),
+		connector.Configured(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, active, reason),
+		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IN_NATIVE_AUDIT"),
+		connector.Status(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IMPLEMENTED_FOR_ENGINE"),
 	}
 }
 
@@ -126,6 +150,45 @@ func tableKind(kind string) agentv1.TableKind {
 // Sample reads a bounded sample.
 func (s *Source) Sample(ctx context.Context, table connector.Table, columns []connector.Column, limits connector.Limits, visit connector.Visitor) (connector.SampleStats, error) {
 	return sqlsource.Sample(ctx, s.db, dialect{}, table, columns, limits, visit)
+}
+
+// maxAuditRows bounds one read of the audit log.
+const maxAuditRows = 5000
+
+// AuditRows reads audit records. fn_get_audit_file takes the start position as a
+// pair, so a fresh read passes neither.
+func (s *Source) AuditRows(ctx context.Context, pattern, file string, offset int64) ([]connector.AuditRow, error) {
+	const columns = `SELECT TOP (@limit) file_name, audit_file_offset, event_time, sequence_number, succeeded,
+		session_id, transaction_id, server_principal_name, COALESCE(client_ip, ''), COALESCE(schema_name, ''), statement `
+	query := columns + `FROM sys.fn_get_audit_file(@pattern, default, default)`
+	arguments := []any{sql.Named("limit", maxAuditRows), sql.Named("pattern", pattern)}
+	if file != "" {
+		query = columns + `FROM sys.fn_get_audit_file(@pattern, @file, @offset)`
+		arguments = append(arguments, sql.Named("file", file), sql.Named("offset", offset))
+	}
+	rows, err := s.db.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, safeerr.New("read audit log", safeerr.CodeQuery, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []connector.AuditRow
+	for rows.Next() {
+		var row connector.AuditRow
+		var session int16
+		var schema string
+		if err := rows.Scan(&row.File, &row.Offset, &row.Time, &row.Sequence, &row.Succeeded, &session,
+			&row.Transaction, &row.Principal, &row.ClientAddress, &schema, &row.Statement); err != nil {
+			return nil, safeerr.New("decode audit row", safeerr.CodeQuery, err)
+		}
+		row.Session = int(session)
+		row.UserObject = schema != "sys" && schema != "INFORMATION_SCHEMA" && row.Statement != ""
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, safeerr.New("read audit log", safeerr.CodeQuery, err)
+	}
+	return result, nil
 }
 
 type dialect struct{}

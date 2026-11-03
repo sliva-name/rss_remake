@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,6 +19,19 @@ import (
 	"dataguard/internal/agent/config"
 	"dataguard/internal/testkit/seed"
 )
+
+// AuditDirectory returns where the stand exposes an engine's audit logs. SQL Server
+// logs are read through SQL, so its path is the one inside the server.
+func AuditDirectory(engine string) string {
+	if engine == "mssql" {
+		return "/var/opt/mssql/dg-audit"
+	}
+	if engine == "postgresql" {
+		engine = "postgres"
+	}
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "deployments", "dev", ".state", "audit", engine)
+}
 
 // Host ports of the stand's source databases.
 const (

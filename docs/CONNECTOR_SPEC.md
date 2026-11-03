@@ -22,7 +22,42 @@
 | Сэмплирование | `TABLESAMPLE` | Ограниченный префикс | Ограниченный префикс | `TABLESAMPLE` |
 | Доступ к журналу | Файл | Файл | Файл | SQL |
 
-Строки про discovery и сэмплирование подтверждены интеграционным тестом `TestDiscoveryOnEveryEngine`. Строки про аудит описывают этап 3.
+Строки про discovery и сэмплирование подтверждены тестом `TestDiscoveryOnEveryEngine`, строки про аудит — `TestAuditOnEveryEngine`.
+
+## Настройка аудита
+
+Возможности проверяются при подключении. Если настройка не выполнена, источник сообщает `SUPPORT_NOT_CONFIGURED` с причиной.
+
+| СУБД | Что должно быть включено |
+|---|---|
+| PostgreSQL | `shared_preload_libraries=pgaudit`, `logging_collector=on`, `log_destination=jsonlog`, `pgaudit.log=read,write,ddl,role,misc_set`, `pgaudit.log_catalog=off`, `log_connections=on`, `log_disconnections=on`, `log_file_mode=0644` |
+| MySQL Community | `general_log=ON`, `log_output=FILE`. Журнал заметно нагружает сервер, это осознанное решение заказчика |
+| MariaDB | Плагин `server_audit`, `server_audit_logging=ON`, `server_audit_output_type=FILE`, `server_audit_query_log_limit=1048576` (при значении по умолчанию длинные запросы обрезаются и не разбираются) |
+| SQL Server | `SERVER AUDIT` в файл и `DATABASE AUDIT SPECIFICATION`, сканеру нужно право `VIEW SERVER SECURITY AUDIT` |
+
+Агенту нужен доступ на чтение к каталогу журналов: установка на хост СУБД или общий том. SQL Server читается через соединение.
+
+## Ограничения аудита
+
+| СУБД | Ограничение | Как это видно |
+|---|---|---|
+| PostgreSQL | pgAudit пишет запись до выполнения, поэтому успех определяется по следующей записи сессии. Если её нет 5 секунд, исход неизвестен | `EXECUTION_STATUS_UNKNOWN`, уровень `REFERENCED` |
+| PostgreSQL | Запрос из нескольких операторов разбирается целиком: все его объекты попадают в каждое событие | Завышение, не потеря |
+| MySQL | Журнал не содержит исхода, неудачные запросы неотличимы от успешных | `EXECUTION_STATUS_UNAVAILABLE`, уровень `REFERENCED` |
+| MySQL | Пользователь назван только при входе. Сессия, открытая до запуска агента, остаётся неопознанной | `IDENTITY_CONFIDENCE_UNKNOWN` |
+| SQL Server | Ошибка привязки имён (несуществующая колонка) не попадает в аудит | События нет |
+| Все | Контекст приложения поддержан только в PostgreSQL | `APPLICATION_CONTEXT` недоступен |
+| Все | `returned_rows` не приходит из нативного аудита | Поле пусто, уровни `ROWS_CONFIRMED` и `DELIVERED` не формируются |
+
+## Разбор запросов
+
+| Диалект | Библиотека | Замер на запрос |
+|---|---|---|
+| PostgreSQL | `wasilibs/go-pgquery`, настоящая грамматика через wasm, без cgo | 3,7 мс |
+| MySQL, MariaDB | `pingcap/tidb/pkg/parser`. Синтаксис только MariaDB не разбирается и даёт `UNRESOLVED` | 12 мкс |
+| SQL Server | `bytebase/parser/tsql`, ANTLR | 1,4 мс |
+
+Анализ кэшируется по хешу текста. Уникальных запросов PostgreSQL обрабатывается около 270 в секунду на ядро, поток больше этого копится в журнале. Если станет узким местом, замена на `pg_query_go` не меняет API, но требует cgo.
 
 ## Различия чтения
 
