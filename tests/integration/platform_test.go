@@ -67,6 +67,7 @@ type platform struct {
 	eventSettings clickhouse.Settings
 	gate          *outage
 	metrics       *servertelemetry.Server
+	runtimeDSN    string
 }
 
 // outage makes the center unreachable from an agent's point of view.
@@ -125,6 +126,26 @@ func startPlatform(t *testing.T) *platform {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	authn := staticAuthenticator{}
+	first := serve(t, store, events, pkiDir, authn)
+	return &platform{
+		app: first.app, agents: first.agents, rest: first.rest, pkiDir: pkiDir, authn: authn,
+		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: first.gate,
+		metrics: first.metrics, runtimeDSN: runtimeDSN, caFile: filepath.Join(pkiDir, pki.CACertFile),
+	}
+}
+
+// instance is one running server: its own application, connection pools, caches,
+// metrics and ports.
+type instance struct {
+	app     *app.App
+	agents  *httptest.Server
+	rest    *httptest.Server
+	gate    *outage
+	metrics *servertelemetry.Server
+}
+
+func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir string, authn staticAuthenticator) instance {
+	t.Helper()
 	metrics := servertelemetry.New()
 	application, err := app.Build(app.Options{
 		Store: store, Events: events, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
@@ -146,12 +167,26 @@ func startPlatform(t *testing.T) *platform {
 
 	rest := httptest.NewServer(application.APIHandler)
 	t.Cleanup(rest.Close)
+	return instance{app: application, agents: agents, rest: rest, gate: gate, metrics: metrics}
+}
 
-	return &platform{
-		app: application, agents: agents, rest: rest, pkiDir: pkiDir, authn: authn,
-		store: store, ownerDSN: ownerDSN, events: events, eventSettings: eventSettings, gate: gate, metrics: metrics,
-		caFile: filepath.Join(pkiDir, pki.CACertFile),
+// secondInstance starts another server on the same databases and PKI, the way a
+// second container behind a load balancer would run. It shares no memory with
+// the first: pools, caches and metrics are its own.
+func (p *platform) secondInstance(t *testing.T) instance {
+	t.Helper()
+	ctx := context.Background()
+	store, err := postgres.Open(ctx, p.runtimeDSN)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
 	}
+	t.Cleanup(store.Close)
+	events, err := clickhouse.Open(ctx, p.eventSettings)
+	if err != nil {
+		t.Fatalf("clickhouse.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = events.Close() })
+	return serve(t, store, events, p.pkiDir, p.authn)
 }
 
 func (p *platform) newTenant(t *testing.T, name string) (tenant.Tenant, tenant.Environment) {
@@ -177,13 +212,19 @@ type enrolledAgent struct {
 
 func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrolledAgent {
 	t.Helper()
+	return p.enrollThrough(t, tenantID, environmentID, p.agents.URL)
+}
+
+// enrollThrough registers an agent that talks to the center at url.
+func (p *platform) enrollThrough(t *testing.T, tenantID, environmentID uuid.UUID, url string) enrolledAgent {
+	t.Helper()
 	ctx := context.Background()
 	token, _, err := p.app.Fleet.CreateEnrollmentToken(ctx, tenantID, environmentID)
 	if err != nil {
 		t.Fatalf("CreateEnrollmentToken: %v", err)
 	}
 	dir := t.TempDir()
-	settings := &config.Config{StateDir: dir, Center: config.Center{URL: p.agents.URL, CAFile: p.caFile}}
+	settings := &config.Config{StateDir: dir, Center: config.Center{URL: url, CAFile: p.caFile}}
 	if err := runtime.Enroll(ctx, settings, token, "1.0.0"); err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -192,7 +233,7 @@ func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrol
 		t.Fatalf("identity.Open: %v", err)
 	}
 	observer := telemetry.New()
-	client, err := center.New(p.agents.URL, p.caFile, store, observer)
+	client, err := center.New(url, p.caFile, store, observer)
 	if err != nil {
 		t.Fatalf("center.New: %v", err)
 	}
