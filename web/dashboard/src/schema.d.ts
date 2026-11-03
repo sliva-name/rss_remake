@@ -1006,6 +1006,8 @@ export interface operations {
                 eventType?: string;
                 /** @description Logins outnumber data access by far, so they are left out unless asked for or filtered by type. */
                 includeLogins?: boolean;
+                /** @description Reads by the agent's own scanner login are left out unless asked for. */
+                includeScanner?: boolean;
                 from?: string;
                 to?: string;
                 limit?: number;

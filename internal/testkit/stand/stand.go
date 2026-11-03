@@ -4,8 +4,11 @@ package stand
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -26,11 +29,18 @@ const centerPostgres = "127.0.0.1:25442"
 // Env returns the stand's generated secrets.
 func Env(t *testing.T) map[string]string {
 	t.Helper()
-	_, file, _, _ := runtime.Caller(0)
-	path := filepath.Join(filepath.Dir(file), "..", "..", "..", "deployments", "dev", ".env")
-	handle, err := os.Open(filepath.Clean(path))
+	values, err := ReadEnv()
 	if err != nil {
-		t.Fatalf("stand is not configured, run make dev-up: %v", err)
+		t.Fatal(err)
+	}
+	return values
+}
+
+// ReadEnv is Env outside a test.
+func ReadEnv() (map[string]string, error) {
+	handle, err := os.Open(filepath.Clean(filepath.Join(DevDirectory(), ".env")))
+	if err != nil {
+		return nil, fmt.Errorf("stand is not configured, run make dev-up: %w", err)
 	}
 	defer func() { _ = handle.Close() }()
 
@@ -41,7 +51,13 @@ func Env(t *testing.T) map[string]string {
 			values[key] = value
 		}
 	}
-	return values
+	return values, scanner.Err()
+}
+
+// DevDirectory is deployments/dev of this repository.
+func DevDirectory() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "deployments", "dev")
 }
 
 func centerDSN(user, password, database string) string {
@@ -116,4 +132,18 @@ func dropDatabase(admin, name string) {
 	}
 	defer func() { _ = connection.Close(ctx) }()
 	_, _ = connection.Exec(ctx, fmt.Sprintf(`DROP DATABASE %s WITH (FORCE)`, pgx.Identifier{name}.Sanitize()))
+}
+
+// ApplicationKey is the signing key of the stand's demo application "crm",
+// created by scripts/dev-env.sh; the agent container has its public half.
+func ApplicationKey() (ed25519.PrivateKey, error) {
+	encoded, err := os.ReadFile(filepath.Clean(filepath.Join(DevDirectory(), ".state", "apps", "crm.seed")))
+	if err != nil {
+		return nil, fmt.Errorf("application key is missing, run make dev-up: %w", err)
+	}
+	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		return nil, errors.New("crm.seed is not a base64 ed25519 seed")
+	}
+	return ed25519.NewKeyFromSeed(seed), nil
 }

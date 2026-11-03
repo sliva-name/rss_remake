@@ -504,11 +504,14 @@ type ListAuditEventsParams struct {
 	EventType *string             `form:"eventType,omitempty" json:"eventType,omitempty"`
 
 	// IncludeLogins Logins outnumber data access by far, so they are left out unless asked for or filtered by type.
-	IncludeLogins *bool      `form:"includeLogins,omitempty" json:"includeLogins,omitempty"`
-	From          *time.Time `form:"from,omitempty" json:"from,omitempty"`
-	To            *time.Time `form:"to,omitempty" json:"to,omitempty"`
-	Limit         *int       `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset        *int       `form:"offset,omitempty" json:"offset,omitempty"`
+	IncludeLogins *bool `form:"includeLogins,omitempty" json:"includeLogins,omitempty"`
+
+	// IncludeScanner Reads by the agent's own scanner login are left out unless asked for.
+	IncludeScanner *bool      `form:"includeScanner,omitempty" json:"includeScanner,omitempty"`
+	From           *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To             *time.Time `form:"to,omitempty" json:"to,omitempty"`
+	Limit          *int       `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset         *int       `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListCatalogChangesParams defines parameters for ListCatalogChanges.
@@ -916,6 +919,19 @@ func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *htt
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "includeLogins"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "includeLogins", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "includeScanner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "includeScanner", r.URL.Query(), &params.IncludeScanner, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "includeScanner"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "includeScanner", Err: err})
 		}
 		return
 	}

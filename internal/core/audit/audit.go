@@ -219,6 +219,12 @@ func enrich(event *Event, operation *agentv1.Operation, columns map[ColumnKey]Co
 	slices.Sort(event.Categories)
 }
 
+// SourceAccount is one database login on one source.
+type SourceAccount struct {
+	SourceID  uuid.UUID
+	Principal string
+}
+
 // Filter narrows an event search; zero values mean no filter.
 type Filter struct {
 	SourceID  uuid.UUID
@@ -227,10 +233,14 @@ type Filter struct {
 	Type      string
 	// ExcludeType hides one type unless Type asks for it explicitly.
 	ExcludeType string
-	From        time.Time
-	To          time.Time
-	Limit       int
-	Offset      int
+	// ExcludeAccounts hides events of these logins on these sources, such as
+	// the agent's own scanner reads.
+	ExcludeAccounts []SourceAccount
+	From            time.Time
+	// To is exclusive; zero means no upper bound.
+	To     time.Time
+	Limit  int
+	Offset int
 }
 
 // PrincipalAccess aggregates access by who did it.

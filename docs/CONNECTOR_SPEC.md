@@ -32,7 +32,7 @@
 |---|---|
 | PostgreSQL | `shared_preload_libraries=pgaudit`, `logging_collector=on`, `log_destination=jsonlog`, `pgaudit.log=read,write,ddl,role,misc_set`, `pgaudit.log_catalog=off`, `log_connections=on`, `log_disconnections=on`, `log_file_mode=0644` |
 | MySQL Community | `general_log=ON`, `log_output=FILE`. Журнал заметно нагружает сервер, это осознанное решение заказчика |
-| MariaDB | Плагин `server_audit`, `server_audit_logging=ON`, `server_audit_output_type=FILE`, `server_audit_query_log_limit=1048576` (при значении по умолчанию длинные запросы обрезаются и не разбираются) |
+| MariaDB | Плагин `server_audit`, `server_audit_logging=ON`, `server_audit_output_type=FILE`, `server_audit_query_log_limit=1048576` (при значении по умолчанию длинные запросы обрезаются и не разбираются). Учётную запись мониторинга, которая заходит каждые несколько секунд, стоит исключить через `server_audit_excl_users` |
 | SQL Server | `SERVER AUDIT` в файл и `DATABASE AUDIT SPECIFICATION`, сканеру нужно право `VIEW SERVER SECURITY AUDIT` |
 
 Агенту нужен доступ на чтение к каталогу журналов: установка на хост СУБД или общий том. SQL Server читается через соединение.

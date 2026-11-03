@@ -11,7 +11,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -241,19 +240,6 @@ func (s *stack) onboard(t *testing.T) {
 	s.defineSources(t)
 }
 
-// containerSource is a stand database as the agent container reaches it.
-type containerSource struct {
-	name, engine, host, auditDirectory, passwordKey, tls string
-	port                                                 int
-}
-
-var containerSources = []containerSource{
-	{"crm-postgres", "postgresql", "source-postgres", "/var/log/dg-audit/postgres", "SOURCE_SCANNER_PASSWORD", "disable", 5432},
-	{"crm-mysql", "mysql", "source-mysql", "/var/log/dg-audit/mysql", "SOURCE_SCANNER_PASSWORD", "disable", 3306},
-	{"crm-mariadb", "mariadb", "source-mariadb", "/var/log/dg-audit/mariadb", "SOURCE_SCANNER_PASSWORD", "disable", 3306},
-	{"crm-mssql", "mssql", "source-mssql", "/var/opt/mssql/dg-audit", "SOURCE_MSSQL_SCANNER_PASSWORD", "require", 1433},
-}
-
 // defineSources does what an administrator does in the dashboard: the password
 // is sealed to the agent's published key before it is sent to the center.
 func (s *stack) defineSources(t *testing.T) {
@@ -263,37 +249,29 @@ func (s *stack) defineSources(t *testing.T) {
 	if len(agents) != 1 || agents[0].SealingPublicKey == nil {
 		t.Fatalf("the agent published no sealing key: %+v", agents)
 	}
-	env := stand.Env(t)
-	for _, item := range containerSources {
+	for _, item := range stand.ContainerSources(stand.Env(t)) {
 		sealed, err := sealing.Seal(*agents[0].SealingPublicKey, sealing.Binding{
-			TenantID: uuid.MustParse(s.tenantID), AgentID: agents[0].Id, Engine: item.engine, Host: item.host,
-			Port: item.port, Database: "crm", Username: "dg_scanner", TLS: item.tls,
-		}, []byte(env[item.passwordKey]))
+			TenantID: uuid.MustParse(s.tenantID), AgentID: agents[0].Id, Engine: item.Engine, Host: item.Host,
+			Port: item.Port, Database: item.Database, Username: item.Username, TLS: item.TLS,
+		}, []byte(item.Password))
 		if err != nil {
 			t.Fatal(err)
 		}
-		directory := item.auditDirectory
 		s.must(t, http.MethodPost, "/sources", restapi.NewSource{
-			Name: item.name, AgentId: agents[0].Id, Engine: restapi.SourceEngine(item.engine), Host: item.host,
-			Port: item.port, Database: "crm", Username: "dg_scanner", Tls: restapi.TlsMode(item.tls),
-			AuditDirectory: &directory, SealedPassword: sealed,
+			Name: item.Name, AgentId: agents[0].Id, Engine: restapi.SourceEngine(item.Engine), Host: item.Host,
+			Port: item.Port, Database: item.Database, Username: item.Username, Tls: restapi.TlsMode(item.TLS),
+			AuditDirectory: &item.AuditDirectory, SealedPassword: sealed,
 		}, nil)
 	}
 }
 
-// applicationKey is the stand's signing key of the application "crm"; the agent
-// container has its public half.
 func applicationKey(t *testing.T) ed25519.PrivateKey {
 	t.Helper()
-	encoded, err := os.ReadFile(filepath.Join(root(t), "deployments", "dev", ".state", "apps", "crm.seed"))
+	key, err := stand.ApplicationKey()
 	if err != nil {
-		t.Fatalf("application key is missing, run make dev-up: %v", err)
+		t.Fatal(err)
 	}
-	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		t.Fatal("crm.seed is not a base64 ed25519 seed")
-	}
-	return ed25519.NewKeyFromSeed(seed)
+	return key
 }
 
 func eventually(t *testing.T, what string, condition func() bool) {

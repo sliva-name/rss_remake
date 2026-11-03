@@ -31,6 +31,11 @@ func period(from, to *time.Time) (time.Time, time.Time) {
 func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditEventsRequestObject) (restapi.ListAuditEventsResponseObject, error) {
 	params := request.Params
 	from, to := period(params.From, params.To)
+	if params.To == nil {
+		// Time parameters reach ClickHouse with second precision, so "until now"
+		// would cut off the newest second of events.
+		to = time.Time{}
+	}
 	filter := audit.Filter{
 		From: from, To: to,
 		Limit:     orDefault(params.Limit, defaultEventLimit),
@@ -44,6 +49,15 @@ func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditE
 	}
 	if params.IncludeLogins == nil || !*params.IncludeLogins {
 		filter.ExcludeType = typeAuthentication
+	}
+	if params.IncludeScanner == nil || !*params.IncludeScanner {
+		sources, err := s.fleet.ListSources(ctx, tenantOf(ctx))
+		if err != nil {
+			return nil, err
+		}
+		for _, source := range sources {
+			filter.ExcludeAccounts = append(filter.ExcludeAccounts, audit.SourceAccount{SourceID: source.ID, Principal: source.Username})
+		}
 	}
 	events, total, err := s.events.Search(ctx, tenantOf(ctx), filter)
 	if err != nil {

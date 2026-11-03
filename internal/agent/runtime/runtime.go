@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	defaultHeartbeatInterval = 30 * time.Second
+	// A new source or policy reaches the agent within one interval.
+	defaultHeartbeatInterval = 10 * time.Second
 	// Sources are probed again on this interval, so a database that became
 	// reachable or got auditing enabled shows up without a restart.
 	probeInterval = 5 * time.Minute

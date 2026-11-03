@@ -131,6 +131,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: end; }
 label.field { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--text-2); }
 
+label.check { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--text-2); padding-bottom: 7px; }
+label.check input { min-width: 0; }
+
 .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; margin: 4px 0 18px; }
 .form-grid .wide { grid-column: 1 / -1; }
@@ -154,6 +157,8 @@ button.danger { color: var(--bad); }
 
 .pager { display: flex; gap: 10px; align-items: center; margin-top: 12px; color: var(--text-2); }
 
+.token-row { display: flex; gap: 8px; align-items: center; }
+.token-row .token { flex: 1; min-width: 0; }
 .token { word-break: break-all; background: var(--surface-2); padding: 8px 10px; border-radius: 6px; font-family: var(--mono); font-size: 12.5px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }

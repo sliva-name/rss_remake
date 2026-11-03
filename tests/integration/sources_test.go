@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,11 +16,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"dataguard/internal/agent/identity"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/scan"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
+	"dataguard/internal/gen/restapi"
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/platform/sealing"
 	"dataguard/internal/server/api"
@@ -257,5 +260,38 @@ func TestSourceManagementOverREST(t *testing.T) {
 	status, listed := restCall(t, platform, http.MethodGet, "/api/v1/sources", "analyst", "")
 	if status != http.StatusOK || strings.Contains(string(listed), sealed) {
 		t.Fatalf("the sealed password is listed back: %d", status)
+	}
+}
+
+func TestScannerReadsAreHiddenUnlessAsked(t *testing.T) {
+	ctx := context.Background()
+	platform := startPlatform(t)
+	created, environment := platform.newTenant(t, "Acme")
+	agent := platform.enroll(t, created.ID, environment.ID)
+	sourceID := platform.addSource(t, agent, placeholderSource())
+	platform.authn["analyst"] = api.Principal{Subject: "s", TenantID: created.ID, Roles: []string{api.RoleSecurityAnalyst}}
+
+	var events []*agentv1.AuditEvent
+	for _, principal := range []string{placeholderSource().Username, "crm_service"} {
+		events = append(events, &agentv1.AuditEvent{
+			EventId: uuid.NewString(), SourceId: sourceID.String(), EventTime: timestamppb.Now(),
+			EventType: agentv1.EventType_EVENT_TYPE_DATA_ACCESS, Actor: &agentv1.Actor{DatabasePrincipal: principal},
+		})
+	}
+	accepted, err := agent.client.SubmitEvents(ctx, events)
+	if err != nil || len(accepted) != len(events) {
+		t.Fatalf("accepted %v: %v", accepted, err)
+	}
+	totals := map[string]int{}
+	for _, query := range []string{"", "?includeScanner=true"} {
+		status, payload := restCall(t, platform, http.MethodGet, "/api/v1/audit/events"+query, "analyst", "")
+		var page restapi.AuditEventPage
+		if status != http.StatusOK || json.Unmarshal(payload, &page) != nil {
+			t.Fatalf("%q: %d %s", query, status, payload)
+		}
+		totals[query] = int(page.Total)
+	}
+	if totals[""] != 1 || totals["?includeScanner=true"] != 2 {
+		t.Fatalf("totals = %v", totals)
 	}
 }

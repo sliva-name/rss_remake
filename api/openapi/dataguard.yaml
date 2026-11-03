@@ -228,6 +228,10 @@ paths:
           in: query
           description: Logins outnumber data access by far, so they are left out unless asked for or filtered by type.
           schema: {type: boolean, default: false}
+        - name: includeScanner
+          in: query
+          description: Reads by the agent's own scanner login are left out unless asked for.
+          schema: {type: boolean, default: false}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}

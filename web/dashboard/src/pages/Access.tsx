@@ -7,8 +7,16 @@ import { Loadable, Page } from "../ui";
 
 const pageSize = 50;
 
-function Who({ event }: { event: Schemas["AuditEvent"] }) {
+function Who({ event, scanner }: { event: Schemas["AuditEvent"]; scanner: boolean }) {
   if (event.type === "EVENT_TYPE_AUDIT_GAP") return <span className="muted">—</span>;
+  if (scanner) {
+    return (
+      <>
+        {event.databasePrincipal}
+        <div><span className="badge">Сканер DataGuard</span></div>
+      </>
+    );
+  }
   if (event.applicationPrincipal) {
     return (
       <>
@@ -48,11 +56,20 @@ function What({ event }: { event: Schemas["AuditEvent"] }) {
 
 export function Access() {
   const [filters, setFilters] = useState({ principal: "", category: "", eventType: "" });
+  const [withScanner, setWithScanner] = useState(false);
   const [offset, setOffset] = useState(0);
   const events = useQuery({
-    queryKey: ["events", filters, offset],
-    queryFn: () => api.events({ ...filters, includeLogins: filters.eventType === "all" ? "true" : undefined, eventType: filters.eventType === "all" ? "" : filters.eventType, limit: pageSize, offset }),
+    queryKey: ["events", filters, withScanner, offset],
+    queryFn: () => api.events({
+      ...filters, includeLogins: filters.eventType === "all" ? "true" : undefined,
+      includeScanner: withScanner ? "true" : undefined,
+      eventType: filters.eventType === "all" ? "" : filters.eventType, limit: pageSize, offset,
+    }),
   });
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  // The scanner is the login the agent was given for that source.
+  const isScanner = (event: Schemas["AuditEvent"]) =>
+    sources.data?.some((source) => source.id === event.sourceId && source.username === event.databasePrincipal) ?? false;
   const update = (key: keyof typeof filters, value: string) => {
     setFilters({ ...filters, [key]: value });
     setOffset(0);
@@ -80,6 +97,10 @@ export function Access() {
             {eventTypeIds.map((id) => <option key={id} value={id}>{eventType(id)}</option>)}
           </select>
         </label>
+        <label className="check">
+          <input type="checkbox" checked={withScanner} onChange={(event) => { setWithScanner(event.target.checked); setOffset(0); }} />
+          Чтения сканера DataGuard
+        </label>
       </div>
       <section className="card">
         <Loadable query={events} empty="Событий нет." isEmpty={(page) => page.items.length === 0}>
@@ -103,7 +124,7 @@ export function Access() {
                       <tr key={event.id}>
                         <td className="muted">{dateTime(event.time)}</td>
                         <td>{eventType(event.type)}</td>
-                        <td><Who event={event} /></td>
+                        <td><Who event={event} scanner={isScanner(event)} /></td>
                         <td><What event={event} /></td>
                         <td>
                           {executionStatus(event.executionStatus)}

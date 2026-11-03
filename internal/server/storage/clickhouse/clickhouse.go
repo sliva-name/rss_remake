@@ -167,11 +167,14 @@ func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, filter audit.Fil
 }
 
 func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
-	conditions := []string{"tenant_id = ?", "event_time >= ?", "event_time < ?"}
-	arguments := []any{tenantID, filter.From, filter.To}
+	conditions := []string{"tenant_id = ?", "event_time >= ?"}
+	arguments := []any{tenantID, filter.From}
 	add := func(condition string, value any) {
 		conditions = append(conditions, condition)
 		arguments = append(arguments, value)
+	}
+	if !filter.To.IsZero() {
+		add("event_time < ?", filter.To)
 	}
 	if filter.SourceID != uuid.Nil {
 		add("source_id = ?", filter.SourceID)
@@ -183,6 +186,10 @@ func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
 	}
 	if filter.Category != "" {
 		add("has(categories, ?)", filter.Category)
+	}
+	for _, account := range filter.ExcludeAccounts {
+		conditions = append(conditions, "NOT (source_id = ? AND database_principal = ?)")
+		arguments = append(arguments, account.SourceID, account.Principal)
 	}
 	if filter.Principal != "" {
 		conditions = append(conditions, "(database_principal = ? OR application_principal = ?)")

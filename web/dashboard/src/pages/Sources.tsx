@@ -161,7 +161,8 @@ function SourceForm({ tenantId, agents, editing, onDone }: {
       </label>
       <p className="muted wide">
         Пароль шифруется в браузере ключом выбранного агента и привязан к адресу, базе, пользователю и режиму TLS.
-        Центр хранит только шифротекст. Агент подключится, только если адрес и каталог журналов есть в его списке разрешённых.
+        Центр хранит только шифротекст. Агент получит источник в течение 10 секунд и подключится, только если адрес и
+        каталог журналов есть в его списке разрешённых.
         {editing && passwordRequired && " Параметры подключения изменились, поэтому пароль нужно ввести заново."}
       </p>
       <div className="actions wide">
@@ -173,7 +174,7 @@ function SourceForm({ tenantId, agents, editing, onDone }: {
   );
 }
 
-export function Sources({ tenantId, admin }: { tenantId: string; admin: boolean }) {
+export function Sources({ tenantId, admin, canScan }: { tenantId: string; admin: boolean; canScan: boolean }) {
   const client = useQueryClient();
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, refetchInterval: 5000 });
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
@@ -181,6 +182,10 @@ export function Sources({ tenantId, admin }: { tenantId: string; admin: boolean 
   const remove = useMutation({
     mutationFn: api.deleteSource,
     onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }),
+  });
+  const scan = useMutation({
+    mutationFn: api.requestScan,
+    onSuccess: () => client.invalidateQueries({ queryKey: ["scans"] }),
   });
 
   return (
@@ -222,6 +227,9 @@ export function Sources({ tenantId, admin }: { tenantId: string; admin: boolean 
                       <td className="mono muted">{row.agentId.slice(0, 8)}</td>
                       <td className="mono muted">{row.auditDirectory || "—"}</td>
                       <td className="actions">
+                        {canScan && !row.statusCode && row.probedAt && (
+                          <button disabled={scan.isPending} onClick={() => scan.mutate(row.id)}>Сканировать</button>
+                        )}
                         {admin && (
                           <>
                             <button onClick={() => setMode({ kind: "edit", source: row })}>Изменить</button>
@@ -246,6 +254,8 @@ export function Sources({ tenantId, admin }: { tenantId: string; admin: boolean 
         )}
       </Loadable>
       {remove.isError && <div className="error">{remove.error.message}</div>}
+      {scan.isError && <div className="error">{scan.error.message}</div>}
+      {scan.isSuccess && <p className="muted">Скан поставлен в очередь, ход виден в разделе «Сканирования».</p>}
     </section>
   );
 }

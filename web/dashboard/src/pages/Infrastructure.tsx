@@ -8,6 +8,25 @@ import { Sources } from "./Sources";
 
 const supportTone: Record<string, string> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT_CONFIGURED: "warn", SUPPORT_UNKNOWN: "warn" };
 
+function IssuedToken({ token, expiresAt }: { token: string; expiresAt: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => navigator.clipboard.writeText(token).then(() => setCopied(true), () => setCopied(false));
+  return (
+    <>
+      <p className="muted">Токен показывается один раз, действует до {dateTime(expiresAt)} и годится для одной регистрации.</p>
+      <div className="token-row">
+        <div className="token">{token}</div>
+        <button onClick={copy}>{copied ? "Скопировано" : "Скопировать"}</button>
+      </div>
+      <p className="muted">
+        Агент читает токен со стандартного ввода, чтобы он не попал в историю команд. На стенде выполните
+        <code> make agent-enroll</code>, вставьте токен, затем <code>make agent-up</code>. Источники для агента
+        добавляются выше, в разделе «Источники».
+      </p>
+    </>
+  );
+}
+
 function Enrollment() {
   const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments });
   const client = useQueryClient();
@@ -43,12 +62,7 @@ function Enrollment() {
       </div>
       {create.isError && <div className="error">{create.error.message}</div>}
       {token.isError && <div className="error">{token.error.message}</div>}
-      {token.data && (
-        <>
-          <p className="muted">Токен показывается один раз и действует до {dateTime(token.data.expiresAt)}.</p>
-          <div className="token">{token.data.token}</div>
-        </>
-      )}
+      {token.data && <IssuedToken token={token.data.token} expiresAt={token.data.expiresAt} />}
     </section>
   );
 }
@@ -73,7 +87,7 @@ export function Infrastructure({ roles, tenantId }: { roles: string[]; tenantId:
 
   return (
     <Page title="Инфраструктура" lead="Что платформа видит и чего не видит. «Нет данных» значит, что измерять было нечего: это не ноль.">
-      <Sources tenantId={tenantId} admin={admin} />
+      <Sources tenantId={tenantId} admin={admin} canScan={canScan} />
 
       <section className="card">
         <h2>Покрытие аудита за сутки</h2>

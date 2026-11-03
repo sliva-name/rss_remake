@@ -8,3 +8,6 @@ server_audit_file_rotate_size = 10000000
 server_audit_file_rotations = 3
 # The default of 1024 cuts long statements, which then cannot be parsed.
 server_audit_query_log_limit = 1048576
+# The image's health check logs in every few seconds. A monitoring account is
+# excluded the same way at a customer, so it does not drown out real access.
+server_audit_excl_users = healthcheck
