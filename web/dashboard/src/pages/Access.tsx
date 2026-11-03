@@ -140,7 +140,7 @@ export function Access() {
               <div className="pager">
                 <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>Назад</button>
                 <button disabled={offset + pageSize >= page.total} onClick={() => setOffset(offset + pageSize)}>Дальше</button>
-                <span>Всего: {count(page.total)}</span>
+                <span>{page.totalExact ? `Всего: ${count(page.total)}` : `Больше ${count(page.total)}, уточните фильтр`}</span>
               </div>
             </>
           )}

@@ -272,6 +272,22 @@ func (c *Collector) gapEvent(gap *agentv1.AuditGap, position string) *agentv1.Au
 	}
 }
 
+const (
+	// A log time outside this window is replaced by the agent's clock before the
+	// event is queued, so every redelivery carries the same time (ADR-0007). The
+	// window is narrower than the center's, which would replace the time on each
+	// arrival instead.
+	maxRecordAge    = 364 * 24 * time.Hour
+	maxRecordFuture = time.Minute
+)
+
+func plausibleTime(at, now time.Time) time.Time {
+	if at.Before(now.Add(-maxRecordAge)) || at.After(now.Add(maxRecordFuture)) {
+		return now
+	}
+	return at
+}
+
 func (c *Collector) eventID(position string) string {
 	return uuid.NewSHA1(eventNamespace, []byte(c.options.SourceID+"\x00"+position)).String()
 }
@@ -281,7 +297,7 @@ func (c *Collector) eventID(position string) string {
 func (c *Collector) event(record *Record) (*agentv1.AuditEvent, bool) {
 	event := &agentv1.AuditEvent{
 		EventId:   c.eventID(record.Position),
-		EventTime: timestamppb.New(record.Time),
+		EventTime: timestamppb.New(plausibleTime(record.Time, time.Now())),
 		SourceId:  c.options.SourceID,
 		Actor:     c.actor(record),
 		Execution: &agentv1.Execution{Status: record.Status, ErrorCode: record.ErrorCode},

@@ -612,3 +612,24 @@ func TestOldestHeldSpansRotatedFiles(t *testing.T) {
 		}
 	}
 }
+
+// A time fixed before queueing is what makes a redelivery recognizable at the
+// center (ADR-0007), so an implausible log time must not travel as is.
+func TestImplausibleLogTimeIsReplacedBeforeQueueing(t *testing.T) {
+	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	for _, testCase := range []struct {
+		at   time.Time
+		kept bool
+	}{
+		{now.Add(-time.Hour), true},
+		{now.Add(30 * time.Second), true},
+		{now.Add(2 * time.Minute), false},
+		{now.Add(-365 * 24 * time.Hour), false},
+		{time.Unix(0, 0), false},
+	} {
+		got := plausibleTime(testCase.at, now)
+		if testCase.kept != got.Equal(testCase.at) || !testCase.kept && !got.Equal(now) {
+			t.Errorf("plausibleTime(%s) = %s", testCase.at, got)
+		}
+	}
+}

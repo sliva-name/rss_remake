@@ -28,6 +28,23 @@ func (s *Store) AgentSources(ctx context.Context, tenantID, agentID uuid.UUID) (
 	return sources, nil
 }
 
+// WithAgentLock runs work while holding a transaction-scoped advisory lock for the
+// agent. Two agents whose ids hash alike only wait for each other.
+func (s *Store) WithAgentLock(ctx context.Context, tenantID, agentID uuid.UUID, work func(context.Context) error) error {
+	var workErr error
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "ingest:"+agentID.String()); err != nil {
+			return err
+		}
+		workErr = work(ctx)
+		return nil
+	})
+	if err != nil {
+		return storageError("lock agent ingest", err)
+	}
+	return workErr
+}
+
 // ColumnsOf returns active columns with their detected categories.
 func (s *Store) ColumnsOf(ctx context.Context, tenantID, sourceID uuid.UUID) (map[audit.ColumnKey]audit.ColumnInfo, error) {
 	columns := map[audit.ColumnKey]audit.ColumnInfo{}

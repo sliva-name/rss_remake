@@ -207,7 +207,10 @@ type AuditEvent struct {
 // AuditEventPage defines model for AuditEventPage.
 type AuditEventPage struct {
 	Items []AuditEvent `json:"items"`
-	Total int64        `json:"total"`
+
+	// Total Matches counted up to 10000. When totalExact is false there are more.
+	Total      int64 `json:"total"`
+	TotalExact bool  `json:"totalExact"`
 }
 
 // Capability defines model for Capability.

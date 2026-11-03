@@ -535,8 +535,12 @@ export interface components {
             gapLostEvents?: number;
         };
         AuditEventPage: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Matches counted up to 10000. When totalExact is false there are more.
+             */
             total: number;
+            totalExact: boolean;
             items: components["schemas"]["AuditEvent"][];
         };
         /** @description Shares are absent when nothing was measured; absent never means zero. */

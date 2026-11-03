@@ -73,7 +73,10 @@ func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditE
 	if err != nil {
 		return nil, err
 	}
-	page := restapi.AuditEventPage{Total: int64(total), Items: make([]restapi.AuditEvent, 0, len(events))}
+	page := restapi.AuditEventPage{
+		Total: int64(min(total, audit.CountLimit)), TotalExact: total <= audit.CountLimit,
+		Items: make([]restapi.AuditEvent, 0, len(events)),
+	}
 	for i := range events {
 		page.Items = append(page.Items, toAuditEvent(&events[i]))
 	}

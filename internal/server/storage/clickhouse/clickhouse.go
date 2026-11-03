@@ -5,7 +5,6 @@ package clickhouse
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/ext"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
 
@@ -112,6 +112,42 @@ func (s *Store) Insert(ctx context.Context, events []audit.Event) error {
 	return nil
 }
 
+// Stored looks the keys up by the primary key. They travel as an external table,
+// so a large batch does not become a large query text.
+func (s *Store) Stored(ctx context.Context, tenantID uuid.UUID, keys []audit.EventKey) (map[uuid.UUID]bool, error) {
+	stored := map[uuid.UUID]bool{}
+	if len(keys) == 0 {
+		return stored, nil
+	}
+	batch, err := ext.NewTable("batch_keys", ext.Column("event_time", "DateTime64(6, 'UTC')"), ext.Column("event_id", "UUID"))
+	if err != nil {
+		return nil, storageError("prepare event keys", err)
+	}
+	for _, key := range keys {
+		if err := batch.Append(key.Time, key.ID); err != nil {
+			return nil, storageError("append event key", err)
+		}
+	}
+	ctx = clickhouse.Context(scoped(ctx, tenantID), clickhouse.WithExternalTable(batch))
+	rows, err := s.conn.Query(ctx, `SELECT event_id FROM audit_events
+		WHERE tenant_id = ? AND (event_time, event_id) IN (SELECT event_time, event_id FROM batch_keys)`, tenantID)
+	if err != nil {
+		return nil, storageError("look up stored events", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, storageError("decode stored event", err)
+		}
+		stored[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, storageError("read stored events", err)
+	}
+	return stored, nil
+}
+
 func orEmpty[T any](values []T) []T {
 	if values == nil {
 		return []T{}
@@ -131,16 +167,17 @@ const eventColumns = `event_id, event_time, event_type, agent_id, source_id, dat
 	query_fingerprint, execution_status, error_code, evidence_level, object_resolution, session_id,
 	transaction_id, trace_id, gap_reason, gap_lost_events`
 
-// Search returns matching events, newest first. FINAL folds replays immediately
-// instead of waiting for a background merge.
+// Search returns matching events, newest first, in key order, so it reads only as
+// far as the requested page. The total is counted up to audit.CountLimit.
 func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, filter audit.Filter) ([]audit.Event, uint64, error) {
 	ctx = scoped(ctx, tenantID)
 	where, arguments := filterClause(tenantID, filter)
 	var total uint64
-	if err := s.conn.QueryRow(ctx, `SELECT count() FROM audit_events FINAL WHERE `+where, arguments...).Scan(&total); err != nil {
+	counted := `SELECT count() FROM (SELECT 1 FROM audit_events WHERE ` + where + ` LIMIT ?)`
+	if err := s.conn.QueryRow(ctx, counted, append(slices.Clone(arguments), audit.CountLimit+1)...).Scan(&total); err != nil {
 		return nil, 0, storageError("count events", err)
 	}
-	query := `SELECT ` + eventColumns + ` FROM audit_events FINAL WHERE ` + where + ` ORDER BY event_time DESC, event_id LIMIT ? OFFSET ?`
+	query := `SELECT ` + eventColumns + ` FROM audit_events WHERE ` + where + ` ORDER BY event_time DESC, event_id DESC LIMIT ? OFFSET ?`
 	rows, err := s.conn.Query(ctx, query, append(arguments, filter.Limit, filter.Offset)...)
 	if err != nil {
 		return nil, 0, storageError("search events", err)
@@ -198,16 +235,45 @@ func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
 	return strings.Join(conditions, " AND "), arguments
 }
 
+// facts is the shared body of the reports: events counted per hour and per
+// dimension. Whole hours come from the hourly projection; the partial hours at
+// the edges of the window come from the rows, so the result equals a count over
+// the rows. The edge part names event_time, which the projection lacks, so it
+// cannot be served from it by mistake.
+func facts(tenantID uuid.UUID, from, to time.Time) (string, []any) {
+	const dimensions = `source_id, database_principal, application_principal, identity_confidence,
+		event_type, execution_status, object_resolution, categories`
+	firstHour := from.UTC().Truncate(time.Hour)
+	if firstHour.Before(from) {
+		firstHour = firstHour.Add(time.Hour)
+	}
+	lastHour := to.UTC().Truncate(time.Hour)
+	if !firstHour.Before(lastHour) {
+		firstHour, lastHour = to, to
+	}
+	query := `SELECT ` + dimensions + `, count() AS events, max(event_time) AS last_event
+		FROM audit_events
+		WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND toStartOfHour(event_time) < ?
+		GROUP BY ` + dimensions + `
+		UNION ALL
+		SELECT ` + dimensions + `, count() AS events, max(event_time) AS last_event
+		FROM audit_events
+		WHERE tenant_id = ? AND ((event_time >= ? AND event_time < ?) OR (event_time >= ? AND event_time < ?))
+		GROUP BY ` + dimensions
+	return query, []any{tenantID, firstHour, lastHour, tenantID, from, firstHour, lastHour, to}
+}
+
 // ByPrincipal groups by who acted. A row exists for each distinct way of being
 // known, so an unverified claim never merges into a verified identity.
 func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.PrincipalAccess, error) {
-	const query = `SELECT database_principal, application_principal, identity_confidence, count(),
-			countIf(notEmpty(categories)), arraySort(groupUniqArrayArray(categories)), uniqExact(source_id), max(event_time)
-		FROM audit_events FINAL
-		WHERE tenant_id = ? AND event_time >= ? AND event_time < ? AND event_type NOT IN (?, ?)
+	body, arguments := facts(tenantID, from, to)
+	query := `SELECT database_principal, application_principal, identity_confidence, sum(events),
+			sumIf(events, notEmpty(categories)), arraySort(groupUniqArrayArray(categories)), uniqExact(source_id), max(last_event)
+		FROM (` + body + `)
+		WHERE event_type NOT IN (?, ?)
 		GROUP BY database_principal, application_principal, identity_confidence
-		ORDER BY countIf(notEmpty(categories)) DESC, count() DESC`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, tenantID, from, to, typeGap, typeAuth)
+		ORDER BY sumIf(events, notEmpty(categories)) DESC, sum(events) DESC`
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, typeGap, typeAuth)...)
 	if err != nil {
 		return nil, storageError("group by principal", err)
 	}
@@ -229,11 +295,11 @@ func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to ti
 
 // ByCategory groups by data category.
 func (s *Store) ByCategory(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.CategoryAccess, error) {
-	const query = `SELECT category, count(), uniqExact(database_principal, application_principal), uniqExact(source_id), max(event_time)
-		FROM audit_events FINAL ARRAY JOIN categories AS category
-		WHERE tenant_id = ? AND event_time >= ? AND event_time < ?
-		GROUP BY category ORDER BY count() DESC`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, tenantID, from, to)
+	body, arguments := facts(tenantID, from, to)
+	query := `SELECT category, sum(events), uniqExact(database_principal, application_principal), uniqExact(source_id), max(last_event)
+		FROM (` + body + `) ARRAY JOIN categories AS category
+		GROUP BY category ORDER BY sum(events) DESC`
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, arguments...)
 	if err != nil {
 		return nil, storageError("group by category", err)
 	}
@@ -255,19 +321,19 @@ func (s *Store) ByCategory(ctx context.Context, tenantID uuid.UUID, from, to tim
 // Windows measures coverage per source. Logins are excluded: they name no objects,
 // so counting them would inflate the share of resolved statements.
 func (s *Store) Windows(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.SourceWindow, error) {
-	const query = `SELECT source_id,
-			countIf(event_type NOT IN (?, ?)),
-			countIf(event_type NOT IN (?, ?) AND object_resolution = ?),
-			countIf(event_type NOT IN (?, ?) AND identity_confidence = ?),
-			countIf(event_type NOT IN (?, ?) AND identity_confidence != ?),
-			countIf(event_type = ?),
-			maxIf(event_time, event_type NOT IN (?, ?))
-		FROM audit_events FINAL
-		WHERE tenant_id = ? AND event_time >= ? AND event_time < ?
+	body, arguments := facts(tenantID, from, to)
+	query := `SELECT source_id,
+			sumIf(events, event_type NOT IN (?, ?)),
+			sumIf(events, event_type NOT IN (?, ?) AND object_resolution = ?),
+			sumIf(events, event_type NOT IN (?, ?) AND identity_confidence = ?),
+			sumIf(events, event_type NOT IN (?, ?) AND identity_confidence != ?),
+			sumIf(events, event_type = ?),
+			maxIf(last_event, event_type NOT IN (?, ?))
+		FROM (` + body + `)
 		GROUP BY source_id`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query,
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append([]any{
 		typeGap, typeAuth, typeGap, typeAuth, resolved, typeGap, typeAuth, confidenceVerified,
-		typeGap, typeAuth, confidenceUnknown, typeGap, typeGap, typeAuth, tenantID, from, to)
+		typeGap, typeAuth, confidenceUnknown, typeGap, typeGap, typeAuth}, arguments...)...)
 	if err != nil {
 		return nil, storageError("measure coverage", err)
 	}
@@ -292,13 +358,13 @@ func (s *Store) Windows(ctx context.Context, tenantID uuid.UUID, from, to time.T
 
 // Summarize gives the headline numbers.
 func (s *Store) Summarize(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (audit.Summary, error) {
-	const query = `SELECT countIf(event_type NOT IN (?, ?)), countIf(notEmpty(categories)),
-			countIf(execution_status = ?), uniqExactIf((database_principal, application_principal), event_type != ?),
-			countIf(event_type = ?)
-		FROM audit_events FINAL
-		WHERE tenant_id = ? AND event_time >= ? AND event_time < ?`
+	body, arguments := facts(tenantID, from, to)
+	query := `SELECT sumIf(events, event_type NOT IN (?, ?)), sumIf(events, notEmpty(categories)),
+			sumIf(events, execution_status = ?), uniqExactIf((database_principal, application_principal), event_type != ?),
+			sumIf(events, event_type = ?)
+		FROM (` + body + `)`
 	var summary audit.Summary
-	err := s.conn.QueryRow(scoped(ctx, tenantID), query, typeGap, typeAuth, statusFail, typeGap, typeGap, tenantID, from, to).
+	err := s.conn.QueryRow(scoped(ctx, tenantID), query, append([]any{typeGap, typeAuth, statusFail, typeGap, typeGap}, arguments...)...).
 		Scan(&summary.Events, &summary.SensitiveEvents, &summary.FailedEvents, &summary.Principals, &summary.Gaps)
 	if err != nil {
 		return audit.Summary{}, storageError("summarize events", err)
@@ -322,7 +388,7 @@ const migrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations
 // Migrate applies embedded files in name order, as the schema owner, and grants the
 // runtime user access to the database. ClickHouse DDL is not transactional, so a
 // failed file must be fixed by hand before migrating again.
-func Migrate(ctx context.Context, settings Settings, runtimeUser string, migrations embed.FS, directory string) error {
+func Migrate(ctx context.Context, settings Settings, runtimeUser string, migrations fs.FS, directory string) error {
 	conn, err := open(settings)
 	if err != nil {
 		return fmt.Errorf("open migration connection: %w", err)
@@ -352,7 +418,7 @@ func Migrate(ctx context.Context, settings Settings, runtimeUser string, migrati
 	return nil
 }
 
-func applyMigration(ctx context.Context, conn driver.Conn, migrations embed.FS, directory, name string) error {
+func applyMigration(ctx context.Context, conn driver.Conn, migrations fs.FS, directory, name string) error {
 	var applied uint64
 	if err := conn.QueryRow(ctx, `SELECT count() FROM schema_migrations WHERE name = ?`, name).Scan(&applied); err != nil {
 		return fmt.Errorf("check migration %s: %w", name, err)

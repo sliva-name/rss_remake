@@ -97,7 +97,7 @@ func Build(options Options) (*App, error) {
 		APIHandler: apiRoutes,
 		AgentHandler: agentapi.Handler(agentapi.Dependencies{
 			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,
-			Audit: audit.NewService(options.Store, options.Events), Health: options.Store,
+			Audit: audit.NewService(options.Store, options.Store, options.Events), Health: options.Store,
 			CACertificate: authority.CertificatePEM(), PolicyPublicKey: signer.PublicKey(),
 		}),
 	}, nil
