@@ -200,17 +200,24 @@ func (c *Collector) events(batch *Batch) (events, gaps []*agentv1.AuditEvent) {
 		c.mu.Unlock()
 		gaps = append(gaps, c.gapEvent(batch.Gap, gapPosition))
 	}
-	if batch.Unparseable > 0 {
-		lost := batch.Unparseable
+	lost := batch.Unparseable
+	for i := range batch.Records {
+		event, blocked := c.event(&batch.Records[i])
+		if blocked {
+			lost++
+		}
+		if event != nil {
+			events = append(events, event)
+		}
+	}
+	if lost > 0 {
+		// Records that could not become events are lost to the center, whether the
+		// line was unreadable or the result broke the contract.
 		gaps = append(gaps, c.gapEvent(&agentv1.AuditGap{
 			Reason: agentv1.GapReason_GAP_REASON_UNPARSEABLE_RECORDS, LostEvents: &lost,
 		}, gapPosition+":unparseable"))
 	}
-	for i := range batch.Records {
-		if event := c.event(&batch.Records[i]); event != nil {
-			events = append(events, event)
-		}
-	}
+	batch.Unparseable = lost
 	return events, gaps
 }
 
@@ -227,7 +234,9 @@ func (c *Collector) eventID(position string) string {
 	return uuid.NewSHA1(eventNamespace, []byte(c.options.SourceID+"\x00"+position)).String()
 }
 
-func (c *Collector) event(record *Record) *agentv1.AuditEvent {
+// event converts a record. It returns blocked when the result had to be dropped;
+// an internal statement is skipped without being blocked.
+func (c *Collector) event(record *Record) (*agentv1.AuditEvent, bool) {
 	event := &agentv1.AuditEvent{
 		EventId:   c.eventID(record.Position),
 		EventTime: timestamppb.New(record.Time),
@@ -247,7 +256,7 @@ func (c *Collector) event(record *Record) *agentv1.AuditEvent {
 	}
 	analysis := c.catalog.Analyze(record.Statement.Reveal())
 	if analysis.Internal {
-		return nil
+		return nil, false
 	}
 	event.EventType = eventType(analysis.Operation, record.Status)
 	event.Operation = operationOf(&analysis)
@@ -259,17 +268,13 @@ func (c *Collector) event(record *Record) *agentv1.AuditEvent {
 }
 
 // checked is a last check before the disk: the queue must hold nothing the wire
-// would refuse. An event that fails is dropped and counted rather than stored,
-// and the loss shows up in the source's lost events.
-func (c *Collector) checked(event *agentv1.AuditEvent) *agentv1.AuditEvent {
+// would refuse. A failing event is dropped and reported as a gap by the caller.
+func (c *Collector) checked(event *agentv1.AuditEvent) (*agentv1.AuditEvent, bool) {
 	if err := egress.Check(event); err != nil {
-		c.mu.Lock()
-		c.lost++
-		c.mu.Unlock()
 		c.options.Logger.Error("event blocked", "source_key", c.options.SourceKey, "reason", "contract")
-		return nil
+		return nil, true
 	}
-	return event
+	return event, false
 }
 
 func (c *Collector) actor(record *Record) *agentv1.Actor {

@@ -98,6 +98,11 @@ func (p *postgresParser) audit(entry *pgEntry, at fileCursor) ([]Record, bool) {
 	class, statement := fields[3], fields[7]
 	if class == "MISC" {
 		if match := contextSetting.FindStringSubmatch(statement); match != nil {
+			if len(p.contexts) >= maxHeldSessions {
+				// Without disconnection lines nothing else ends a session. Forgetting
+				// contexts only downgrades identity to the database login.
+				clear(p.contexts)
+			}
 			p.contexts[entry.SessionID] = sessionContext{transaction: entry.VXID, token: match[1]}
 		}
 		return nil, true
@@ -106,7 +111,7 @@ func (p *postgresParser) audit(entry *pgEntry, at fileCursor) ([]Record, bool) {
 	record := p.base(entry, at)
 	record.Statement = NewStatement(statement)
 	record.ContextToken = p.contextOf(entry)
-	p.hold(entry.SessionID, &heldRecord{record: record, at: at, seen: p.now()})
+	settled = append(settled, p.hold(entry.SessionID, &heldRecord{record: record, at: at, seen: p.now()})...)
 	return settled, true
 }
 
@@ -144,16 +149,23 @@ func parsePostgresTime(value string) time.Time {
 	return parsed.UTC()
 }
 
-func (p *postgresParser) hold(session string, record *heldRecord) {
+// hold keeps a record until its outcome is known. At capacity the oldest record
+// is released with an unknown outcome rather than dropped: losing the verdict is
+// acceptable, losing the access is not.
+func (p *postgresParser) hold(session string, record *heldRecord) []Record {
+	var released []Record
 	if len(p.held) >= maxHeldSessions {
+		oldest := ""
 		for key, item := range p.held {
-			if item.record.Session != session {
-				delete(p.held, key)
-				break
+			if oldest == "" || item.seen.Before(p.held[oldest].seen) {
+				oldest = key
 			}
 		}
+		released = append(released, p.held[oldest].record)
+		delete(p.held, oldest)
 	}
 	p.held[session] = record
+	return released
 }
 
 // settle completes a held record: a new line in the session means the previous

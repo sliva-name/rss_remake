@@ -51,8 +51,9 @@ type Analysis struct {
 	Internal bool
 }
 
-// systemSchemas are engine metadata. They are not in the catalog, but a query on
-// them is not an unresolved access to user data either.
+// systemSchemas are engine metadata. They are not in the catalog, so a query on
+// them resolves without user columns, but it is still reported: some of them hold
+// credentials.
 var systemSchemas = map[string]bool{
 	"information_schema": true, "pg_catalog": true, "performance_schema": true,
 	"mysql": true, "sys": true,
@@ -143,14 +144,16 @@ func (c *Catalog) AnalyzeStatements(statements []ir.Statement) Analysis {
 		Columns:     state.columns,
 		Resolution:  state.outcome(),
 		Fingerprint: fingerprint(statements),
-		// A statement that resolved completely and touched no table, such as SELECT 1
-		// from a health check, reads no data and is not an access worth reporting.
-		Internal: !dynamic && !state.incomplete && len(state.tables) == 0 && isReadOrOther(operation, state.system),
+		// Only a statement that touches nothing at all is internal: SELECT 1 from a
+		// health check, SET, SHOW. A function call or a system catalog read (such as
+		// mysql.user with password hashes) is reported.
+		Internal: !dynamic && !state.incomplete && !state.calls && !state.system && len(state.tables) == 0 &&
+			isReadOrOther(operation),
 	}
 }
 
-func isReadOrOther(operation agentv1.OperationType, system bool) bool {
-	return system || operation == agentv1.OperationType_OPERATION_TYPE_OTHER ||
+func isReadOrOther(operation agentv1.OperationType) bool {
+	return operation == agentv1.OperationType_OPERATION_TYPE_OTHER ||
 		operation == agentv1.OperationType_OPERATION_TYPE_SELECT
 }
 
@@ -201,6 +204,7 @@ type resolution struct {
 	columns    map[Column]Access
 	incomplete bool
 	system     bool
+	calls      bool
 }
 
 func (r *resolution) outcome() agentv1.ObjectResolution {
@@ -322,6 +326,7 @@ func (r *resolution) query(query *ir.Query, parent *scope, ctes map[string]*bind
 		return nil
 	}
 	ctes = r.bindCTEs(query, parent, ctes, depth)
+	r.calls = r.calls || query.Calls
 	current := &scope{parent: parent}
 	for i := range query.Sources {
 		current.bindings = append(current.bindings, r.bindSource(&query.Sources[i], current, ctes, depth))

@@ -481,9 +481,9 @@ func TestSilentSourceIsObservingBrokenSourceIsNot(t *testing.T) {
 func TestReplayedRecordKeepsItsEventID(t *testing.T) {
 	item, _ := newTestCollector(t, &scriptedReader{}, 1<<20)
 	item.tick(context.Background())
-	first := item.event(&Record{Position: "7:100", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
-	second := item.event(&Record{Position: "7:100", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
-	other := item.event(&Record{Position: "7:101", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
+	first, _ := item.event(&Record{Position: "7:100", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
+	second, _ := item.event(&Record{Position: "7:100", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
+	other, _ := item.event(&Record{Position: "7:101", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
 	if first.GetEventId() != second.GetEventId() || first.GetEventId() == other.GetEventId() {
 		t.Fatal("event id must follow the log position")
 	}
@@ -493,7 +493,7 @@ func TestLiteralNeverReachesTheEvent(t *testing.T) {
 	item, _ := newTestCollector(t, &scriptedReader{}, 1<<20)
 	item.tick(context.Background())
 	record := statementRecord(1)
-	event := item.event(&record)
+	event, _ := item.event(&record)
 	if event == nil {
 		t.Fatal("no event")
 	}
@@ -567,5 +567,30 @@ func TestSQLServerResumeInsideASharedOffsetDeliversEachRecordOnce(t *testing.T) 
 	}
 	if len(delivered) != 4 {
 		t.Fatalf("delivered %d of 4", len(delivered))
+	}
+}
+
+func TestBlockedEventBecomesAGap(t *testing.T) {
+	record := statementRecord(1)
+	record.Principal = "bad\nname"
+	reader := &scriptedReader{batches: []Batch{{Records: []Record{record}, Cursor: []byte("after")}}}
+	item, events := newTestCollector(t, reader, 1<<20)
+	item.tick(context.Background())
+	items, err := events.Peek(10, 1<<20)
+	if err != nil || len(items) != 1 || items[0].Event.GetGap().GetLostEvents() != 1 {
+		t.Fatalf("items = %+v, %v", items, err)
+	}
+}
+
+func TestHeldSessionOverflowReleasesInsteadOfDropping(t *testing.T) {
+	parser := newPostgresParser()
+	var released []Record
+	for i := range maxHeldSessions + 5 {
+		released = append(released, feed(t, parser, map[string]any{
+			"session_id": fmt.Sprintf("s%d", i), "vxid": "1/1", "message": audit("SELECT 1"),
+		}, int64(i))...)
+	}
+	if len(released) != 5 || len(parser.held) != maxHeldSessions {
+		t.Fatalf("released %d, held %d", len(released), len(parser.held))
 	}
 }

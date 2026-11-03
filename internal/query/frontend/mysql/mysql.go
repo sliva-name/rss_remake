@@ -182,6 +182,7 @@ func projection(field *ast.SelectField, query *ir.Query) ir.Projection {
 	scratch := &ir.Query{}
 	collect(scratch, field.Expr)
 	query.Subqueries = append(query.Subqueries, scratch.Subqueries...)
+	query.Calls = query.Calls || scratch.Calls
 	return ir.Projection{Alias: field.AsName.O, Refs: scratch.Refs}
 }
 
@@ -199,6 +200,9 @@ func (v *visitor) Enter(node ast.Node) (ast.Node, bool) {
 	case *ast.SubqueryExpr:
 		v.query.Subqueries = append(v.query.Subqueries, resultQuery(item.Query))
 		return node, true
+	case *ast.FuncCallExpr:
+		v.query.Calls = true
+		return node, false
 	default:
 		return node, false
 	}

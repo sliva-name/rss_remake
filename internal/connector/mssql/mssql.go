@@ -178,10 +178,12 @@ const maxAuditRows = 5000
 func (s *Source) AuditRows(ctx context.Context, pattern, file string, offset int64) ([]connector.AuditRow, error) {
 	const columns = `SELECT TOP (@limit) file_name, audit_file_offset, event_time, sequence_number, succeeded,
 		session_id, transaction_id, server_principal_name, COALESCE(client_ip, ''), COALESCE(schema_name, ''), statement `
-	query := columns + `FROM sys.fn_get_audit_file(@pattern, default, default)`
+	// TOP needs an order to page by: the cursor assumes file and offset order.
+	const order = ` ORDER BY file_name, audit_file_offset, event_time, sequence_number`
+	query := columns + `FROM sys.fn_get_audit_file(@pattern, default, default)` + order
 	arguments := []any{sql.Named("limit", maxAuditRows), sql.Named("pattern", pattern)}
 	if file != "" {
-		query = columns + `FROM sys.fn_get_audit_file(@pattern, @file, @offset)`
+		query = columns + `FROM sys.fn_get_audit_file(@pattern, @file, @offset)` + order
 		arguments = append(arguments, sql.Named("file", file), sql.Named("offset", offset))
 	}
 	rows, err := s.db.QueryContext(ctx, query, arguments...)

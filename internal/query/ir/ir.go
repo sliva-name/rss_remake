@@ -69,6 +69,9 @@ type Query struct {
 	Subqueries []*Query `json:"subqueries,omitempty"`
 	// Arms are the other branches of UNION, INTERSECT and EXCEPT.
 	Arms []*Query `json:"arms,omitempty"`
+	// Calls marks a function call. A function can read tables the text never
+	// names, so a statement with one is never treated as touching nothing.
+	Calls bool `json:"calls,omitempty"`
 }
 
 // Statement is one parsed statement.

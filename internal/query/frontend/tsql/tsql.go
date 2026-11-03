@@ -212,6 +212,8 @@ func sourceItem(item parser.ITable_source_itemContext, query *ir.Query) {
 		}
 		query.Sources = append(query.Sources, source)
 	default:
+		// Table functions, OPENJSON, OPENXML and the like can read anything.
+		query.Calls = true
 		query.Sources = append(query.Sources, ir.Source{Alias: aliasOf(item.As_table_alias()), Opaque: true})
 	}
 }
@@ -247,6 +249,7 @@ func projection(item parser.ISelect_list_elemContext, query *ir.Query) ir.Projec
 	scratch := &ir.Query{}
 	collect(scratch, item)
 	query.Subqueries = append(query.Subqueries, scratch.Subqueries...)
+	query.Calls = query.Calls || scratch.Calls
 	result := ir.Projection{Refs: scratch.Refs}
 	if element := item.Expression_elem(); element != nil {
 		result.Alias = expressionAlias(element)
@@ -326,6 +329,9 @@ func collect(query *ir.Query, node antlr.Tree) {
 	case *parser.Select_statementContext:
 		query.Subqueries = append(query.Subqueries, selectStatement(item))
 		return
+	case parser.IFunction_callContext:
+		// Labeled alternatives make every kind of call its own context type.
+		query.Calls = true
 	}
 	for _, child := range node.GetChildren() {
 		collect(query, child)

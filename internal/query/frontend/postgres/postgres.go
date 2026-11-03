@@ -117,6 +117,9 @@ func fromItem(node *pganalyze.Node, query *ir.Query) {
 		for _, name := range item.JoinExpr.GetUsingClause() {
 			query.Refs = append(query.Refs, ir.ColumnRef{Name: name.GetString_().GetSval()})
 		}
+	case *pganalyze.Node_RangeFunction:
+		query.Calls = true
+		query.Sources = append(query.Sources, ir.Source{Opaque: true})
 	default:
 		query.Sources = append(query.Sources, ir.Source{Opaque: true})
 	}
@@ -141,6 +144,7 @@ func projection(target *pganalyze.ResTarget, query *ir.Query) ir.Projection {
 	collect(scratch, target.GetVal())
 	item.Refs = scratch.Refs
 	query.Subqueries = append(query.Subqueries, scratch.Subqueries...)
+	query.Calls = query.Calls || scratch.Calls
 	return item
 }
 
@@ -197,6 +201,8 @@ func collect(query *ir.Query, message proto.Message) {
 	case *pganalyze.SelectStmt:
 		query.Subqueries = append(query.Subqueries, selectQuery(node))
 		return
+	case *pganalyze.FuncCall:
+		query.Calls = true
 	}
 	value.Range(func(field protoreflect.FieldDescriptor, item protoreflect.Value) bool {
 		collectField(query, field, item)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -20,6 +21,10 @@ type fakeCatalog struct {
 
 func (f fakeCatalog) AgentSources(context.Context, uuid.UUID, uuid.UUID) ([]uuid.UUID, error) {
 	return f.owned, nil
+}
+
+func (f fakeCatalog) CatalogVersion(context.Context, uuid.UUID, uuid.UUID) (time.Time, error) {
+	return time.Time{}, nil
 }
 
 func (f fakeCatalog) ColumnsOf(context.Context, uuid.UUID, uuid.UUID) (map[audit.ColumnKey]audit.ColumnInfo, error) {
@@ -118,5 +123,23 @@ func TestGapKeepsUnknownLossUnknown(t *testing.T) {
 	}
 	if sink.events[0].GapLostEvents != nil || sink.events[0].GapReason != "GAP_REASON_LOG_ROTATED" {
 		t.Fatalf("event = %+v", sink.events[0])
+	}
+}
+
+func TestImplausibleEventTimeIsReplaced(t *testing.T) {
+	sourceID := uuid.New()
+	sink := &fakeSink{}
+	service := audit.NewService(fakeCatalog{owned: []uuid.UUID{sourceID}}, sink)
+	for _, at := range []time.Time{time.Unix(0, 0), time.Now().Add(100 * 365 * 24 * time.Hour)} {
+		item := event(sourceID)
+		item.EventTime = timestamppb.New(at)
+		if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{item}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, stored := range sink.events {
+		if time.Since(stored.Time) > time.Minute {
+			t.Fatalf("kept an implausible time: %s", stored.Time)
+		}
 	}
 }

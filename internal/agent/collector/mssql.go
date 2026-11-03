@@ -63,10 +63,10 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 	position := *r.live
 	rows, err := r.source.AuditRows(ctx, r.pattern, position.File, position.Offset)
 	if err != nil {
-		return Batch{}, err
+		return r.recover(ctx, err)
 	}
 	var batch Batch
-	if r.live != nil && position.File != "" && !containsFile(rows, position.File) && len(rows) > 0 {
+	if position.File != "" && !containsFile(rows, position.File) && len(rows) > 0 {
 		batch.Gap = lostLogGap()
 	}
 	// fn_get_audit_file restarts at the beginning of the offset, so ordinals are
@@ -96,6 +96,22 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 	if err != nil {
 		return Batch{}, fmt.Errorf("encode audit cursor: %w", err)
 	}
+	return batch, nil
+}
+
+// recover handles a cursor whose file was removed by rollover. The server refuses
+// to start from a file that no longer exists, so without this the reader would
+// fail forever. If the log is readable from its start, the cursor is lost: what
+// was not read is reported as a gap and reading resumes at the end.
+func (r *sqlServerReader) recover(ctx context.Context, cause error) (Batch, error) {
+	if _, err := r.source.AuditRows(ctx, r.pattern, "", 0); err != nil {
+		return Batch{}, cause
+	}
+	batch, err := r.seekEnd(ctx)
+	if err != nil {
+		return Batch{}, err
+	}
+	batch.Gap = lostLogGap()
 	return batch, nil
 }
 
@@ -181,8 +197,11 @@ func mergeRow(batch *Batch, current *Record, row *connector.AuditRow, position m
 	}
 }
 
+// sameStatement also compares the time: rows written for the tables of one
+// statement share it, while running the same text twice gives two times.
 func sameStatement(current *Record, row *connector.AuditRow) bool {
 	return current.Session == strconv.Itoa(row.Session) &&
 		current.Transaction == strconv.FormatInt(row.Transaction, 10) &&
+		current.Time.Equal(row.Time.UTC().Truncate(time.Microsecond)) &&
 		(row.Sequence > 1 || current.Statement.Reveal() == row.Statement)
 }

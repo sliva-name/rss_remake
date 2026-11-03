@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,6 +65,8 @@ type Catalog interface {
 	// AgentSources lists the sources this agent may report on.
 	AgentSources(ctx context.Context, tenantID, agentID uuid.UUID) ([]uuid.UUID, error)
 	ColumnsOf(ctx context.Context, tenantID, sourceID uuid.UUID) (map[ColumnKey]ColumnInfo, error)
+	// CatalogVersion changes whenever a scan of the source is applied.
+	CatalogVersion(ctx context.Context, tenantID, sourceID uuid.UUID) (time.Time, error)
 }
 
 // Sink stores events. It returns only after they are durable, because the agent
@@ -72,14 +75,54 @@ type Sink interface {
 	Insert(ctx context.Context, events []Event) error
 }
 
+const (
+	// Event times outside this window are replaced by the arrival time. An agent's
+	// clock is not trusted to pick a partition or to dodge the retention period.
+	maxEventAge  = 365 * 24 * time.Hour
+	maxClockSkew = 5 * time.Minute
+)
+
+type cachedColumns struct {
+	columns map[ColumnKey]ColumnInfo
+	version time.Time
+}
+
 // Service ingests events.
 type Service struct {
 	catalog Catalog
 	sink    Sink
+	now     func() time.Time
+
+	mu    sync.Mutex
+	cache map[uuid.UUID]cachedColumns
 }
 
 func NewService(catalog Catalog, sink Sink) *Service {
-	return &Service{catalog: catalog, sink: sink}
+	return &Service{catalog: catalog, sink: sink, now: time.Now, cache: map[uuid.UUID]cachedColumns{}}
+}
+
+// columnsOf reuses a source's catalog until a scan changes it. Loading every
+// column on every batch would put the catalog through PostgreSQL once a second,
+// while a time-based cache would stamp stale categories right after a scan.
+func (s *Service) columnsOf(ctx context.Context, tenantID, sourceID uuid.UUID) (map[ColumnKey]ColumnInfo, error) {
+	version, err := s.catalog.CatalogVersion(ctx, tenantID, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	cached, found := s.cache[sourceID]
+	s.mu.Unlock()
+	if found && cached.version.Equal(version) {
+		return cached.columns, nil
+	}
+	columns, err := s.catalog.ColumnsOf(ctx, tenantID, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.cache[sourceID] = cachedColumns{columns: columns, version: version}
+	s.mu.Unlock()
+	return columns, nil
 }
 
 // Ingest validates, enriches and stores a batch, returning accepted ids. The batch
@@ -89,7 +132,7 @@ func (s *Service) Ingest(ctx context.Context, tenantID, agentID uuid.UUID, event
 	if err != nil {
 		return nil, err
 	}
-	catalogs := map[uuid.UUID]map[ColumnKey]ColumnInfo{}
+	now := s.now()
 	stored := make([]Event, 0, len(events))
 	accepted := make([]string, 0, len(events))
 	for _, event := range events {
@@ -97,16 +140,16 @@ func (s *Service) Ingest(ctx context.Context, tenantID, agentID uuid.UUID, event
 		if err != nil || !slices.Contains(owned, sourceID) {
 			return nil, ErrForeignSource
 		}
-		columns, known := catalogs[sourceID]
-		if !known {
-			if columns, err = s.catalog.ColumnsOf(ctx, tenantID, sourceID); err != nil {
-				return nil, err
-			}
-			catalogs[sourceID] = columns
+		columns, err := s.columnsOf(ctx, tenantID, sourceID)
+		if err != nil {
+			return nil, err
 		}
 		converted, err := convert(tenantID, agentID, sourceID, event, columns)
 		if err != nil {
 			return nil, err
+		}
+		if converted.Time.Before(now.Add(-maxEventAge)) || converted.Time.After(now.Add(maxClockSkew)) {
+			converted.Time = now
 		}
 		stored = append(stored, converted)
 		accepted = append(accepted, event.GetEventId())

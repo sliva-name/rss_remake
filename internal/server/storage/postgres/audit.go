@@ -60,6 +60,22 @@ func (s *Store) ColumnsOf(ctx context.Context, tenantID, sourceID uuid.UUID) (ma
 	return columns, nil
 }
 
+// CatalogVersion is the finish time of the latest applied scan of a source.
+func (s *Store) CatalogVersion(ctx context.Context, tenantID, sourceID uuid.UUID) (time.Time, error) {
+	var version *time.Time
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		const query = `SELECT max(finished_at) FROM scan_jobs WHERE source_id = $1 AND status IN ('completed', 'partial')`
+		return tx.QueryRow(ctx, query, sourceID).Scan(&version)
+	})
+	if err != nil {
+		return time.Time{}, storageError("read catalog version", err)
+	}
+	if version == nil {
+		return time.Time{}, nil
+	}
+	return *version, nil
+}
+
 // SaveHealth records collector reports. Sources not owned by the agent are skipped
 // by the join, so a client cannot write health for someone else's source.
 func (s *Store) SaveHealth(ctx context.Context, tenantID, agentID uuid.UUID, reports []coverage.Health) error {

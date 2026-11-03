@@ -252,6 +252,12 @@ func TestStatementsWithoutDataAreInternal(t *testing.T) {
 		if catalog.Analyze("SELECT a FROM not_in_catalog").Internal {
 			t.Errorf("%s: an unresolved read must be reported", d.name)
 		}
+		// A function can read any table, and system catalogs can hold credentials.
+		for _, sql := range []string{"SELECT export_customers()", "SELECT name FROM sys.sql_logins", "SELECT user FROM mysql.user"} {
+			if catalog.Analyze(sql).Internal {
+				t.Errorf("%s: %q hides an access", d.name, sql)
+			}
+		}
 	}
 }
 
