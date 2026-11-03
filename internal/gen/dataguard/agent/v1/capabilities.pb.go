@@ -214,13 +214,15 @@ func (x *CapabilityStatus) GetReasonCode() string {
 }
 
 type SourceReport struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Name of the source in the agent's local configuration. Connection details
-	// stay on the agent, which keeps the center unable to retarget it.
-	SourceKey     string              `protobuf:"bytes,1,opt,name=source_key,json=sourceKey,proto3" json:"source_key,omitempty"`
-	Engine        Engine              `protobuf:"varint,2,opt,name=engine,proto3,enum=dataguard.agent.v1.Engine" json:"engine,omitempty"`
-	EngineVersion string              `protobuf:"bytes,3,opt,name=engine_version,json=engineVersion,proto3" json:"engine_version,omitempty"`
-	Capabilities  []*CapabilityStatus `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Engine        Engine                 `protobuf:"varint,2,opt,name=engine,proto3,enum=dataguard.agent.v1.Engine" json:"engine,omitempty"`
+	EngineVersion string                 `protobuf:"bytes,3,opt,name=engine_version,json=engineVersion,proto3" json:"engine_version,omitempty"`
+	Capabilities  []*CapabilityStatus    `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// The id from the center's source list.
+	SourceId string `protobuf:"bytes,5,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	// Empty when the agent opened the source; otherwise why it refused or failed,
+	// for example TARGET_NOT_ALLOWED or CREDENTIAL_UNREADABLE.
+	StatusCode    string `protobuf:"bytes,6,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -255,13 +257,6 @@ func (*SourceReport) Descriptor() ([]byte, []int) {
 	return file_dataguard_agent_v1_capabilities_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *SourceReport) GetSourceKey() string {
-	if x != nil {
-		return x.SourceKey
-	}
-	return ""
-}
-
 func (x *SourceReport) GetEngine() Engine {
 	if x != nil {
 		return x.Engine
@@ -283,6 +278,20 @@ func (x *SourceReport) GetCapabilities() []*CapabilityStatus {
 	return nil
 }
 
+func (x *SourceReport) GetSourceId() string {
+	if x != nil {
+		return x.SourceId
+	}
+	return ""
+}
+
+func (x *SourceReport) GetStatusCode() string {
+	if x != nil {
+		return x.StatusCode
+	}
+	return ""
+}
+
 var File_dataguard_agent_v1_capabilities_proto protoreflect.FileDescriptor
 
 const file_dataguard_agent_v1_capabilities_proto_rawDesc = "" +
@@ -294,13 +303,15 @@ const file_dataguard_agent_v1_capabilities_proto_rawDesc = "" +
 	"capability\x125\n" +
 	"\asupport\x18\x02 \x01(\x0e2\x1b.dataguard.agent.v1.SupportR\asupport\x12%\n" +
 	"\vreason_code\x18\x03 \x01(\tB\x04\xc0\xf3\x18\tR\n" +
-	"reasonCode\"\xde\x01\n" +
-	"\fSourceReport\x12#\n" +
-	"\n" +
-	"source_key\x18\x01 \x01(\tB\x04\xc0\xf3\x18\x02R\tsourceKey\x122\n" +
+	"reasonCode\"\x95\x02\n" +
+	"\fSourceReport\x122\n" +
 	"\x06engine\x18\x02 \x01(\x0e2\x1a.dataguard.agent.v1.EngineR\x06engine\x12+\n" +
 	"\x0eengine_version\x18\x03 \x01(\tB\x04\xc0\xf3\x18\x05R\rengineVersion\x12H\n" +
-	"\fcapabilities\x18\x04 \x03(\v2$.dataguard.agent.v1.CapabilityStatusR\fcapabilities*\xe5\x02\n" +
+	"\fcapabilities\x18\x04 \x03(\v2$.dataguard.agent.v1.CapabilityStatusR\fcapabilities\x12!\n" +
+	"\tsource_id\x18\x05 \x01(\tB\x04\xc0\xf3\x18\x01R\bsourceId\x12%\n" +
+	"\vstatus_code\x18\x06 \x01(\tB\x04\xc0\xf3\x18\tR\n" +
+	"statusCodeJ\x04\b\x01\x10\x02R\n" +
+	"source_key*\xe5\x02\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x1f\n" +

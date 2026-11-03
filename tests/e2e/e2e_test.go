@@ -26,10 +26,12 @@ import (
 	"time"
 
 	chdriver "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/gen/restapi"
+	"dataguard/internal/platform/sealing"
 	"dataguard/internal/testkit/keycloak"
 	"dataguard/internal/testkit/seed"
 	"dataguard/internal/testkit/stand"
@@ -236,6 +238,47 @@ func (s *stack) onboard(t *testing.T) {
 	compose(t, strings.NewReader(token.Token), nil,
 		"run", "--rm", "--no-deps", "-T", "agent", "enroll", "--config", agentConfig, "--token-file", "/dev/stdin")
 	startAgent(t)
+	s.defineSources(t)
+}
+
+// containerSource is a stand database as the agent container reaches it.
+type containerSource struct {
+	name, engine, host, auditDirectory, passwordKey, tls string
+	port                                                 int
+}
+
+var containerSources = []containerSource{
+	{"crm-postgres", "postgresql", "source-postgres", "/var/log/dg-audit/postgres", "SOURCE_SCANNER_PASSWORD", "disable", 5432},
+	{"crm-mysql", "mysql", "source-mysql", "/var/log/dg-audit/mysql", "SOURCE_SCANNER_PASSWORD", "disable", 3306},
+	{"crm-mariadb", "mariadb", "source-mariadb", "/var/log/dg-audit/mariadb", "SOURCE_SCANNER_PASSWORD", "disable", 3306},
+	{"crm-mssql", "mssql", "source-mssql", "/var/opt/mssql/dg-audit", "SOURCE_MSSQL_SCANNER_PASSWORD", "require", 1433},
+}
+
+// defineSources does what an administrator does in the dashboard: the password
+// is sealed to the agent's published key before it is sent to the center.
+func (s *stack) defineSources(t *testing.T) {
+	t.Helper()
+	var agents []restapi.Agent
+	s.must(t, http.MethodGet, "/agents", nil, &agents)
+	if len(agents) != 1 || agents[0].SealingPublicKey == nil {
+		t.Fatalf("the agent published no sealing key: %+v", agents)
+	}
+	env := stand.Env(t)
+	for _, item := range containerSources {
+		sealed, err := sealing.Seal(*agents[0].SealingPublicKey, sealing.Binding{
+			TenantID: uuid.MustParse(s.tenantID), AgentID: agents[0].Id, Engine: item.engine, Host: item.host,
+			Port: item.port, Database: "crm", Username: "dg_scanner", TLS: item.tls,
+		}, []byte(env[item.passwordKey]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		directory := item.auditDirectory
+		s.must(t, http.MethodPost, "/sources", restapi.NewSource{
+			Name: item.name, AgentId: agents[0].Id, Engine: restapi.SourceEngine(item.engine), Host: item.host,
+			Port: item.port, Database: "crm", Username: "dg_scanner", Tls: restapi.TlsMode(item.tls),
+			AuditDirectory: &directory, SealedPassword: sealed,
+		}, nil)
+	}
 }
 
 // applicationKey is the stand's signing key of the application "crm"; the agent
@@ -526,7 +569,9 @@ func TestPlatformEndToEnd(t *testing.T) {
 	})
 
 	t.Run("no source value left the source", func(t *testing.T) {
-		values := append(slices.Clone(all), synthetic.CanaryMarker)
+		// The scanner passwords must not reach the center either: it holds them sealed.
+		env := stand.Env(t)
+		values := append(slices.Clone(all), synthetic.CanaryMarker, env["SOURCE_SCANNER_PASSWORD"], env["SOURCE_MSSQL_SCANNER_PASSWORD"])
 		assertAbsent(t, "agent log", logs(t, "agent"), values)
 		assertAbsent(t, "server log", logs(t, "server"), values)
 		assertAbsent(t, "central postgres", dumpPostgres(t), values)
@@ -536,8 +581,10 @@ func TestPlatformEndToEnd(t *testing.T) {
 
 	t.Run("dashboard works in a browser", func(t *testing.T) {
 		// Screenshots land in deployments/dev/.state/browser.
-		compose(t, nil, []string{"DG_UI_USER=dg-admin", "DG_UI_PASSWORD=" + s.password},
-			"run", "--rm", "-e", "DG_UI_USER", "-e", "DG_UI_PASSWORD", "browser-check")
+		// The browser also adds a source through the form, sealing its password itself.
+		compose(t, nil, []string{
+			"DG_UI_USER=dg-admin", "DG_UI_PASSWORD=" + s.password, "DG_UI_SOURCE_PASSWORD=" + stand.Env(t)["SOURCE_SCANNER_PASSWORD"],
+		}, "run", "--rm", "-e", "DG_UI_USER", "-e", "DG_UI_PASSWORD", "-e", "DG_UI_SOURCE_PASSWORD", "browser-check")
 	})
 
 	t.Run("revoked agent stops immediately", func(t *testing.T) {

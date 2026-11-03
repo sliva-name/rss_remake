@@ -105,12 +105,52 @@ paths:
       operationId: listSources
       responses:
         "200":
-          description: Data sources reported by agents
+          description: Data sources of the current tenant
           content:
             application/json:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/Source"}
+    post:
+      operationId: createSource
+      description: The password arrives sealed to the agent's sealingPublicKey; the server cannot open it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewSource"}
+      responses:
+        "201":
+          description: Created; the agent picks it up with its next heartbeat
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Source"}
+  /sources/{sourceId}:
+    parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    put:
+      operationId: updateSource
+      description: The agent and the engine cannot change. A change of host, port, database, user or TLS needs the password sealed again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SourceUpdate"}
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Source"}
+    delete:
+      operationId: deleteSource
+      description: The agent stops serving the source; its inventory and access history stay.
+      responses:
+        "204":
+          description: Deleted
   /scans:
     get:
       operationId: listScans
@@ -345,6 +385,10 @@ components:
         certificateExpires: {type: string, format: date-time}
         lastSeenAt: {type: string, format: date-time}
         createdAt: {type: string, format: date-time}
+        sealingPublicKey:
+          description: Uncompressed P-256 point the browser seals passwords to. Absent for agents enrolled before managed sources.
+          type: string
+          format: byte
     Capability:
       type: object
       required: [capability, support, reasonCode]
@@ -352,14 +396,55 @@ components:
         capability: {type: string}
         support: {type: string}
         reasonCode: {type: string}
+    SourceEngine:
+      type: string
+      enum: [postgresql, mysql, mariadb, mssql]
+    TlsMode:
+      type: string
+      enum: [verify-full, require, disable]
+    SourceUpdate:
+      type: object
+      required: [name, engine, host, port, database, username, tls]
+      properties:
+        name: {type: string, pattern: "^[a-z][a-z0-9_-]{0,63}$"}
+        engine: {$ref: "#/components/schemas/SourceEngine"}
+        host: {type: string, minLength: 1, maxLength: 253}
+        port: {type: integer, minimum: 1, maximum: 65535}
+        database: {type: string, minLength: 1, maxLength: 128}
+        username: {type: string, minLength: 1, maxLength: 128}
+        tls: {$ref: "#/components/schemas/TlsMode"}
+        auditDirectory: {type: string, maxLength: 512}
+        maxConnections: {type: integer, minimum: 1, maximum: 8}
+        sealedPassword:
+          description: Omit to keep the current password; required when the binding changes.
+          type: string
+          format: byte
+    NewSource:
+      allOf:
+        - $ref: "#/components/schemas/SourceUpdate"
+        - type: object
+          required: [agentId, sealedPassword]
+          properties:
+            agentId: {type: string, format: uuid}
     Source:
       type: object
-      required: [id, agentId, key, engine, engineVersion, capabilities, updatedAt]
+      required: [id, agentId, key, engine, host, port, database, username, tls, auditDirectory, maxConnections, statusCode, engineVersion, capabilities, updatedAt]
       properties:
         id: {type: string, format: uuid}
         agentId: {type: string, format: uuid}
         key: {type: string}
         engine: {type: string}
+        host: {type: string}
+        port: {type: integer}
+        database: {type: string}
+        username: {type: string}
+        tls: {$ref: "#/components/schemas/TlsMode"}
+        auditDirectory: {type: string}
+        maxConnections: {type: integer}
+        statusCode:
+          description: Empty when the agent opened the source; otherwise why it did not.
+          type: string
+        probedAt: {type: string, format: date-time}
         engineVersion: {type: string}
         capabilities:
           type: array

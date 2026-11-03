@@ -89,7 +89,7 @@ func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeProblem(w, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, fleet.ErrNotFound), errors.Is(err, scan.ErrNotFound), errors.Is(err, policy.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "not_found", "resource not found")
-	case errors.Is(err, tenant.ErrConflict):
+	case errors.Is(err, tenant.ErrConflict), errors.Is(err, fleet.ErrConflict):
 		writeProblem(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -200,6 +200,54 @@ func (s *Server) ListSources(ctx context.Context, _ restapi.ListSourcesRequestOb
 	return response, nil
 }
 
+func (s *Server) CreateSource(ctx context.Context, request restapi.CreateSourceRequestObject) (restapi.CreateSourceResponseObject, error) {
+	body := request.Body
+	draft := sourceDraft(body.Name, string(body.Engine), body.Host, body.Port, body.Database, body.Username,
+		string(body.Tls), body.AuditDirectory, body.MaxConnections, body.SealedPassword)
+	draft.AgentID = body.AgentId
+	created, err := s.fleet.CreateSource(ctx, tenantOf(ctx), draft)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.CreateSource201JSONResponse(toSource(created)), nil
+}
+
+func (s *Server) UpdateSource(ctx context.Context, request restapi.UpdateSourceRequestObject) (restapi.UpdateSourceResponseObject, error) {
+	body := request.Body
+	var sealed []byte
+	if body.SealedPassword != nil {
+		sealed = *body.SealedPassword
+	}
+	draft := sourceDraft(body.Name, string(body.Engine), body.Host, body.Port, body.Database, body.Username,
+		string(body.Tls), body.AuditDirectory, body.MaxConnections, sealed)
+	updated, err := s.fleet.UpdateSource(ctx, tenantOf(ctx), request.SourceId, draft)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.UpdateSource200JSONResponse(toSource(updated)), nil
+}
+
+func (s *Server) DeleteSource(ctx context.Context, request restapi.DeleteSourceRequestObject) (restapi.DeleteSourceResponseObject, error) {
+	if err := s.fleet.DeleteSource(ctx, tenantOf(ctx), request.SourceId); err != nil {
+		return nil, err
+	}
+	return restapi.DeleteSource204Response{}, nil
+}
+
+func sourceDraft(name, engine, host string, port int, database, username, tls string, auditDirectory *string, maxConnections *int, sealed []byte) fleet.Source {
+	draft := fleet.Source{
+		Key: name, Engine: engine, Host: host, Port: port, Database: database, Username: username,
+		TLS: tls, SealedPassword: sealed,
+	}
+	if auditDirectory != nil {
+		draft.AuditDirectory = *auditDirectory
+	}
+	if maxConnections != nil {
+		draft.MaxConnections = *maxConnections
+	}
+	return draft
+}
+
 func toTenant(item tenant.Tenant) restapi.Tenant {
 	return restapi.Tenant{Id: item.ID, Name: item.Name, CreatedAt: item.CreatedAt}
 }
@@ -209,11 +257,15 @@ func toEnvironment(item tenant.Environment) restapi.Environment {
 }
 
 func toAgent(item fleet.Agent) restapi.Agent {
-	return restapi.Agent{
+	agent := restapi.Agent{
 		Id: item.ID, EnvironmentId: item.EnvironmentID, Status: restapi.AgentStatus(item.Status),
 		Version: item.Version, CertificateExpires: item.CertificateExpires,
 		LastSeenAt: item.LastSeenAt, CreatedAt: item.CreatedAt,
 	}
+	if len(item.SealingPublicKey) > 0 {
+		agent.SealingPublicKey = &item.SealingPublicKey
+	}
+	return agent
 }
 
 func toSource(item fleet.Source) restapi.Source {
@@ -225,6 +277,9 @@ func toSource(item fleet.Source) restapi.Source {
 	}
 	return restapi.Source{
 		Id: item.ID, AgentId: item.AgentID, Key: item.Key, Engine: item.Engine,
+		Host: item.Host, Port: item.Port, Database: item.Database, Username: item.Username,
+		Tls: restapi.TlsMode(item.TLS), AuditDirectory: item.AuditDirectory, MaxConnections: item.MaxConnections,
+		StatusCode: item.StatusCode, ProbedAt: item.ProbedAt,
 		EngineVersion: item.EngineVersion, Capabilities: capabilities, UpdatedAt: item.UpdatedAt,
 	}
 }

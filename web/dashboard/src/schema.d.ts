@@ -109,8 +109,29 @@ export interface paths {
         };
         get: operations["listSources"];
         put?: never;
-        post?: never;
+        /** @description The password arrives sealed to the agent's sealingPublicKey; the server cannot open it. */
+        post: operations["createSource"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sources/{sourceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description The agent and the engine cannot change. A change of host, port, database, user or TLS needs the password sealed again. */
+        put: operations["updateSource"];
+        post?: never;
+        /** @description The agent stops serving the source; its inventory and access history stay. */
+        delete: operations["deleteSource"];
         options?: never;
         head?: never;
         patch?: never;
@@ -338,11 +359,40 @@ export interface components {
             lastSeenAt?: string;
             /** Format: date-time */
             createdAt: string;
+            /**
+             * Format: byte
+             * @description Uncompressed P-256 point the browser seals passwords to. Absent for agents enrolled before managed sources.
+             */
+            sealingPublicKey?: string;
         };
         Capability: {
             capability: string;
             support: string;
             reasonCode: string;
+        };
+        /** @enum {string} */
+        SourceEngine: "postgresql" | "mysql" | "mariadb" | "mssql";
+        /** @enum {string} */
+        TlsMode: "verify-full" | "require" | "disable";
+        SourceUpdate: {
+            name: string;
+            engine: components["schemas"]["SourceEngine"];
+            host: string;
+            port: number;
+            database: string;
+            username: string;
+            tls: components["schemas"]["TlsMode"];
+            auditDirectory?: string;
+            maxConnections?: number;
+            /**
+             * Format: byte
+             * @description Omit to keep the current password; required when the binding changes.
+             */
+            sealedPassword?: string;
+        };
+        NewSource: components["schemas"]["SourceUpdate"] & {
+            /** Format: uuid */
+            agentId: string;
         };
         Source: {
             /** Format: uuid */
@@ -351,6 +401,17 @@ export interface components {
             agentId: string;
             key: string;
             engine: string;
+            host: string;
+            port: number;
+            database: string;
+            username: string;
+            tls: components["schemas"]["TlsMode"];
+            auditDirectory: string;
+            maxConnections: number;
+            /** @description Empty when the agent opened the source; otherwise why it did not. */
+            statusCode: string;
+            /** Format: date-time */
+            probedAt?: string;
             engineVersion: string;
             capabilities: components["schemas"]["Capability"][];
             /** Format: date-time */
@@ -742,7 +803,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Data sources reported by agents */
+            /** @description Data sources of the current tenant */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -750,6 +811,76 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Source"][];
                 };
+            };
+        };
+    };
+    createSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewSource"];
+            };
+        };
+        responses: {
+            /** @description Created; the agent picks it up with its next heartbeat */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+        };
+    };
+    updateSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+        };
+    };
+    deleteSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

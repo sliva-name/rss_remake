@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { capability, count, coverageReason, dateTime, engine, percent, scanStatus, support } from "../labels";
 import { CoverageBadge, Loadable, Page } from "../ui";
+import { Sources } from "./Sources";
 
 const supportTone: Record<string, string> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT_CONFIGURED: "warn", SUPPORT_UNKNOWN: "warn" };
 
@@ -52,7 +53,7 @@ function Enrollment() {
   );
 }
 
-export function Infrastructure({ roles }: { roles: string[] }) {
+export function Infrastructure({ roles, tenantId }: { roles: string[]; tenantId: string }) {
   const client = useQueryClient();
   const admin = roles.includes("tenant_admin");
   const canScan = admin || roles.includes("security_analyst");
@@ -72,6 +73,8 @@ export function Infrastructure({ roles }: { roles: string[] }) {
 
   return (
     <Page title="Инфраструктура" lead="Что платформа видит и чего не видит. «Нет данных» значит, что измерять было нечего: это не ноль.">
+      <Sources tenantId={tenantId} admin={admin} />
+
       <section className="card">
         <h2>Покрытие аудита за сутки</h2>
         <Loadable query={coverage} empty="Источники ещё не подключены." isEmpty={(rows) => rows.length === 0}>

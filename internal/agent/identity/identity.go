@@ -1,8 +1,9 @@
-// Package identity keeps the agent's enrollment state on disk: its key,
-// certificate, pinned keys and last accepted policy.
+// Package identity keeps the agent's enrollment state on disk: its keys,
+// certificate, pinned keys, and the last accepted policy and source list.
 package identity
 
 import (
+	"crypto/ecdh"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -26,6 +27,8 @@ const (
 	caFile        = "center-ca.crt"
 	stateFile     = "identity.json"
 	policyFile    = "policy.bin"
+	sourcesFile   = "sources.bin"
+	sealingFile   = "sealing.key"
 	secretMode    = 0o600
 	directoryMode = 0o700
 )
@@ -39,6 +42,8 @@ var (
 	ErrAlreadyEnrolled = errors.New("agent is already enrolled, enroll again only with an empty state directory")
 	// ErrPolicyRollback rejects a policy older than the one already applied.
 	ErrPolicyRollback = errors.New("policy version is older than the applied one")
+	// ErrSourcesRollback rejects a source list older than the one already applied.
+	ErrSourcesRollback = errors.New("source list version is older than the applied one")
 )
 
 type persistedState struct {
@@ -46,6 +51,7 @@ type persistedState struct {
 	AgentID         uuid.UUID `json:"agent_id"`
 	PolicyPublicKey []byte    `json:"policy_public_key"`
 	PolicyVersion   uint64    `json:"policy_version"`
+	SourcesVersion  uint64    `json:"sources_version"`
 }
 
 // Store is the agent's local identity. It is safe for concurrent use because
@@ -56,6 +62,8 @@ type Store struct {
 	mu          sync.RWMutex
 	state       persistedState
 	certificate *tls.Certificate
+	// sealing is nil for an agent enrolled before managed sources.
+	sealing *ecdh.PrivateKey
 }
 
 // Enrollment is what the center returns when an agent joins.
@@ -66,6 +74,8 @@ type Enrollment struct {
 	CertificatePEM  []byte
 	CACertificate   []byte
 	PolicyPublicKey []byte
+	// SealingKey opens passwords sealed to this agent. It never leaves the agent.
+	SealingKey *ecdh.PrivateKey
 }
 
 // Enrolled reports whether directory already holds an identity.
@@ -93,9 +103,10 @@ func Save(directory string, enrollment Enrollment) error {
 		return fmt.Errorf("create state directory: %w", err)
 	}
 	files := map[string][]byte{
-		keyFile:  enrollment.KeyPEM,
-		certFile: enrollment.CertificatePEM,
-		caFile:   enrollment.CACertificate,
+		keyFile:     enrollment.KeyPEM,
+		certFile:    enrollment.CertificatePEM,
+		caFile:      enrollment.CACertificate,
+		sealingFile: enrollment.SealingKey.Bytes(),
 	}
 	for name, content := range files {
 		if err := writeAtomic(filepath.Join(directory, name), content); err != nil {
@@ -123,8 +134,30 @@ func Open(directory string) (*Store, error) {
 	if err := store.loadCertificate(); err != nil {
 		return nil, err
 	}
+	if err := store.loadSealingKey(); err != nil {
+		return nil, err
+	}
 	return store, nil
 }
+
+func (s *Store) loadSealingKey() error {
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(s.directory), sealingFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read sealing key: %w", err)
+	}
+	s.sealing, err = ecdh.P256().NewPrivateKey(data)
+	if err != nil {
+		return fmt.Errorf("parse sealing key: %w", err)
+	}
+	return nil
+}
+
+// SealingKey opens passwords sealed to this agent, or is nil for an agent
+// enrolled before managed sources.
+func (s *Store) SealingKey() *ecdh.PrivateKey { return s.sealing }
 
 func (s *Store) loadCertificate() error {
 	certificate, err := tls.LoadX509KeyPair(filepath.Join(s.directory, certFile), filepath.Join(s.directory, keyFile))
@@ -226,6 +259,60 @@ func (s *Store) LoadPolicy() (*agentv1.Policy, error) {
 		return nil, fmt.Errorf("decode policy: %w", err)
 	}
 	return policy, nil
+}
+
+// SourcesVersion returns the version of the last accepted source list.
+func (s *Store) SourcesVersion() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.SourcesVersion
+}
+
+// AcceptSources verifies the signature, the addressee and the version before
+// storing, like AcceptPolicy. The list is persisted so the agent keeps serving
+// its sources after a restart while the center is down.
+func (s *Store) AcceptSources(payload, signature []byte) (*agentv1.SourceList, error) {
+	if err := pki.VerifyPolicy(s.state.PolicyPublicKey, pki.SourceListSigningInput(payload), signature); err != nil {
+		return nil, err
+	}
+	list := &agentv1.SourceList{}
+	if err := proto.Unmarshal(payload, list); err != nil {
+		return nil, fmt.Errorf("decode source list: %w", err)
+	}
+	if list.GetTenantId() != s.state.TenantID.String() || list.GetAgentId() != s.state.AgentID.String() {
+		return nil, errors.New("source list is addressed to another agent")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if list.GetVersion() < s.state.SourcesVersion {
+		return nil, ErrSourcesRollback
+	}
+	if err := writeAtomic(filepath.Join(s.directory, sourcesFile), payload); err != nil {
+		return nil, err
+	}
+	updated := s.state
+	updated.SourcesVersion = list.GetVersion()
+	if err := writeState(s.directory, updated); err != nil {
+		return nil, err
+	}
+	s.state = updated
+	return list, nil
+}
+
+// LoadSources returns the applied source list, or nil if none was accepted.
+func (s *Store) LoadSources() (*agentv1.SourceList, error) {
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(s.directory), sourcesFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read source list: %w", err)
+	}
+	list := &agentv1.SourceList{}
+	if err := proto.Unmarshal(data, list); err != nil {
+		return nil, fmt.Errorf("decode source list: %w", err)
+	}
+	return list, nil
 }
 
 func writeState(directory string, state persistedState) error {

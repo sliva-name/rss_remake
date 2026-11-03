@@ -3,8 +3,9 @@
 import { chromium } from "playwright";
 
 const credentials = { api: process.env.DG_UI_URL, user: process.env.DG_UI_USER, password: process.env.DG_UI_PASSWORD };
-if (!credentials.api || !credentials.user || !credentials.password) {
-  throw new Error("DG_UI_URL, DG_UI_USER and DG_UI_PASSWORD are required");
+const sourcePassword = process.env.DG_UI_SOURCE_PASSWORD;
+if (!credentials.api || !credentials.user || !credentials.password || !sourcePassword) {
+  throw new Error("DG_UI_URL, DG_UI_USER, DG_UI_PASSWORD and DG_UI_SOURCE_PASSWORD are required");
 }
 const output = process.argv[2];
 
@@ -14,7 +15,7 @@ const pages = [
   { path: "/access", heading: "Обращения", expect: ["Доказательство", "Запрос выполнен", "Упомянуто в запросе", "dg_app"] },
   { path: "/identities", heading: "Пользователи", expect: ["employee-123", "Подтверждено приложением", "Не идентифицирован"] },
   { path: "/compliance", heading: "Отчёты", expect: ["Инвентарь по категориям", "Доступ по категориям"] },
-  { path: "/infrastructure", heading: "Инфраструктура", expect: ["Покрытие аудита", "Возможности источников", "Нет в СУБД", "Сканировать"] },
+  { path: "/infrastructure", heading: "Инфраструктура", expect: ["Источники", "Подключено", "Покрытие аудита", "Возможности источников", "Нет в СУБД", "Сканировать"] },
 ];
 
 const failures = [];
@@ -39,6 +40,27 @@ try {
   throw error;
 }
 
+// A source added through the form: the browser seals the password, the agent
+// opens it and connects. The source has no audit directory, so it adds no events.
+try {
+  await page.goto(`${credentials.api}/infrastructure`);
+  await page.getByRole("button", { name: "Добавить источник" }).click();
+  const form = page.getByRole("form", { name: "Новый источник" });
+  await form.getByLabel("Имя", { exact: true }).fill("ui-postgres");
+  await form.getByLabel("Хост", { exact: true }).fill("source-postgres");
+  await form.getByLabel("База данных", { exact: true }).fill("crm");
+  await form.getByLabel("Пользователь", { exact: true }).fill("dg_scanner");
+  await form.getByLabel("Пароль", { exact: true }).fill(sourcePassword);
+  // A select's accessible name includes its chosen option, so the match is by prefix.
+  await form.getByRole("combobox", { name: /^TLS/ }).selectOption("disable");
+  await form.getByRole("button", { name: "Сохранить" }).click();
+  await page.getByRole("row", { name: /ui-postgres/ }).getByText("Подключено").waitFor({ timeout: 90_000 });
+  await page.screenshot({ path: `${output}/source-added.png`, fullPage: true });
+} catch (error) {
+  await page.screenshot({ path: `${output}/source-failure.png`, fullPage: true });
+  throw error;
+}
+
 for (const scheme of ["light", "dark"]) {
   await page.emulateMedia({ colorScheme: scheme });
   for (const item of pages) {
@@ -50,6 +72,7 @@ for (const scheme of ["light", "dark"]) {
       if (!text.includes(expected)) failures.push(`${item.path}: no "${expected}"`);
     }
     if (text.includes("dgcanary")) failures.push(`${item.path}: a source value is on screen`);
+    if (text.includes(sourcePassword)) failures.push(`${item.path}: a database password is on screen`);
     if (text.includes("undefined") || text.includes("NaN")) failures.push(`${item.path}: broken value on screen`);
     await page.screenshot({ path: `${output}/${scheme}${item.path.replace("/", "-")}.png`, fullPage: true });
   }

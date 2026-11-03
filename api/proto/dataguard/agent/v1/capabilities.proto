@@ -40,10 +40,14 @@ message CapabilityStatus {
 }
 
 message SourceReport {
-  // Name of the source in the agent's local configuration. Connection details
-  // stay on the agent, which keeps the center unable to retarget it.
-  string source_key = 1 [(field_kind) = FIELD_KIND_IDENTIFIER];
+  reserved 1;
+  reserved "source_key";
   Engine engine = 2;
   string engine_version = 3 [(field_kind) = FIELD_KIND_VERSION];
   repeated CapabilityStatus capabilities = 4;
+  // The id from the center's source list.
+  string source_id = 5 [(field_kind) = FIELD_KIND_UUID];
+  // Empty when the agent opened the source; otherwise why it refused or failed,
+  // for example TARGET_NOT_ALLOWED or CREDENTIAL_UNREADABLE.
+  string status_code = 6 [(field_kind) = FIELD_KIND_CODE];
 }

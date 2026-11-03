@@ -45,6 +45,8 @@ type Verifier interface {
 
 // Options configures a collector for one source.
 type Options struct {
+	// SourceKey names the source in logs. The read position is kept by
+	// SourceID, so renaming a source in the center does not restart collection.
 	SourceKey    string
 	SourceID     string
 	Reader       Reader
@@ -117,7 +119,7 @@ func (c *Collector) tick(ctx context.Context) {
 		c.options.Logger.Warn("catalog refresh failed", "source_key", c.options.SourceKey, "error", err)
 		return
 	}
-	cursor, err := c.options.Queue.Cursor(c.options.SourceKey)
+	cursor, err := c.options.Queue.Cursor(c.options.SourceID)
 	if err != nil {
 		c.options.Logger.Error("read cursor", "source_key", c.options.SourceKey, "error", safeerr.New("read cursor", safeerr.CodeInternal, err))
 		return
@@ -183,11 +185,11 @@ func (c *Collector) refreshCatalog(ctx context.Context) error {
 func (c *Collector) store(batch *Batch) error {
 	events, gaps := c.events(batch)
 	if len(gaps) > 0 {
-		if err := c.options.Queue.CommitGap(c.options.SourceKey, nil, gaps); err != nil {
+		if err := c.options.Queue.CommitGap(c.options.SourceID, nil, gaps); err != nil {
 			return err
 		}
 	}
-	return c.options.Queue.Commit(c.options.SourceKey, batch.Cursor, events)
+	return c.options.Queue.Commit(c.options.SourceID, batch.Cursor, events)
 }
 
 func (c *Collector) events(batch *Batch) (events, gaps []*agentv1.AuditEvent) {

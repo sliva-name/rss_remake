@@ -101,7 +101,7 @@ func (d *Discovery) runJobs(ctx context.Context, jobs []*agentv1.ScanJob) {
 }
 
 func (d *Discovery) execute(ctx context.Context, job *agentv1.ScanJob) *agentv1.ScanResult {
-	source, known := d.registry.ByID(job.GetSourceId())
+	source, release, known := d.registry.Acquire(job.GetSourceId())
 	if !known {
 		return &agentv1.ScanResult{
 			JobId: job.GetJobId(), SourceId: job.GetSourceId(),
@@ -109,6 +109,7 @@ func (d *Discovery) execute(ctx context.Context, job *agentv1.ScanJob) *agentv1.
 			StartedAt: timestamppb.Now(), FinishedAt: timestamppb.Now(),
 		}
 	}
+	defer release()
 	settings := d.settings.Load()
 	if job.GetBudget() == nil {
 		job.Budget = settings.budget

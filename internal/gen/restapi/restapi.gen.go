@@ -111,6 +111,51 @@ func (e ScanStatus) Valid() bool {
 	}
 }
 
+// Defines values for SourceEngine.
+const (
+	Mariadb    SourceEngine = "mariadb"
+	Mssql      SourceEngine = "mssql"
+	Mysql      SourceEngine = "mysql"
+	Postgresql SourceEngine = "postgresql"
+)
+
+// Valid indicates whether the value is a known member of the SourceEngine enum.
+func (e SourceEngine) Valid() bool {
+	switch e {
+	case Mariadb:
+		return true
+	case Mssql:
+		return true
+	case Mysql:
+		return true
+	case Postgresql:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TlsMode.
+const (
+	Disable    TlsMode = "disable"
+	Require    TlsMode = "require"
+	VerifyFull TlsMode = "verify-full"
+)
+
+// Valid indicates whether the value is a known member of the TlsMode enum.
+func (e TlsMode) Valid() bool {
+	switch e {
+	case Disable:
+		return true
+	case Require:
+		return true
+	case VerifyFull:
+		return true
+	default:
+		return false
+	}
+}
+
 // AccessSummary defines model for AccessSummary.
 type AccessSummary struct {
 	Events          int64 `json:"events"`
@@ -127,8 +172,11 @@ type Agent struct {
 	EnvironmentId      openapi_types.UUID `json:"environmentId"`
 	Id                 openapi_types.UUID `json:"id"`
 	LastSeenAt         *time.Time         `json:"lastSeenAt,omitempty"`
-	Status             AgentStatus        `json:"status"`
-	Version            string             `json:"version"`
+
+	// SealingPublicKey Uncompressed P-256 point the browser seals passwords to. Absent for agents enrolled before managed sources.
+	SealingPublicKey *[]byte     `json:"sealingPublicKey,omitempty"`
+	Status           AgentStatus `json:"status"`
+	Version          string      `json:"version"`
 }
 
 // AgentStatus defines model for Agent.Status.
@@ -297,6 +345,23 @@ type NewScan struct {
 	SourceId openapi_types.UUID `json:"sourceId"`
 }
 
+// NewSource defines model for NewSource.
+type NewSource struct {
+	AgentId        openapi_types.UUID `json:"agentId"`
+	AuditDirectory *string            `json:"auditDirectory,omitempty"`
+	Database       string             `json:"database"`
+	Engine         SourceEngine       `json:"engine"`
+	Host           string             `json:"host"`
+	MaxConnections *int               `json:"maxConnections,omitempty"`
+	Name           string             `json:"name"`
+	Port           int                `json:"port"`
+
+	// SealedPassword Omit to keep the current password; required when the binding changes.
+	SealedPassword []byte  `json:"sealedPassword"`
+	Tls            TlsMode `json:"tls"`
+	Username       string  `json:"username"`
+}
+
 // NewTenant defines model for NewTenant.
 type NewTenant struct {
 	Name string `json:"name"`
@@ -359,13 +424,43 @@ type ScanBudget struct {
 
 // Source defines model for Source.
 type Source struct {
-	AgentId       openapi_types.UUID `json:"agentId"`
-	Capabilities  []Capability       `json:"capabilities"`
-	Engine        string             `json:"engine"`
-	EngineVersion string             `json:"engineVersion"`
-	Id            openapi_types.UUID `json:"id"`
-	Key           string             `json:"key"`
-	UpdatedAt     time.Time          `json:"updatedAt"`
+	AgentId        openapi_types.UUID `json:"agentId"`
+	AuditDirectory string             `json:"auditDirectory"`
+	Capabilities   []Capability       `json:"capabilities"`
+	Database       string             `json:"database"`
+	Engine         string             `json:"engine"`
+	EngineVersion  string             `json:"engineVersion"`
+	Host           string             `json:"host"`
+	Id             openapi_types.UUID `json:"id"`
+	Key            string             `json:"key"`
+	MaxConnections int                `json:"maxConnections"`
+	Port           int                `json:"port"`
+	ProbedAt       *time.Time         `json:"probedAt,omitempty"`
+
+	// StatusCode Empty when the agent opened the source; otherwise why it did not.
+	StatusCode string    `json:"statusCode"`
+	Tls        TlsMode   `json:"tls"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+	Username   string    `json:"username"`
+}
+
+// SourceEngine defines model for SourceEngine.
+type SourceEngine string
+
+// SourceUpdate defines model for SourceUpdate.
+type SourceUpdate struct {
+	AuditDirectory *string      `json:"auditDirectory,omitempty"`
+	Database       string       `json:"database"`
+	Engine         SourceEngine `json:"engine"`
+	Host           string       `json:"host"`
+	MaxConnections *int         `json:"maxConnections,omitempty"`
+	Name           string       `json:"name"`
+	Port           int          `json:"port"`
+
+	// SealedPassword Omit to keep the current password; required when the binding changes.
+	SealedPassword *[]byte `json:"sealedPassword,omitempty"`
+	Tls            TlsMode `json:"tls"`
+	Username       string  `json:"username"`
 }
 
 // Tenant defines model for Tenant.
@@ -374,6 +469,9 @@ type Tenant struct {
 	Id        openapi_types.UUID `json:"id"`
 	Name      string             `json:"name"`
 }
+
+// TlsMode defines model for TlsMode.
+type TlsMode string
 
 // ListAccessByCategoryParams defines parameters for ListAccessByCategory.
 type ListAccessByCategoryParams struct {
@@ -443,6 +541,12 @@ type PublishPolicyJSONRequestBody = PolicyDraft
 // RequestScanJSONRequestBody defines body for RequestScan for application/json ContentType.
 type RequestScanJSONRequestBody = NewScan
 
+// CreateSourceJSONRequestBody defines body for CreateSource for application/json ContentType.
+type CreateSourceJSONRequestBody = NewSource
+
+// UpdateSourceJSONRequestBody defines body for UpdateSource for application/json ContentType.
+type UpdateSourceJSONRequestBody = SourceUpdate
+
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = NewTenant
 
@@ -505,6 +609,15 @@ type ServerInterface interface {
 
 	// (GET /sources)
 	ListSources(w http.ResponseWriter, r *http.Request)
+
+	// (POST /sources)
+	CreateSource(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /sources/{sourceId})
+	DeleteSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+
+	// (PUT /sources/{sourceId})
+	UpdateSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
 
 	// (GET /tenants)
 	ListTenants(w http.ResponseWriter, r *http.Request)
@@ -1134,6 +1247,72 @@ func (siw *ServerInterfaceWrapper) ListSources(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// CreateSource operation middleware
+func (siw *ServerInterfaceWrapper) CreateSource(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSource(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSource operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", r.PathValue("sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSource(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSource operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", r.PathValue("sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSource(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTenants operation middleware
 func (siw *ServerInterfaceWrapper) ListTenants(w http.ResponseWriter, r *http.Request) {
 
@@ -1291,6 +1470,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/agents", wrapper.ListAgents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/agents/{agentId}/revoke", wrapper.RevokeAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sources", wrapper.ListSources)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sources", wrapper.CreateSource)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/sources/{sourceId}", wrapper.DeleteSource)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/sources/{sourceId}", wrapper.UpdateSource)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/scans", wrapper.ListScans)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scans", wrapper.RequestScan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/columns", wrapper.ListCatalogColumns)
@@ -1713,6 +1895,67 @@ func (response ListSources200JSONResponse) VisitListSourcesResponse(w http.Respo
 	return err
 }
 
+type CreateSourceRequestObject struct {
+	Body *CreateSourceJSONRequestBody
+}
+
+type CreateSourceResponseObject interface {
+	VisitCreateSourceResponse(w http.ResponseWriter) error
+}
+
+type CreateSource201JSONResponse Source
+
+func (response CreateSource201JSONResponse) VisitCreateSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSourceRequestObject struct {
+	SourceId openapi_types.UUID `json:"sourceId"`
+}
+
+type DeleteSourceResponseObject interface {
+	VisitDeleteSourceResponse(w http.ResponseWriter) error
+}
+
+type DeleteSource204Response struct {
+}
+
+func (response DeleteSource204Response) VisitDeleteSourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UpdateSourceRequestObject struct {
+	SourceId openapi_types.UUID `json:"sourceId"`
+	Body     *UpdateSourceJSONRequestBody
+}
+
+type UpdateSourceResponseObject interface {
+	VisitUpdateSourceResponse(w http.ResponseWriter) error
+}
+
+type UpdateSource200JSONResponse Source
+
+func (response UpdateSource200JSONResponse) VisitUpdateSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTenantsRequestObject struct {
 }
 
@@ -1815,6 +2058,15 @@ type StrictServerInterface interface {
 
 	// (GET /sources)
 	ListSources(ctx context.Context, request ListSourcesRequestObject) (ListSourcesResponseObject, error)
+
+	// (POST /sources)
+	CreateSource(ctx context.Context, request CreateSourceRequestObject) (CreateSourceResponseObject, error)
+
+	// (DELETE /sources/{sourceId})
+	DeleteSource(ctx context.Context, request DeleteSourceRequestObject) (DeleteSourceResponseObject, error)
+
+	// (PUT /sources/{sourceId})
+	UpdateSource(ctx context.Context, request UpdateSourceRequestObject) (UpdateSourceResponseObject, error)
 
 	// (GET /tenants)
 	ListTenants(ctx context.Context, request ListTenantsRequestObject) (ListTenantsResponseObject, error)
@@ -2357,6 +2609,96 @@ func (sh *strictHandler) ListSources(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSourcesResponseObject); ok {
 		if err := validResponse.VisitListSourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSource operation middleware
+func (sh *strictHandler) CreateSource(w http.ResponseWriter, r *http.Request) {
+	var request CreateSourceRequestObject
+
+	var body CreateSourceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSource(ctx, request.(CreateSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSourceResponseObject); ok {
+		if err := validResponse.VisitCreateSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSource operation middleware
+func (sh *strictHandler) DeleteSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	var request DeleteSourceRequestObject
+
+	request.SourceId = sourceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSource(ctx, request.(DeleteSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSourceResponseObject); ok {
+		if err := validResponse.VisitDeleteSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateSource operation middleware
+func (sh *strictHandler) UpdateSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	var request UpdateSourceRequestObject
+
+	request.SourceId = sourceId
+
+	var body UpdateSourceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSource(ctx, request.(UpdateSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateSourceResponseObject); ok {
+		if err := validResponse.VisitUpdateSourceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -46,7 +46,7 @@ func (f fakeEvents) Windows(context.Context, uuid.UUID, time.Time, time.Time) ([
 func report(t *testing.T, source fleet.Source, health []coverage.Health, windows []audit.SourceWindow) coverage.Row {
 	t.Helper()
 	service := coverage.NewService(
-		fleet.NewService(fakeFleet{sources: []fleet.Source{source}}, nil),
+		fleet.NewService(fakeFleet{sources: []fleet.Source{source}}, nil, nil),
 		fakeStore{health: health}, fakeEvents{windows: windows})
 	rows, err := service.Report(context.Background(), uuid.New(), time.Hour)
 	if err != nil || len(rows) != 1 {
@@ -59,8 +59,21 @@ func healthy(id uuid.UUID) coverage.Health {
 	return coverage.Health{SourceID: id, State: "AUDIT_SOURCE_STATE_OBSERVING", ReportedAt: time.Now()}
 }
 
+const auditDirectory = "/var/log/postgresql"
+
+func TestSourceWithoutAuditDirectoryIsNotConfigured(t *testing.T) {
+	id := uuid.New()
+	// Even a report left from when the directory was set must not count.
+	row := report(t, fleet.Source{ID: id, Capabilities: []fleet.Capability{
+		{Capability: "CAPABILITY_READ_AUDIT", Support: "SUPPORT_AVAILABLE"},
+	}}, []coverage.Health{healthy(id)}, nil)
+	if row.Status != coverage.StatusNotConfigured || row.Reason != "AUDIT_DIRECTORY_NOT_SET" || row.ReadsAudited {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
 func TestSourceWithoutReportsIsBlind(t *testing.T) {
-	row := report(t, fleet.Source{ID: uuid.New()}, nil, nil)
+	row := report(t, fleet.Source{ID: uuid.New(), AuditDirectory: auditDirectory}, nil, nil)
 	if row.Status != coverage.StatusBlind {
 		t.Fatalf("row = %+v", row)
 	}
@@ -70,7 +83,7 @@ func TestStaleReportIsBlindEvenIfItSaidObserving(t *testing.T) {
 	id := uuid.New()
 	health := healthy(id)
 	health.ReportedAt = time.Now().Add(-time.Hour)
-	row := report(t, fleet.Source{ID: id}, []coverage.Health{health}, nil)
+	row := report(t, fleet.Source{ID: id, AuditDirectory: auditDirectory}, []coverage.Health{health}, nil)
 	if row.Status != coverage.StatusBlind || row.Reason != "AGENT_SILENT" {
 		t.Fatalf("row = %+v", row)
 	}
@@ -78,7 +91,7 @@ func TestStaleReportIsBlindEvenIfItSaidObserving(t *testing.T) {
 
 func TestQuietObservedSourceHasEmptySharesNotZero(t *testing.T) {
 	id := uuid.New()
-	row := report(t, fleet.Source{ID: id}, []coverage.Health{healthy(id)}, nil)
+	row := report(t, fleet.Source{ID: id, AuditDirectory: auditDirectory}, []coverage.Health{healthy(id)}, nil)
 	if row.Status != coverage.StatusObserving {
 		t.Fatalf("row = %+v", row)
 	}
@@ -89,7 +102,7 @@ func TestQuietObservedSourceHasEmptySharesNotZero(t *testing.T) {
 
 func TestSharesAreMeasured(t *testing.T) {
 	id := uuid.New()
-	row := report(t, fleet.Source{ID: id}, []coverage.Health{healthy(id)}, []audit.SourceWindow{{
+	row := report(t, fleet.Source{ID: id, AuditDirectory: auditDirectory}, []coverage.Health{healthy(id)}, []audit.SourceWindow{{
 		SourceID: id, Statements: 4, Resolved: 3, Verified: 1, Identified: 2, Gaps: 1,
 	}})
 	if *row.ColumnsShare != 0.75 || *row.VerifiedShare != 0.25 || *row.PrincipalShare != 0.5 || row.Gaps != 1 {
@@ -99,7 +112,7 @@ func TestSharesAreMeasured(t *testing.T) {
 
 func TestReadAuditComesFromCapabilityOnly(t *testing.T) {
 	id := uuid.New()
-	writeOnly := fleet.Source{ID: id, Capabilities: []fleet.Capability{
+	writeOnly := fleet.Source{ID: id, AuditDirectory: auditDirectory, Capabilities: []fleet.Capability{
 		{Capability: "CAPABILITY_NATIVE_AUDIT", Support: "SUPPORT_AVAILABLE"},
 		{Capability: "CAPABILITY_READ_AUDIT", Support: "SUPPORT_NOT_CONFIGURED"},
 	}}
@@ -118,7 +131,7 @@ func TestStatesMap(t *testing.T) {
 	for state, want := range cases {
 		health := healthy(id)
 		health.State, health.ReasonCode = state, "SOME_REASON"
-		row := report(t, fleet.Source{ID: id}, []coverage.Health{health}, nil)
+		row := report(t, fleet.Source{ID: id, AuditDirectory: auditDirectory}, []coverage.Health{health}, nil)
 		if row.Status != want || row.Reason != "SOME_REASON" {
 			t.Errorf("%s: row = %+v", state, row)
 		}

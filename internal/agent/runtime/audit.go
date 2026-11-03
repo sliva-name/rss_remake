@@ -24,10 +24,10 @@ import (
 )
 
 const (
-	sendBatchEvents   = 500
-	sendBatchBytes    = 4 << 20
-	sendIdleInterval  = time.Second
-	assignmentRecheck = time.Second
+	sendBatchEvents  = 500
+	sendBatchBytes   = 4 << 20
+	sendIdleInterval = time.Second
+	sourcesRecheck   = time.Second
 )
 
 // ContextVerifier checks application tokens against locally configured keys.
@@ -71,53 +71,100 @@ type Audit struct {
 	backoff  retry.Backoff
 
 	mu         sync.Mutex
-	collectors map[string]*collector.Collector
+	collectors map[string]*runningCollector
+}
+
+// runningCollector is one source's collector with what is needed to stop it.
+type runningCollector struct {
+	item     *collector.Collector
+	revision uint64
+	cancel   context.CancelFunc
+	done     chan struct{}
+	release  func()
 }
 
 // NewAudit creates the runtime.
 func NewAudit(client *center.Client, registry *sources.Registry, events *queue.Queue, verifier collector.Verifier, logger *slog.Logger) *Audit {
 	return &Audit{
 		client: client, registry: registry, events: events, verifier: verifier, logger: logger,
-		backoff: retry.Backoff{Base: backoffBase, Max: backoffMax}, collectors: map[string]*collector.Collector{},
+		backoff: retry.Backoff{Base: backoffBase, Max: backoffMax}, collectors: map[string]*runningCollector{},
 	}
 }
 
-// Run starts collectors as sources get ids and delivers events until ctx ends.
-// Collection never depends on the center being up.
+// Run keeps one collector per audited source and delivers events until ctx
+// ends. Collection never depends on the center being up.
 func (a *Audit) Run(ctx context.Context) {
-	if err := a.registry.LoadAssignments(a.events); err != nil {
-		a.logger.Warn("stored source assignments ignored", "reason", "unreadable")
-	}
 	var running sync.WaitGroup
-	defer running.Wait()
 	running.Go(func() { a.deliver(ctx) })
+	defer func() {
+		a.stopAll()
+		running.Wait()
+	}()
 	for {
-		a.startCollectors(ctx, &running)
-		if !retry.Sleep(ctx, assignmentRecheck) {
+		a.reconcile(ctx)
+		if !retry.Sleep(ctx, sourcesRecheck) {
 			return
 		}
 	}
 }
 
-func (a *Audit) startCollectors(ctx context.Context, running *sync.WaitGroup) {
-	for sourceID, plan := range a.registry.Assigned() {
+// reconcile stops collectors whose source was removed or changed, then starts
+// the missing ones. A changed source resumes from its stored read position.
+func (a *Audit) reconcile(ctx context.Context) {
+	plans := a.registry.Plans()
+	a.mu.Lock()
+	var stale []*runningCollector
+	for id, item := range a.collectors {
+		if plan, ok := plans[id]; !ok || plan.Revision != item.revision {
+			stale = append(stale, item)
+			delete(a.collectors, id)
+		}
+	}
+	a.mu.Unlock()
+	for _, item := range stale {
+		item.stop()
+	}
+	for id, plan := range plans {
 		a.mu.Lock()
-		_, started := a.collectors[sourceID]
+		_, started := a.collectors[id]
 		a.mu.Unlock()
-		if started {
+		if started || plan.Definition.AuditDirectory == "" {
 			continue
 		}
-		item := sources.NewCollector(plan.Setting, plan.Source, sourceID, a.events, a.verifier, a.logger)
+		source, release, ok := a.registry.Acquire(id)
+		if !ok {
+			continue
+		}
+		item := sources.NewCollector(plan.Definition, source, a.events, a.verifier, a.logger)
 		if item == nil {
+			release()
 			continue
 		}
+		collectorContext, cancel := context.WithCancel(ctx)
+		launched := &runningCollector{item: item, revision: plan.Revision, cancel: cancel, done: make(chan struct{}), release: release}
 		a.mu.Lock()
-		a.collectors[sourceID] = item
+		a.collectors[id] = launched
 		a.mu.Unlock()
-		if err := a.registry.SaveAssignments(a.events); err != nil {
-			a.logger.Warn("source assignments not saved", "reason", "queue")
-		}
-		running.Go(func() { item.Run(ctx) })
+		go func() {
+			defer close(launched.done)
+			item.Run(collectorContext)
+		}()
+	}
+}
+
+func (r *runningCollector) stop() {
+	r.cancel()
+	<-r.done
+	r.release()
+}
+
+func (a *Audit) stopAll() {
+	a.mu.Lock()
+	all := a.collectors
+	a.collectors = map[string]*runningCollector{}
+	a.mu.Unlock()
+	for _, item := range all {
+		item.stop()
 	}
 }
 
@@ -130,8 +177,8 @@ func (a *Audit) Health() (*agentv1.QueueHealth, []*agentv1.AuditSourceHealth) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	reports := make([]*agentv1.AuditSourceHealth, 0, len(a.collectors))
-	for _, item := range a.collectors {
-		reports = append(reports, item.Health())
+	for _, running := range a.collectors {
+		reports = append(reports, running.item.Health())
 	}
 	return health, reports
 }

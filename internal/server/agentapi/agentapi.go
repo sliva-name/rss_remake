@@ -160,7 +160,8 @@ func (h *enrollmentHandler) Enroll(ctx context.Context, request *connect.Request
 	if err := egress.Check(request.Msg); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	enrollment, err := h.dependencies.Fleet.Enroll(ctx, request.Msg.GetEnrollmentToken(), request.Msg.GetCsrPem(), request.Msg.GetAgentVersion())
+	enrollment, err := h.dependencies.Fleet.Enroll(ctx, request.Msg.GetEnrollmentToken(), request.Msg.GetCsrPem(),
+		request.Msg.GetSealingPublicKey(), request.Msg.GetAgentVersion())
 	if err != nil {
 		return nil, h.mapError(err)
 	}
@@ -178,7 +179,7 @@ func (h *enrollmentHandler) mapError(err error) error {
 	case errors.Is(err, fleet.ErrInvalidToken):
 		return connect.NewError(connect.CodeUnauthenticated, fleet.ErrInvalidToken)
 	case errors.Is(err, fleet.ErrInvalid):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("certificate request rejected"))
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("certificate request or sealing key rejected"))
 	default:
 		h.dependencies.Logger.Error("enroll agent", "error", err, "code", string(safeerr.CodeOf(err)))
 		return connect.NewError(connect.CodeInternal, errors.New("enrollment failed"))
@@ -192,7 +193,8 @@ type agentHandler struct {
 
 func (h *agentHandler) Heartbeat(ctx context.Context, request *connect.Request[agentv1.HeartbeatRequest]) (*connect.Response[agentv1.HeartbeatResponse], error) {
 	identity, _ := identityFrom(ctx)
-	if err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID, request.Msg.GetAgentVersion()); err != nil {
+	sourcesVersion, err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID, request.Msg.GetAgentVersion())
+	if err != nil {
 		return nil, h.internal("heartbeat", err)
 	}
 	if err := h.dependencies.Health.SaveHealth(ctx, identity.TenantID, identity.AgentID, healthReports(request.Msg.GetAuditSources())); err != nil {
@@ -202,7 +204,7 @@ func (h *agentHandler) Heartbeat(ctx context.Context, request *connect.Request[a
 	if err != nil && !errors.Is(err, policy.ErrNotFound) {
 		return nil, h.internal("read policy", err)
 	}
-	return connect.NewResponse(&agentv1.HeartbeatResponse{LatestPolicyVersion: latest.Version}), nil
+	return connect.NewResponse(&agentv1.HeartbeatResponse{LatestPolicyVersion: latest.Version, LatestSourcesVersion: sourcesVersion}), nil
 }
 
 func healthReports(sources []*agentv1.AuditSourceHealth) []coverage.Health {
@@ -241,22 +243,21 @@ func (h *agentHandler) SubmitEvents(ctx context.Context, request *connect.Reques
 
 func (h *agentHandler) ReportSources(ctx context.Context, request *connect.Request[agentv1.ReportSourcesRequest]) (*connect.Response[agentv1.ReportSourcesResponse], error) {
 	identity, _ := identityFrom(ctx)
-	sources := make([]fleet.Source, 0, len(request.Msg.GetSources()))
+	probes := make([]fleet.Probe, 0, len(request.Msg.GetSources()))
 	for _, report := range request.Msg.GetSources() {
-		sources = append(sources, toFleetSource(report))
+		sourceID, err := uuid.Parse(report.GetSourceId())
+		if err != nil {
+			continue
+		}
+		probes = append(probes, toProbe(sourceID, report))
 	}
-	assignments, err := h.dependencies.Fleet.ReportSources(ctx, identity.TenantID, identity.AgentID, sources)
-	if err != nil {
+	if err := h.dependencies.Fleet.RecordProbes(ctx, identity.TenantID, identity.AgentID, probes); err != nil {
 		return nil, h.internal("report sources", err)
 	}
-	response := &agentv1.ReportSourcesResponse{}
-	for key, id := range assignments {
-		response.Assignments = append(response.Assignments, &agentv1.SourceAssignment{SourceKey: key, SourceId: id.String()})
-	}
-	return connect.NewResponse(response), nil
+	return connect.NewResponse(&agentv1.ReportSourcesResponse{}), nil
 }
 
-func toFleetSource(report *agentv1.SourceReport) fleet.Source {
+func toProbe(sourceID uuid.UUID, report *agentv1.SourceReport) fleet.Probe {
 	capabilities := make([]fleet.Capability, 0, len(report.GetCapabilities()))
 	for _, status := range report.GetCapabilities() {
 		capabilities = append(capabilities, fleet.Capability{
@@ -265,10 +266,19 @@ func toFleetSource(report *agentv1.SourceReport) fleet.Source {
 			ReasonCode: status.GetReasonCode(),
 		})
 	}
-	return fleet.Source{
-		Key: report.GetSourceKey(), Engine: report.GetEngine().String(),
-		EngineVersion: report.GetEngineVersion(), Capabilities: capabilities,
+	return fleet.Probe{
+		SourceID: sourceID, EngineVersion: report.GetEngineVersion(),
+		StatusCode: report.GetStatusCode(), Capabilities: capabilities,
 	}
+}
+
+func (h *agentHandler) GetSources(ctx context.Context, _ *connect.Request[agentv1.GetSourcesRequest]) (*connect.Response[agentv1.GetSourcesResponse], error) {
+	identity, _ := identityFrom(ctx)
+	signed, err := h.dependencies.Fleet.SourceList(ctx, identity.TenantID, identity.AgentID)
+	if err != nil {
+		return nil, h.internal("source list", err)
+	}
+	return connect.NewResponse(&agentv1.GetSourcesResponse{SourceList: signed.Payload, Signature: signed.Signature}), nil
 }
 
 func (h *agentHandler) RenewCertificate(ctx context.Context, request *connect.Request[agentv1.RenewCertificateRequest]) (*connect.Response[agentv1.RenewCertificateResponse], error) {

@@ -5,6 +5,7 @@
 package egress
 
 import (
+	"crypto/ecdh"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -182,11 +183,19 @@ func checkBytes(field protoreflect.FieldDescriptor, value []byte) error {
 	if len(value) == 0 {
 		return nil
 	}
-	if KindOf(field) != agentv1.FieldKind_FIELD_KIND_CSR {
+	switch KindOf(field) {
+	case agentv1.FieldKind_FIELD_KIND_CSR:
+		if len(value) > maxCSRBytes {
+			return &Violation{Field: field.FullName(), Rule: "csr too large"}
+		}
+		return nil
+	case agentv1.FieldKind_FIELD_KIND_SEALING_PUBLIC_KEY:
+		// Parsing proves the bytes are a point on the curve and nothing else.
+		if _, err := ecdh.P256().NewPublicKey(value); err != nil {
+			return &Violation{Field: field.FullName(), Rule: "not a p-256 public key"}
+		}
+		return nil
+	default:
 		return &Violation{Field: field.FullName(), Rule: "bytes field has no outbound kind"}
 	}
-	if len(value) > maxCSRBytes {
-		return &Violation{Field: field.FullName(), Rule: "csr too large"}
-	}
-	return nil
 }

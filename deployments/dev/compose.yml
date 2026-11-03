@@ -255,9 +255,6 @@ services:
         condition: service_healthy
       source-mssql:
         condition: service_healthy
-    secrets:
-      - source-scanner-password
-      - source-mssql-scanner-password
     volumes:
       - ./agent/agent.yaml:/etc/dataguard/agent.yaml:ro
       - ./.state/apps/crm.pub:/etc/dataguard/apps/crm.pub:ro
@@ -282,12 +279,6 @@ services:
     volumes:
       - ./.state/browser:/out
     restart: "no"
-
-secrets:
-  source-scanner-password:
-    environment: SOURCE_SCANNER_PASSWORD
-  source-mssql-scanner-password:
-    environment: SOURCE_MSSQL_SCANNER_PASSWORD
 
 volumes:
   center-pki:

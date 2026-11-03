@@ -1,0 +1,16 @@
+{
+  "note": "Synthetic key and password for the cross-language test only. Produced by web/dashboard/src/sealing.ts.",
+  "agentPrivateKey": "1abdecd10cfbb4985d71f0389433ab59f4faf7d848ab9f4c320393bac9366589",
+  "binding": {
+    "tenantId": "0190a8c4-7b1e-7c3d-9f10-2a4b6c8d0e1f",
+    "agentId": "0190a8c4-7b1e-7c3d-9f10-2a4b6c8d0e2a",
+    "engine": "postgresql",
+    "host": "db.example.invalid",
+    "port": 5432,
+    "database": "crm",
+    "username": "dg_scanner",
+    "tls": "verify-full"
+  },
+  "secret": "synthetic-fixture-password-ключ",
+  "sealed": "AQSAzd2BicXpyli6hM0a5fMqXYk7vy6M9f04VaGJaQd4QEC6TNhNGf9SBMbAmH/SxMdsLveoRl2tp2pAdRi1REy9hKOeCXCZbXXzSQLwD2lKYIqFYsvc9NFvNKl+5Rnb1a+UO5LvLcmSW49PxgncGS1anD7jNkvk1brUhSKil69V"
+}

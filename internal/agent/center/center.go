@@ -144,6 +144,14 @@ func (c *Client) GetPolicy(ctx context.Context) (*agentv1.GetPolicyResponse, err
 	return response.Msg, nil
 }
 
+func (c *Client) GetSources(ctx context.Context) (*agentv1.GetSourcesResponse, error) {
+	response, err := c.rpc.GetSources(ctx, connect.NewRequest(&agentv1.GetSourcesRequest{Envelope: c.envelope()}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
 func (c *Client) PullJobs(ctx context.Context, maxJobs uint32) ([]*agentv1.ScanJob, error) {
 	request := &agentv1.PullJobsRequest{Envelope: c.envelope(), MaxJobs: maxJobs}
 	response, err := c.rpc.PullJobs(ctx, connect.NewRequest(request))

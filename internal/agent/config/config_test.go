@@ -1,6 +1,9 @@
 package config_test
 
 import (
+	"context"
+	"errors"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,14 +15,9 @@ import (
 const valid = `
 center: {url: "https://center.test:8443", ca_file: /tmp/ca.crt}
 state_dir: /tmp/state
-sources:
-  - key: crm
-    engine: postgresql
-    host: db.test
-    port: 5432
-    database: crm
-    username: scanner
-    password_file: /tmp/password
+allowed:
+  hosts: ["10.20.0.0/16", "192.0.2.7", "db.test", "*.db.corp"]
+  audit_directories: [/var/log/postgresql]
 `
 
 func write(t *testing.T, content string) string {
@@ -36,19 +34,20 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if loaded.QueueCap <= 0 || len(loaded.Sources) != 1 {
+	if loaded.QueueCap <= 0 || loaded.Allowlist() == nil {
 		t.Fatalf("unexpected config: %+v", loaded)
 	}
 }
 
 func TestLoadRejectsInvalid(t *testing.T) {
 	cases := map[string]string{
-		"plain http":     strings.ReplaceAll(valid, "https://", "http://"),
-		"unknown key":    valid + "\nunknown_setting: true\n",
-		"unknown engine": strings.ReplaceAll(valid, "postgresql", "oracle"),
-		"bad port":       strings.ReplaceAll(valid, "5432", "70000"),
-		"bad key":        strings.ReplaceAll(valid, "key: crm", "key: 'Crm Main'"),
-		"duplicate key":  valid + "  - {key: crm, engine: mysql, host: h, port: 1, database: d, username: u, password_file: p}\n",
+		"plain http":        strings.ReplaceAll(valid, "https://", "http://"),
+		"unknown key":       valid + "\nunknown_setting: true\n",
+		"no allowlist":      strings.Split(valid, "allowed:")[0],
+		"bare wildcard":     strings.ReplaceAll(valid, `"db.test"`, `"*"`),
+		"relative audit":    strings.ReplaceAll(valid, "/var/log/postgresql", "var/log"),
+		"unclean audit":     strings.ReplaceAll(valid, "/var/log/postgresql", "/var/log/../etc"),
+		"sources in config": valid + "sources: []\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -59,14 +58,68 @@ func TestLoadRejectsInvalid(t *testing.T) {
 	}
 }
 
-func TestPasswordTrimsTrailingNewline(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "password")
-	if err := os.WriteFile(path, []byte("secret\n"), 0o600); err != nil {
+func resolverOf(addresses map[string][]string) config.Resolver {
+	return func(_ context.Context, _, host string) ([]netip.Addr, error) {
+		found, ok := addresses[host]
+		if !ok {
+			return nil, errors.New("no such host")
+		}
+		parsed := make([]netip.Addr, 0, len(found))
+		for _, address := range found {
+			parsed = append(parsed, netip.MustParseAddr(address))
+		}
+		return parsed, nil
+	}
+}
+
+func TestAllowlistLimitsWhereTheCenterCanPointTheAgent(t *testing.T) {
+	loaded, err := config.Load(write(t, valid))
+	if err != nil {
 		t.Fatal(err)
 	}
-	source := config.Source{Key: "crm", PasswordFile: path}
-	got, err := source.Password()
-	if err != nil || got != "secret" {
-		t.Fatalf("Password = %q, %v", got, err)
+	resolve := resolverOf(map[string][]string{
+		"inside.example":  {"10.20.4.5"},
+		"outside.example": {"203.0.113.9"},
+		// One address outside is enough to refuse: the driver may pick it.
+		"split.example": {"10.20.4.5", "203.0.113.9"},
+	})
+	cases := map[string]bool{
+		"10.20.1.1":             true,
+		"10.21.0.1":             false,
+		"192.0.2.7":             true,
+		"192.0.2.8":             false,
+		"db.test":               true,
+		"DB.TEST.":              true,
+		"other.test":            false,
+		"crm.db.corp":           true,
+		"db.corp":               false,
+		"evildb.corp":           false,
+		"inside.example":        true,
+		"outside.example":       false,
+		"split.example":         false,
+		"unresolvable.example":  false,
+		"::ffff:10.20.0.9":      true,
+		"169.254.169.254":       false,
+		"localhost":             false,
+		"db.test.attacker.test": false,
+	}
+	allowlist := loaded.Allowlist()
+	for host, want := range cases {
+		if got := allowlist.PermitsHost(context.Background(), host, resolve); got != want {
+			t.Errorf("%s: permitted = %v, want %v", host, got, want)
+		}
+	}
+	directories := map[string]bool{
+		"/var/log/postgresql":         true,
+		"/var/log/postgresql/main":    true,
+		"/var/log/postgresql-evil":    false,
+		"/var/log/postgresql/../../x": false,
+		"/var/lib/dataguard":          false,
+		"relative":                    false,
+	}
+	for directory, want := range directories {
+		if got := allowlist.PermitsAuditDirectory(directory); got != want {
+			t.Errorf("%s: permitted = %v, want %v", directory, got, want)
+		}
 	}
 }

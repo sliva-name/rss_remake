@@ -21,7 +21,8 @@ var allowedKeys = map[string]bool{
 	"count": true, "duration": true, "engine": true, "event_count": true,
 	"field": true, "job_id": true, "lost_events": true, "outcome": true,
 	"path": true, "pending_events": true, "policy_version": true, "reason": true,
-	"rpc": true, "rule": true, "source_id": true, "source_key": true,
+	"rpc": true, "rule": true, "source_id": true, "source_key": true, "sources_open": true,
+	"sources_refused": true, "sources_version": true,
 	"state": true, "status": true, "tables": true, "tenant_id": true, "version": true,
 }
 

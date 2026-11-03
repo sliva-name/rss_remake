@@ -34,6 +34,8 @@ enum FieldKind {
   FIELD_KIND_ENROLLMENT_TOKEN = 11;
   // Center-to-agent material; rejected in any agent-to-center message.
   FIELD_KIND_INBOUND_ONLY = 12;
+  // Uncompressed P-256 public point: the agent's key for sealed passwords.
+  FIELD_KIND_SEALING_PUBLIC_KEY = 13;
 }
 
 extend google.protobuf.FieldOptions {

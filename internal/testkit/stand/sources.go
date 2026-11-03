@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -16,7 +15,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"  // registers the driver
 	_ "github.com/microsoft/go-mssqldb" // registers the driver
 
-	"dataguard/internal/agent/config"
+	"dataguard/internal/agent/sources"
 	"dataguard/internal/testkit/seed"
 )
 
@@ -44,19 +43,11 @@ const (
 
 // Source bundles a stand database with everything a test needs for it.
 type Source struct {
-	Config  config.Source
+	// Config has an empty ID: a test assigns one, or the center does.
+	Config  sources.Definition
 	Dialect seed.Dialect
 	// Admin writes test data as an owner; the agent only gets the scanner login.
 	Admin *sql.DB
-}
-
-func writeSecret(t *testing.T, value string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "password")
-	if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 func open(t *testing.T, driver, dsn string) *sql.DB {
@@ -103,9 +94,9 @@ func PostgresSource(t *testing.T) Source {
 		Host: fmt.Sprintf("%s:%d", host, PostgresPort), Path: "/crm", RawQuery: "sslmode=disable",
 	}
 	return Source{
-		Config: config.Source{
-			Key: "crm-postgres", Engine: config.EnginePostgreSQL, Host: host, Port: PostgresPort, Database: "crm",
-			Username: "dg_scanner", PasswordFile: writeSecret(t, env["SOURCE_SCANNER_PASSWORD"]), TLS: "disable", MaxConnections: 2,
+		Config: sources.Definition{
+			Name: "crm-postgres", Engine: sources.EnginePostgreSQL, Host: host, Port: PostgresPort, Database: "crm",
+			Username: "dg_scanner", Password: env["SOURCE_SCANNER_PASSWORD"], TLS: "disable", MaxConnections: 2,
 		},
 		Admin:   open(t, "pgx", dsn.String()),
 		Dialect: seed.Dialect{Name: "postgresql", Text: "text", Bigint: "bigint", Quote: doubleQuote, Placeholders: positional("$")},
@@ -128,9 +119,9 @@ func MySQLSource(t *testing.T) Source {
 	t.Helper()
 	env := Env(t)
 	return Source{
-		Config: config.Source{
-			Key: "crm-mysql", Engine: config.EngineMySQL, Host: host, Port: MySQLPort, Database: "crm",
-			Username: "dg_scanner", PasswordFile: writeSecret(t, env["SOURCE_SCANNER_PASSWORD"]), TLS: "disable", MaxConnections: 2,
+		Config: sources.Definition{
+			Name: "crm-mysql", Engine: sources.EngineMySQL, Host: host, Port: MySQLPort, Database: "crm",
+			Username: "dg_scanner", Password: env["SOURCE_SCANNER_PASSWORD"], TLS: "disable", MaxConnections: 2,
 		},
 		Admin:   mysqlDB(t, MySQLPort, env["SOURCE_APP_PASSWORD"]),
 		Dialect: seed.Dialect{Name: "mysql", Text: "varchar(255)", Bigint: "bigint", Quote: backtick, Placeholders: questionMarks},
@@ -142,9 +133,9 @@ func MariaDBSource(t *testing.T) Source {
 	t.Helper()
 	env := Env(t)
 	return Source{
-		Config: config.Source{
-			Key: "crm-mariadb", Engine: config.EngineMariaDB, Host: host, Port: MariaDBPort, Database: "crm",
-			Username: "dg_scanner", PasswordFile: writeSecret(t, env["SOURCE_SCANNER_PASSWORD"]), TLS: "disable", MaxConnections: 2,
+		Config: sources.Definition{
+			Name: "crm-mariadb", Engine: sources.EngineMariaDB, Host: host, Port: MariaDBPort, Database: "crm",
+			Username: "dg_scanner", Password: env["SOURCE_SCANNER_PASSWORD"], TLS: "disable", MaxConnections: 2,
 		},
 		Admin:   mysqlDB(t, MariaDBPort, env["SOURCE_APP_PASSWORD"]),
 		Dialect: seed.Dialect{Name: "mariadb", Text: "varchar(255)", Bigint: "bigint", Quote: backtick, Placeholders: questionMarks},
@@ -161,9 +152,9 @@ func MSSQLSource(t *testing.T) Source {
 		Host: fmt.Sprintf("%s:%d", host, MSSQLPort), RawQuery: query.Encode(),
 	}
 	return Source{
-		Config: config.Source{
-			Key: "crm-mssql", Engine: config.EngineMSSQL, Host: host, Port: MSSQLPort, Database: "crm",
-			Username: "dg_scanner", PasswordFile: writeSecret(t, env["SOURCE_MSSQL_SCANNER_PASSWORD"]), TLS: "require", MaxConnections: 2,
+		Config: sources.Definition{
+			Name: "crm-mssql", Engine: sources.EngineMSSQL, Host: host, Port: MSSQLPort, Database: "crm",
+			Username: "dg_scanner", Password: env["SOURCE_MSSQL_SCANNER_PASSWORD"], TLS: "require", MaxConnections: 2,
 		},
 		Admin: open(t, "sqlserver", dsn.String()),
 		Dialect: seed.Dialect{

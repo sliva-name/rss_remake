@@ -26,7 +26,7 @@ make dev-users
 
 `dg_admin` из `.env` — администратор самого Keycloak (http://127.0.0.1:25080/admin). В Dashboard с ним не войти.
 
-Агент стартует после регистрации. Под `demo-admin` в разделе «Инфраструктура» создайте среду и выпустите токен, сохраните его в файл и передайте агенту через стандартный ввод:
+Агент стартует после регистрации. Под `demo-admin` в разделе «Инфраструктура» создайте среду и выпустите токен, сохраните его в файл и передайте агенту через стандартный ввод. Затем там же добавьте источники. Агенту стенда разрешены хосты `source-postgres`, `source-mysql`, `source-mariadb` и `source-mssql` и каталог `/var/log/dg-audit` (у SQL Server журнал на его сервере: `/var/opt/mssql/dg-audit`), пользователь сканера — `dg_scanner`, пароли лежат в `.env`.
 
 ```bash
 make agent-enroll TOKEN_FILE=token.txt
@@ -89,7 +89,9 @@ docker build --target agent -t dataguard/agent .
 - `serve` — запускается по умолчанию;
 - `ready` — проверка для healthcheck.
 
-Агент читает YAML-файл, смонтированный в `/etc/dataguard/agent.yaml`. Только в нём указаны адреса и учётные данные СУБД, центр их не знает. Агенту нужны:
+Источники создаются в Dashboard, в разделе «Инфраструктура». Браузер шифрует пароль ключом выбранного агента, центр хранит только шифротекст (ADR-0006).
+
+Агент читает YAML-файл, смонтированный в `/etc/dataguard/agent.yaml`. В нём указаны адрес центра и обязательный список разрешённых целей. Источник вне этого списка агент не откроет, даже если его потребует центр. Агенту нужны:
 
 - сертификат CA центра;
 - каталоги журналов аудита, только для чтения;
@@ -102,19 +104,10 @@ center:
   url: https://center.example.com:8443
   ca_file: /etc/dataguard/ca/ca.crt
 state_dir: /var/lib/dataguard
-sources:
-  - key: crm
-    engine: postgresql   # postgresql, mysql, mariadb, mssql
-    host: db.internal
-    port: 5432
-    database: crm
-    username: dg_scanner
-    password_file: /run/secrets/crm-password
-    tls: verify-full     # verify-full, require, disable
-    max_connections: 2
-    audit:
-      directory: /var/log/postgresql   # каталог журналов; для SQL Server — путь на сервере
-applications:                          # необязательно: приложения, подписывающие контекст
+allowed:
+  hosts: ["10.20.0.0/16", "db.internal", "*.db.corp"]   # сети, адреса, имена, домены
+  audit_directories: [/var/log/postgresql]             # откуда можно читать журналы
+applications:                                          # необязательно: приложения, подписывающие контекст
   - id: crm
     public_key_file: /etc/dataguard/apps/crm.pub
 ```

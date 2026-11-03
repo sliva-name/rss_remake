@@ -210,32 +210,28 @@ func TestAgentLifecycle(t *testing.T) {
 	if _, err := agent.client.Heartbeat(ctx, &agentv1.HeartbeatRequest{AgentVersion: "1.0.1"}); err != nil {
 		t.Fatalf("Heartbeat: %v", err)
 	}
+	sourceID := platform.addSource(t, agent, placeholderSource())
 	reports := []*agentv1.SourceReport{{
-		SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL, EngineVersion: "17.6",
+		SourceId: sourceID.String(), Engine: agentv1.Engine_ENGINE_POSTGRESQL, EngineVersion: "17.6",
 		Capabilities: []*agentv1.CapabilityStatus{{
 			Capability: agentv1.Capability_CAPABILITY_RETURNED_ROWS,
 			Support:    agentv1.Support_SUPPORT_UNAVAILABLE,
 			ReasonCode: "NATIVE_AUDIT_HAS_NO_ROW_COUNT",
 		}},
+	}, {
+		// A report on a source the center never gave this agent changes nothing.
+		SourceId: uuid.NewString(), Engine: agentv1.Engine_ENGINE_MYSQL, EngineVersion: "8.4",
 	}}
-	first, err := agent.client.ReportSources(ctx, reports)
-	if err != nil {
+	if _, err := agent.client.ReportSources(ctx, reports); err != nil {
 		t.Fatalf("ReportSources: %v", err)
-	}
-	second, err := agent.client.ReportSources(ctx, reports)
-	if err != nil {
-		t.Fatalf("second ReportSources: %v", err)
-	}
-	if first.GetAssignments()[0].GetSourceId() != second.GetAssignments()[0].GetSourceId() {
-		t.Fatal("a known source key must keep its id")
 	}
 
 	sources, err := platform.app.Fleet.ListSources(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("ListSources: %v", err)
 	}
-	if len(sources) != 1 || len(sources[0].Capabilities) != 1 ||
-		sources[0].Capabilities[0].Support != "SUPPORT_UNAVAILABLE" {
+	if len(sources) != 1 || len(sources[0].Capabilities) != 1 || sources[0].ProbedAt == nil ||
+		sources[0].Capabilities[0].Support != "SUPPORT_UNAVAILABLE" || sources[0].EngineVersion != "17.6" {
 		t.Fatalf("unexpected sources: %+v", sources)
 	}
 	agents, err := platform.app.Fleet.ListAgents(ctx, created.ID)
@@ -357,7 +353,7 @@ func TestEnvelopeCannotClaimAnotherTenant(t *testing.T) {
 			SchemaVersion: 1, TenantId: second.ID.String(), AgentId: agent.store.AgentID().String(),
 			MessageId: uuid.NewString(),
 		},
-		Sources: []*agentv1.SourceReport{{SourceKey: "stolen", Engine: agentv1.Engine_ENGINE_MYSQL}},
+		Sources: []*agentv1.SourceReport{{SourceId: uuid.NewString(), Engine: agentv1.Engine_ENGINE_MYSQL}},
 	}
 	_, err = client.ReportSources(ctx, connect.NewRequest(request))
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
@@ -473,7 +469,7 @@ func TestOutboundGuardBlocksBeforeTheWire(t *testing.T) {
 	agent := platform.enroll(t, created.ID, environment.ID)
 
 	_, err := agent.client.ReportSources(ctx, []*agentv1.SourceReport{{
-		SourceKey:    "crm",
+		SourceId:     uuid.NewString(),
 		Capabilities: []*agentv1.CapabilityStatus{{ReasonCode: "duplicate key canary.subject@dataguard.invalid"}},
 	}})
 	if !errors.Is(err, egress.ErrBlocked) {

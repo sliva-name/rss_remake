@@ -19,10 +19,7 @@ import (
 // scannerConnection logs in with the credentials the agent is configured with.
 func scannerConnection(t *testing.T, source stand.Source) *sql.DB {
 	t.Helper()
-	password, err := source.Config.Password()
-	if err != nil {
-		t.Fatal(err)
-	}
+	password := source.Config.Password
 	config := source.Config
 	var driver, dsn string
 	switch source.Dialect.Name {

@@ -61,10 +61,7 @@ func TestScanStaysWithinBudgetAndBarelyTouchesLatency(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	password, err := source.Config.Password()
-	if err != nil {
-		t.Fatal(err)
-	}
+	password := source.Config.Password
 	target, err := postgres.Open(connector.Credentials{
 		Host: source.Config.Host, Port: source.Config.Port, Database: source.Config.Database,
 		Username: source.Config.Username, Password: password, TLS: connector.TLSDisable,

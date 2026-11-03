@@ -48,19 +48,20 @@ type auditHarness struct {
 
 func startCollector(t *testing.T, source stand.Source, stateDir string, verifier collector.Verifier) *auditHarness {
 	t.Helper()
-	source.Config.Audit.Directory = stand.AuditDirectory(source.Dialect.Name)
+	source.Config.AuditDirectory = stand.AuditDirectory(source.Dialect.Name)
+	// The id follows the state directory, so a restarted collector resumes.
+	sourceID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(stateDir)).String()
+	source.Config.ID = sourceID
 	events, err := queue.Open(stateDir, 1<<24)
 	if err != nil {
 		t.Fatalf("queue: %v", err)
 	}
-	registry, err := sources.Open([]config.Source{source.Config})
-	if err != nil {
+	registry := sources.NewRegistry()
+	if err := registry.Apply([]sources.Definition{source.Config}, nil); err != nil {
 		t.Fatalf("sources: %v", err)
 	}
-	sourceID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(stateDir)).String()
-	registry.Assign([]*agentv1.SourceAssignment{{SourceKey: source.Config.Key, SourceId: sourceID}})
-	plans := registry.Assigned()
-	item := sources.NewCollector(plans[sourceID].Setting, plans[sourceID].Source, sourceID, events, verifier, safelog.Discard())
+	connection, _, _ := registry.Acquire(sourceID)
+	item := sources.NewCollector(source.Config, connection, events, verifier, safelog.Discard())
 	if item == nil {
 		t.Fatal("no collector")
 	}
@@ -94,7 +95,7 @@ func (h *auditHarness) awaitObserving(t *testing.T) {
 	deadline := time.Now().Add(auditWait)
 	for time.Now().Before(deadline) {
 		if h.item.Health().GetState() == agentv1.AuditSourceState_AUDIT_SOURCE_STATE_OBSERVING {
-			cursor, err := h.events.Cursor(h.source.Config.Key)
+			cursor, err := h.events.Cursor(h.sourceID)
 			if err == nil && cursor != nil {
 				return
 			}

@@ -131,6 +131,12 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: end; }
 label.field { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--text-2); }
 
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; margin: 4px 0 18px; }
+.form-grid .wide { grid-column: 1 / -1; }
+.form-grid input, .form-grid select { min-width: 0; width: 100%; box-sizing: border-box; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 input, select, button { font: inherit; color: var(--text); }
 input, select { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-width: 150px; }
 

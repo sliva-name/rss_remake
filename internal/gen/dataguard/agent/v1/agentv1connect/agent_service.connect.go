@@ -48,6 +48,8 @@ const (
 	AgentServiceRenewCertificateProcedure = "/dataguard.agent.v1.AgentService/RenewCertificate"
 	// AgentServiceGetPolicyProcedure is the fully-qualified name of the AgentService's GetPolicy RPC.
 	AgentServiceGetPolicyProcedure = "/dataguard.agent.v1.AgentService/GetPolicy"
+	// AgentServiceGetSourcesProcedure is the fully-qualified name of the AgentService's GetSources RPC.
+	AgentServiceGetSourcesProcedure = "/dataguard.agent.v1.AgentService/GetSources"
 	// AgentServicePullJobsProcedure is the fully-qualified name of the AgentService's PullJobs RPC.
 	AgentServicePullJobsProcedure = "/dataguard.agent.v1.AgentService/PullJobs"
 	// AgentServiceSubmitScanResultProcedure is the fully-qualified name of the AgentService's
@@ -135,6 +137,7 @@ type AgentServiceClient interface {
 	ReportSources(context.Context, *connect.Request[v1.ReportSourcesRequest]) (*connect.Response[v1.ReportSourcesResponse], error)
 	RenewCertificate(context.Context, *connect.Request[v1.RenewCertificateRequest]) (*connect.Response[v1.RenewCertificateResponse], error)
 	GetPolicy(context.Context, *connect.Request[v1.GetPolicyRequest]) (*connect.Response[v1.GetPolicyResponse], error)
+	GetSources(context.Context, *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error)
 	PullJobs(context.Context, *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error)
 	SubmitScanResult(context.Context, *connect.Request[v1.SubmitScanResultRequest]) (*connect.Response[v1.SubmitScanResultResponse], error)
 	SubmitEvents(context.Context, *connect.Request[v1.SubmitEventsRequest]) (*connect.Response[v1.SubmitEventsResponse], error)
@@ -175,6 +178,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("GetPolicy")),
 			connect.WithClientOptions(opts...),
 		),
+		getSources: connect.NewClient[v1.GetSourcesRequest, v1.GetSourcesResponse](
+			httpClient,
+			baseURL+AgentServiceGetSourcesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetSources")),
+			connect.WithClientOptions(opts...),
+		),
 		pullJobs: connect.NewClient[v1.PullJobsRequest, v1.PullJobsResponse](
 			httpClient,
 			baseURL+AgentServicePullJobsProcedure,
@@ -202,6 +211,7 @@ type agentServiceClient struct {
 	reportSources    *connect.Client[v1.ReportSourcesRequest, v1.ReportSourcesResponse]
 	renewCertificate *connect.Client[v1.RenewCertificateRequest, v1.RenewCertificateResponse]
 	getPolicy        *connect.Client[v1.GetPolicyRequest, v1.GetPolicyResponse]
+	getSources       *connect.Client[v1.GetSourcesRequest, v1.GetSourcesResponse]
 	pullJobs         *connect.Client[v1.PullJobsRequest, v1.PullJobsResponse]
 	submitScanResult *connect.Client[v1.SubmitScanResultRequest, v1.SubmitScanResultResponse]
 	submitEvents     *connect.Client[v1.SubmitEventsRequest, v1.SubmitEventsResponse]
@@ -227,6 +237,11 @@ func (c *agentServiceClient) GetPolicy(ctx context.Context, req *connect.Request
 	return c.getPolicy.CallUnary(ctx, req)
 }
 
+// GetSources calls dataguard.agent.v1.AgentService.GetSources.
+func (c *agentServiceClient) GetSources(ctx context.Context, req *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error) {
+	return c.getSources.CallUnary(ctx, req)
+}
+
 // PullJobs calls dataguard.agent.v1.AgentService.PullJobs.
 func (c *agentServiceClient) PullJobs(ctx context.Context, req *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error) {
 	return c.pullJobs.CallUnary(ctx, req)
@@ -248,6 +263,7 @@ type AgentServiceHandler interface {
 	ReportSources(context.Context, *connect.Request[v1.ReportSourcesRequest]) (*connect.Response[v1.ReportSourcesResponse], error)
 	RenewCertificate(context.Context, *connect.Request[v1.RenewCertificateRequest]) (*connect.Response[v1.RenewCertificateResponse], error)
 	GetPolicy(context.Context, *connect.Request[v1.GetPolicyRequest]) (*connect.Response[v1.GetPolicyResponse], error)
+	GetSources(context.Context, *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error)
 	PullJobs(context.Context, *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error)
 	SubmitScanResult(context.Context, *connect.Request[v1.SubmitScanResultRequest]) (*connect.Response[v1.SubmitScanResultResponse], error)
 	SubmitEvents(context.Context, *connect.Request[v1.SubmitEventsRequest]) (*connect.Response[v1.SubmitEventsResponse], error)
@@ -284,6 +300,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("GetPolicy")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetSourcesHandler := connect.NewUnaryHandler(
+		AgentServiceGetSourcesProcedure,
+		svc.GetSources,
+		connect.WithSchema(agentServiceMethods.ByName("GetSources")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServicePullJobsHandler := connect.NewUnaryHandler(
 		AgentServicePullJobsProcedure,
 		svc.PullJobs,
@@ -312,6 +334,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceRenewCertificateHandler.ServeHTTP(w, r)
 		case AgentServiceGetPolicyProcedure:
 			agentServiceGetPolicyHandler.ServeHTTP(w, r)
+		case AgentServiceGetSourcesProcedure:
+			agentServiceGetSourcesHandler.ServeHTTP(w, r)
 		case AgentServicePullJobsProcedure:
 			agentServicePullJobsHandler.ServeHTTP(w, r)
 		case AgentServiceSubmitScanResultProcedure:
@@ -341,6 +365,10 @@ func (UnimplementedAgentServiceHandler) RenewCertificate(context.Context, *conne
 
 func (UnimplementedAgentServiceHandler) GetPolicy(context.Context, *connect.Request[v1.GetPolicyRequest]) (*connect.Response[v1.GetPolicyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.GetPolicy is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetSources(context.Context, *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.GetSources is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) PullJobs(context.Context, *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error) {

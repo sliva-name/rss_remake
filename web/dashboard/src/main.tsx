@@ -81,7 +81,7 @@ function Shell() {
               <Route path="/access" element={<Access />} />
               <Route path="/identities" element={<Identities />} />
               <Route path="/compliance" element={<Compliance />} />
-              <Route path="/infrastructure" element={<Infrastructure roles={me.data.roles} />} />
+              <Route path="/infrastructure" element={<Infrastructure roles={me.data.roles} tenantId={me.data.tenantId ?? ""} />} />
             </>
           )}
           {platform && <Route path="/tenants" element={<Tenants />} />}

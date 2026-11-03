@@ -52,6 +52,8 @@ const (
 	FieldKind_FIELD_KIND_ENROLLMENT_TOKEN FieldKind = 11
 	// Center-to-agent material; rejected in any agent-to-center message.
 	FieldKind_FIELD_KIND_INBOUND_ONLY FieldKind = 12
+	// Uncompressed P-256 public point: the agent's key for sealed passwords.
+	FieldKind_FIELD_KIND_SEALING_PUBLIC_KEY FieldKind = 13
 )
 
 // Enum value maps for FieldKind.
@@ -70,21 +72,23 @@ var (
 		10: "FIELD_KIND_CSR",
 		11: "FIELD_KIND_ENROLLMENT_TOKEN",
 		12: "FIELD_KIND_INBOUND_ONLY",
+		13: "FIELD_KIND_SEALING_PUBLIC_KEY",
 	}
 	FieldKind_value = map[string]int32{
-		"FIELD_KIND_UNSPECIFIED":      0,
-		"FIELD_KIND_UUID":             1,
-		"FIELD_KIND_IDENTIFIER":       2,
-		"FIELD_KIND_CATEGORY_ID":      3,
-		"FIELD_KIND_FINGERPRINT":      4,
-		"FIELD_KIND_VERSION":          5,
-		"FIELD_KIND_PRINCIPAL":        6,
-		"FIELD_KIND_CORRELATION_ID":   7,
-		"FIELD_KIND_NETWORK_ADDRESS":  8,
-		"FIELD_KIND_CODE":             9,
-		"FIELD_KIND_CSR":              10,
-		"FIELD_KIND_ENROLLMENT_TOKEN": 11,
-		"FIELD_KIND_INBOUND_ONLY":     12,
+		"FIELD_KIND_UNSPECIFIED":        0,
+		"FIELD_KIND_UUID":               1,
+		"FIELD_KIND_IDENTIFIER":         2,
+		"FIELD_KIND_CATEGORY_ID":        3,
+		"FIELD_KIND_FINGERPRINT":        4,
+		"FIELD_KIND_VERSION":            5,
+		"FIELD_KIND_PRINCIPAL":          6,
+		"FIELD_KIND_CORRELATION_ID":     7,
+		"FIELD_KIND_NETWORK_ADDRESS":    8,
+		"FIELD_KIND_CODE":               9,
+		"FIELD_KIND_CSR":                10,
+		"FIELD_KIND_ENROLLMENT_TOKEN":   11,
+		"FIELD_KIND_INBOUND_ONLY":       12,
+		"FIELD_KIND_SEALING_PUBLIC_KEY": 13,
 	}
 )
 
@@ -136,7 +140,7 @@ var File_dataguard_agent_v1_options_proto protoreflect.FileDescriptor
 
 const file_dataguard_agent_v1_options_proto_rawDesc = "" +
 	"\n" +
-	" dataguard/agent/v1/options.proto\x12\x12dataguard.agent.v1\x1a google/protobuf/descriptor.proto*\xe7\x02\n" +
+	" dataguard/agent/v1/options.proto\x12\x12dataguard.agent.v1\x1a google/protobuf/descriptor.proto*\x8a\x03\n" +
 	"\tFieldKind\x12\x1a\n" +
 	"\x16FIELD_KIND_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fFIELD_KIND_UUID\x10\x01\x12\x19\n" +
@@ -151,7 +155,8 @@ const file_dataguard_agent_v1_options_proto_rawDesc = "" +
 	"\x0eFIELD_KIND_CSR\x10\n" +
 	"\x12\x1f\n" +
 	"\x1bFIELD_KIND_ENROLLMENT_TOKEN\x10\v\x12\x1b\n" +
-	"\x17FIELD_KIND_INBOUND_ONLY\x10\f:]\n" +
+	"\x17FIELD_KIND_INBOUND_ONLY\x10\f\x12!\n" +
+	"\x1dFIELD_KIND_SEALING_PUBLIC_KEY\x10\r:]\n" +
 	"\n" +
 	"field_kind\x12\x1d.google.protobuf.FieldOptions\x18\xb8\x8e\x03 \x01(\x0e2\x1d.dataguard.agent.v1.FieldKindR\tfieldKindB3Z1dataguard/internal/gen/dataguard/agent/v1;agentv1b\x06proto3"
 

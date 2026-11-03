@@ -11,6 +11,7 @@ import (
 	"dataguard/internal/agent/identity"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/pki"
+	"dataguard/internal/platform/sealing"
 )
 
 // Enroll registers this agent once. The private key is generated here and is
@@ -26,8 +27,12 @@ func Enroll(ctx context.Context, settings *config.Config, token, version string)
 	if err != nil {
 		return err
 	}
+	sealingKey, err := sealing.GenerateKey()
+	if err != nil {
+		return err
+	}
 	response, err := center.Enroll(ctx, settings.Center.URL, settings.Center.CAFile, &agentv1.EnrollRequest{
-		EnrollmentToken: token, CsrPem: csr, AgentVersion: version,
+		EnrollmentToken: token, CsrPem: csr, AgentVersion: version, SealingPublicKey: sealingKey.PublicKey().Bytes(),
 	})
 	if err != nil {
 		return fmt.Errorf("enroll: %w", err)
@@ -45,5 +50,6 @@ func Enroll(ctx context.Context, settings *config.Config, token, version string)
 		CertificatePEM:  response.GetCertificatePem(),
 		CACertificate:   response.GetCaCertificatePem(),
 		PolicyPublicKey: response.GetPolicyPublicKey(),
+		SealingKey:      sealingKey,
 	})
 }

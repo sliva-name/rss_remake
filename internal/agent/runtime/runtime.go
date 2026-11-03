@@ -21,8 +21,11 @@ import (
 
 const (
 	defaultHeartbeatInterval = 30 * time.Second
-	backoffBase              = time.Second
-	backoffMax               = 5 * time.Minute
+	// Sources are probed again on this interval, so a database that became
+	// reachable or got auditing enabled shows up without a restart.
+	probeInterval = 5 * time.Minute
+	backoffBase   = time.Second
+	backoffMax    = 5 * time.Minute
 )
 
 // SourceProber reports what the configured sources can do right now.
@@ -35,9 +38,9 @@ type HealthReporter interface {
 	Health() (*agentv1.QueueHealth, []*agentv1.AuditSourceHealth)
 }
 
-// SourceAssignments receives the ids the center gave to local source keys.
-type SourceAssignments interface {
-	Assign(assignments []*agentv1.SourceAssignment)
+// SourceConsumer receives each newly accepted source list.
+type SourceConsumer interface {
+	ApplySources(ctx context.Context, list *agentv1.SourceList)
 }
 
 // PolicyConsumer receives each newly accepted policy.
@@ -51,7 +54,7 @@ type Options struct {
 	Identity          *identity.Store
 	Prober            SourceProber
 	Health            HealthReporter
-	Assignments       SourceAssignments
+	Sources           SourceConsumer
 	Policies          PolicyConsumer
 	Version           string
 	HeartbeatInterval time.Duration
@@ -62,8 +65,9 @@ type Options struct {
 type Control struct {
 	options Options
 	backoff retry.Backoff
-	// reported stays false after a failed report so the next tick retries it.
-	reported bool
+	// reportedAt stays zero after a failed report so the next tick retries it,
+	// and is reset when the source list changes.
+	reportedAt time.Time
 }
 
 // NewControl builds the control loop.
@@ -94,44 +98,73 @@ func (c *Control) Run(ctx context.Context) {
 }
 
 func (c *Control) tick(ctx context.Context) error {
-	if err := c.reportSources(ctx); err != nil {
-		return err
-	}
 	latest, err := c.heartbeat(ctx)
 	if err != nil {
 		return err
 	}
-	if err := c.refreshPolicy(ctx, latest); err != nil {
+	if err := c.refreshPolicy(ctx, latest.GetLatestPolicyVersion()); err != nil {
+		return err
+	}
+	if err := c.refreshSources(ctx, latest.GetLatestSourcesVersion()); err != nil {
+		return err
+	}
+	if err := c.reportSources(ctx); err != nil {
 		return err
 	}
 	return c.renewCertificate(ctx)
 }
 
 func (c *Control) reportSources(ctx context.Context) error {
-	if c.reported {
+	if !c.reportedAt.IsZero() && time.Since(c.reportedAt) < probeInterval {
 		return nil
 	}
-	response, err := c.options.Client.ReportSources(ctx, c.options.Prober.Probe(ctx))
-	if err != nil {
+	if _, err := c.options.Client.ReportSources(ctx, c.options.Prober.Probe(ctx)); err != nil {
 		return rpcError("report sources", err)
 	}
-	if c.options.Assignments != nil {
-		c.options.Assignments.Assign(response.GetAssignments())
-	}
-	c.reported = true
+	c.reportedAt = time.Now()
 	return nil
 }
 
-func (c *Control) heartbeat(ctx context.Context) (uint64, error) {
+func (c *Control) refreshSources(ctx context.Context, latest uint64) error {
+	if latest <= c.options.Identity.SourcesVersion() || c.options.Sources == nil {
+		return nil
+	}
+	response, err := c.options.Client.GetSources(ctx)
+	if err != nil {
+		return rpcError("get sources", err)
+	}
+	list, err := c.options.Identity.AcceptSources(response.GetSourceList(), response.GetSignature())
+	if err != nil {
+		// Like a bad policy: an incident, and the agent keeps the list it trusts.
+		c.options.Logger.Error("source list rejected", "reason", sourcesRejection(err))
+		return nil
+	}
+	c.options.Sources.ApplySources(ctx, list)
+	c.reportedAt = time.Time{}
+	return nil
+}
+
+func sourcesRejection(err error) string {
+	switch {
+	case errors.Is(err, pki.ErrBadSignature):
+		return "bad signature"
+	case errors.Is(err, identity.ErrSourcesRollback):
+		return "rollback"
+	default:
+		return "invalid"
+	}
+}
+
+func (c *Control) heartbeat(ctx context.Context) (*agentv1.HeartbeatResponse, error) {
 	request := &agentv1.HeartbeatRequest{AgentVersion: c.options.Version}
 	if c.options.Health != nil {
 		request.Queue, request.AuditSources = c.options.Health.Health()
 	}
 	response, err := c.options.Client.Heartbeat(ctx, request)
 	if err != nil {
-		return 0, rpcError("heartbeat", err)
+		return nil, rpcError("heartbeat", err)
 	}
-	return response.GetLatestPolicyVersion(), nil
+	return response, nil
 }
 
 func (c *Control) refreshPolicy(ctx context.Context, latest uint64) error {

@@ -47,3 +47,12 @@ func VerifyPolicy(publicKey, payload, signature []byte) error {
 	}
 	return nil
 }
+
+// sourceListContext separates source list signatures from policy signatures
+// made with the same key: a policy payload never starts with these bytes.
+const sourceListContext = "dataguard source list v1\x00"
+
+// SourceListSigningInput is what is signed and verified for a source list.
+func SourceListSigningInput(payload []byte) []byte {
+	return append([]byte(sourceListContext), payload...)
+}

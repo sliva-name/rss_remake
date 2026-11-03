@@ -78,11 +78,20 @@ func serve(ctx context.Context, settings *config.Config) error {
 	if err != nil {
 		return err
 	}
-	registry, err := sources.Open(settings.Sources)
+	registry := sources.NewRegistry()
+	defer func() { _ = registry.Close() }()
+	sourceSync := &runtime.SourceSync{
+		Registry: registry, Allowlist: settings.Allowlist(), Key: store.SealingKey(),
+		TenantID: store.TenantID(), AgentID: store.AgentID(), Logger: logger,
+	}
+	// The last accepted list keeps sources served while the center is down.
+	stored, err := store.LoadSources()
 	if err != nil {
 		return err
 	}
-	defer func() { _ = registry.Close() }()
+	if stored != nil {
+		sourceSync.ApplySources(ctx, stored)
+	}
 
 	events, err := queue.Open(settings.StateDir, uint64(settings.QueueCap))
 	if err != nil {
@@ -104,7 +113,7 @@ func serve(ctx context.Context, settings *config.Config) error {
 	}
 	audit := runtime.NewAudit(client, registry, events, verifier, logger)
 	control := runtime.NewControl(runtime.Options{
-		Client: client, Identity: store, Prober: registry, Assignments: registry, Health: audit,
+		Client: client, Identity: store, Prober: registry, Sources: sourceSync, Health: audit,
 		Policies: discovery, Version: version, Logger: logger,
 	})
 

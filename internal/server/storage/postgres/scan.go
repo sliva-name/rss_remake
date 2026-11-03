@@ -16,7 +16,7 @@ import (
 func (s *Store) SourceExists(ctx context.Context, tenantID, sourceID uuid.UUID) (bool, error) {
 	var exists bool
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sources WHERE id = $1)`, sourceID).Scan(&exists)
+		return tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sources WHERE id = $1 AND deleted_at IS NULL)`, sourceID).Scan(&exists)
 	})
 	if err != nil {
 		return false, storageError("check source", err)
@@ -78,7 +78,7 @@ func (s *Store) LeaseJobs(ctx context.Context, tenantID, agentID uuid.UUID, maxJ
 				lease_until = now() + make_interval(secs => $1), started_at = COALESCE(started_at, now())
 			WHERE id IN (
 				SELECT j.id FROM scan_jobs j JOIN sources src ON src.id = j.source_id
-				WHERE src.agent_id = $2
+				WHERE src.agent_id = $2 AND src.deleted_at IS NULL
 				  AND (j.status = 'pending' OR (j.status = 'running' AND j.lease_until < now()))
 				ORDER BY j.created_at
 				LIMIT $3 FOR UPDATE OF j SKIP LOCKED)

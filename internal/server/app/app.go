@@ -77,7 +77,7 @@ func Build(options Options) (*App, error) {
 		return nil, fmt.Errorf("load policy key: %w", err)
 	}
 	tenants := tenant.NewService(options.Store)
-	fleetService := fleet.NewService(options.Store, agentapi.Issuer{Authority: authority})
+	fleetService := fleet.NewService(options.Store, agentapi.Issuer{Authority: authority}, signer)
 	policies := policy.NewService(options.Store, signer)
 	scans := scan.NewService(options.Store, options.Store)
 	services := api.Services{

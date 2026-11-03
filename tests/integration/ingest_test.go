@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"dataguard/internal/agent/config"
 	"dataguard/internal/classifier"
 	"dataguard/internal/core/audit"
 	"dataguard/internal/core/scan"
@@ -50,9 +49,9 @@ func scanAndAudit(t *testing.T, source stand.Source) (*platform, uuid.UUID, uuid
 	}
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
-	source.Config.Audit.Directory = stand.AuditDirectory(source.Dialect.Name)
-	agent := platform.startAgent(t, platform.enroll(t, created.ID, environment.ID), []config.Source{source.Config})
-	sourceID := waitForSource(t, platform, created.ID, source.Config.Key)
+	source.Config.AuditDirectory = stand.AuditDirectory(source.Dialect.Name)
+	agent, ids := platform.startAgent(t, platform.enroll(t, created.ID, environment.ID), source.Config)
+	sourceID := ids[0]
 	job, err := platform.app.Scans.Request(ctx, created.ID, sourceID, "tester")
 	if err != nil {
 		t.Fatalf("Request: %v", err)
@@ -248,12 +247,9 @@ func TestRedeliveryStoresOneRow(t *testing.T) {
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
-	assigned, err := enrolled.client.ReportSources(ctx, []*agentv1.SourceReport{{SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	sourceID := platform.addSource(t, enrolled, placeholderSource()).String()
 	event := &agentv1.AuditEvent{
-		EventId: uuid.NewString(), SourceId: assigned.GetAssignments()[0].GetSourceId(),
+		EventId: uuid.NewString(), SourceId: sourceID,
 		EventTime: timestamppb.Now(), EventType: agentv1.EventType_EVENT_TYPE_DATA_ACCESS,
 	}
 	for range 3 {
@@ -273,12 +269,9 @@ func TestAgentCannotReportOnAnotherAgentsSource(t *testing.T) {
 	created, environment := platform.newTenant(t, "Acme")
 	owner := platform.enroll(t, created.ID, environment.ID)
 	intruder := platform.enroll(t, created.ID, environment.ID)
-	assigned, err := owner.client.ReportSources(ctx, []*agentv1.SourceReport{{SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = intruder.client.SubmitEvents(ctx, []*agentv1.AuditEvent{{
-		EventId: uuid.NewString(), SourceId: assigned.GetAssignments()[0].GetSourceId(), EventTime: timestamppb.Now(),
+	sourceID := platform.addSource(t, owner, placeholderSource()).String()
+	_, err := intruder.client.SubmitEvents(ctx, []*agentv1.AuditEvent{{
+		EventId: uuid.NewString(), SourceId: sourceID, EventTime: timestamppb.Now(),
 	}})
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("err = %v", err)
@@ -301,12 +294,9 @@ func TestRowPolicyHoldsWithoutTheApplicationFilter(t *testing.T) {
 		environment uuid.UUID
 	}{{first.ID, firstEnvironment.ID}, {second.ID, secondEnvironment.ID}} {
 		agent := platform.enroll(t, tenantCase.id, tenantCase.environment)
-		assigned, err := agent.client.ReportSources(ctx, []*agentv1.SourceReport{{SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL}})
-		if err != nil {
-			t.Fatal(err)
-		}
+		sourceID := platform.addSource(t, agent, placeholderSource()).String()
 		if _, err := agent.client.SubmitEvents(ctx, []*agentv1.AuditEvent{{
-			EventId: uuid.NewString(), SourceId: assigned.GetAssignments()[0].GetSourceId(), EventTime: timestamppb.Now(),
+			EventId: uuid.NewString(), SourceId: sourceID, EventTime: timestamppb.Now(),
 		}}); err != nil {
 			t.Fatal(err)
 		}
@@ -341,12 +331,9 @@ func TestTenantsSeeOnlyTheirOwnAnalytics(t *testing.T) {
 	first, environment := platform.newTenant(t, "Acme")
 	second, _ := platform.newTenant(t, "Globex")
 	agent := platform.enroll(t, first.ID, environment.ID)
-	assigned, err := agent.client.ReportSources(ctx, []*agentv1.SourceReport{{SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	sourceID := platform.addSource(t, agent, placeholderSource()).String()
 	if _, err := agent.client.SubmitEvents(ctx, []*agentv1.AuditEvent{{
-		EventId: uuid.NewString(), SourceId: assigned.GetAssignments()[0].GetSourceId(), EventTime: timestamppb.Now(),
+		EventId: uuid.NewString(), SourceId: sourceID, EventTime: timestamppb.Now(),
 		EventType: agentv1.EventType_EVENT_TYPE_DATA_ACCESS,
 		Actor:     &agentv1.Actor{DatabasePrincipal: "acme_only"},
 	}}); err != nil {

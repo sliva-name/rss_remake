@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -21,9 +22,11 @@ import (
 	"dataguard/internal/agent/sources"
 	"dataguard/internal/classifier"
 	"dataguard/internal/core/asset"
+	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/scan"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safelog"
+	"dataguard/internal/platform/sealing"
 	"dataguard/internal/testkit/seed"
 	"dataguard/internal/testkit/stand"
 	"dataguard/internal/testkit/synthetic"
@@ -54,15 +57,61 @@ type runningAgent struct {
 	events *queue.Queue
 }
 
-// startAgent runs the real control and discovery loops against the platform.
-func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, settings []config.Source) *runningAgent {
+// addSource defines a source the way an administrator does: the password is
+// sealed to the agent's key before it reaches the center.
+func (p *platform) addSource(t *testing.T, enrolled enrolledAgent, definition sources.Definition) uuid.UUID {
 	t.Helper()
+	tenantID, agentID := enrolled.store.TenantID(), enrolled.store.AgentID()
+	sealed, err := sealing.Seal(enrolled.store.SealingKey().PublicKey().Bytes(), sealing.Binding{
+		TenantID: tenantID, AgentID: agentID, Engine: definition.Engine, Host: definition.Host, Port: definition.Port,
+		Database: definition.Database, Username: definition.Username, TLS: definition.TLS,
+	}, []byte(definition.Password))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := p.app.Fleet.CreateSource(context.Background(), tenantID, fleet.Source{
+		Key: definition.Name, AgentID: agentID, Engine: definition.Engine, Host: definition.Host, Port: definition.Port,
+		Database: definition.Database, Username: definition.Username, TLS: definition.TLS,
+		AuditDirectory: definition.AuditDirectory, MaxConnections: definition.MaxConnections, SealedPassword: sealed,
+	})
+	if err != nil {
+		t.Fatalf("CreateSource: %v", err)
+	}
+	return created.ID
+}
+
+// placeholderSource is enough for tests that drive the agent RPC by hand.
+func placeholderSource() sources.Definition {
+	return sources.Definition{
+		Name: "crm", Engine: sources.EnginePostgreSQL, Host: "db.invalid", Port: 5432, Database: "crm",
+		Username: "dg_scanner", Password: "synthetic-password", TLS: "disable",
+	}
+}
+
+// testAllowlist lets the agent reach the stand on loopback and read its audit logs.
+func testAllowlist(t *testing.T) *config.Allowlist {
+	t.Helper()
+	allowlist, err := config.CompileAllowed(config.Allowed{
+		Hosts:            []string{"127.0.0.1"},
+		AuditDirectories: []string{filepath.Dir(stand.AuditDirectory("postgresql"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return allowlist
+}
+
+// startAgent defines the sources in the center and runs the real control,
+// discovery and audit loops, which fetch them from the signed list.
+func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, definitions ...sources.Definition) (*runningAgent, []uuid.UUID) {
+	t.Helper()
+	ids := make([]uuid.UUID, 0, len(definitions))
+	for _, definition := range definitions {
+		ids = append(ids, p.addSource(t, enrolled, definition))
+	}
 	logs := &lockedBuffer{}
 	logger := safelog.New(logs, slog.LevelDebug)
-	registry, err := sources.Open(settings)
-	if err != nil {
-		t.Fatalf("sources.Open: %v", err)
-	}
+	registry := sources.NewRegistry()
 	t.Cleanup(func() { _ = registry.Close() })
 
 	events, err := queue.Open(enrolled.dir, 1<<24)
@@ -72,10 +121,14 @@ func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, settings []c
 	t.Cleanup(func() { _ = events.Close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
+	sourceSync := &runtime.SourceSync{
+		Registry: registry, Allowlist: testAllowlist(t), Key: enrolled.store.SealingKey(),
+		TenantID: enrolled.store.TenantID(), AgentID: enrolled.store.AgentID(), Logger: logger,
+	}
 	discovery := runtime.NewDiscovery(enrolled.client, registry, 100*time.Millisecond, logger)
 	audit := runtime.NewAudit(enrolled.client, registry, events, nil, logger)
 	control := runtime.NewControl(runtime.Options{
-		Client: enrolled.client, Identity: enrolled.store, Prober: registry, Assignments: registry, Health: audit,
+		Client: enrolled.client, Identity: enrolled.store, Prober: registry, Sources: sourceSync, Health: audit,
 		Policies: discovery, Version: "test", HeartbeatInterval: 200 * time.Millisecond, Logger: logger,
 	})
 	var running sync.WaitGroup
@@ -86,10 +139,14 @@ func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, settings []c
 		cancel()
 		running.Wait()
 	})
-	return &runningAgent{logs: logs, audit: audit, events: events}
+	for _, id := range ids {
+		waitForProbe(t, p, enrolled.store.TenantID(), id)
+	}
+	return &runningAgent{logs: logs, audit: audit, events: events}, ids
 }
 
-func waitForSource(t *testing.T, platform *platform, tenantID uuid.UUID, key string) uuid.UUID {
+// waitForProbe waits until the agent has opened the source and reported on it.
+func waitForProbe(t *testing.T, platform *platform, tenantID, sourceID uuid.UUID) fleet.Source {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
@@ -98,14 +155,14 @@ func waitForSource(t *testing.T, platform *platform, tenantID uuid.UUID, key str
 			t.Fatal(err)
 		}
 		for _, source := range found {
-			if source.Key == key {
-				return source.ID
+			if source.ID == sourceID && source.ProbedAt != nil {
+				return source
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("source %s was not reported", key)
-	return uuid.Nil
+	t.Fatalf("source %s was not probed", sourceID)
+	return fleet.Source{}
 }
 
 func waitForScan(t *testing.T, platform *platform, tenantID, jobID uuid.UUID) scan.Job {
@@ -137,9 +194,8 @@ func TestDiscoveryOnEveryEngine(t *testing.T) {
 			platform := startPlatform(t)
 			created, environment := platform.newTenant(t, "Acme")
 			enrolled := platform.enroll(t, created.ID, environment.ID)
-			agent := platform.startAgent(t, enrolled, []config.Source{source.Config})
-
-			sourceID := waitForSource(t, platform, created.ID, source.Config.Key)
+			agent, ids := platform.startAgent(t, enrolled, source.Config)
+			sourceID := ids[0]
 			job, err := platform.app.Scans.Request(ctx, created.ID, sourceID, "tester")
 			if err != nil {
 				t.Fatalf("Request: %v", err)
@@ -288,8 +344,8 @@ func TestRescanTracksRenameAndRemoval(t *testing.T) {
 	}
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
-	platform.startAgent(t, platform.enroll(t, created.ID, environment.ID), []config.Source{source.Config})
-	sourceID := waitForSource(t, platform, created.ID, source.Config.Key)
+	_, ids := platform.startAgent(t, platform.enroll(t, created.ID, environment.ID), source.Config)
+	sourceID := ids[0]
 
 	runScan := func() {
 		t.Helper()
@@ -357,11 +413,7 @@ func TestDuplicateResultIsRefused(t *testing.T) {
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
-	assigned, err := enrolled.client.ReportSources(ctx, []*agentv1.SourceReport{{SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceID := assigned.GetAssignments()[0].GetSourceId()
+	sourceID := platform.addSource(t, enrolled, placeholderSource()).String()
 	job, err := platform.app.Scans.Request(ctx, created.ID, mustUUID(t, sourceID), "tester")
 	if err != nil {
 		t.Fatal(err)
@@ -385,11 +437,7 @@ func TestFailedScanDoesNotEraseCatalog(t *testing.T) {
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
-	assigned, err := enrolled.client.ReportSources(ctx, []*agentv1.SourceReport{{SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceID := assigned.GetAssignments()[0].GetSourceId()
+	sourceID := platform.addSource(t, enrolled, placeholderSource()).String()
 	submit := func(result *agentv1.ScanResult) {
 		t.Helper()
 		job, err := platform.app.Scans.Request(ctx, created.ID, mustUUID(t, sourceID), "tester")
@@ -432,11 +480,7 @@ func TestSkippedTableKeepsItsClassifications(t *testing.T) {
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
-	assigned, err := enrolled.client.ReportSources(ctx, []*agentv1.SourceReport{{SourceKey: "crm", Engine: agentv1.Engine_ENGINE_POSTGRESQL}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceID := assigned.GetAssignments()[0].GetSourceId()
+	sourceID := platform.addSource(t, enrolled, placeholderSource()).String()
 	path := &agentv1.TablePath{Database: "crm", Schema: "public", Table: "users"}
 	tables := []*agentv1.TableSnapshot{{
 		Path: path, Kind: agentv1.TableKind_TABLE_KIND_TABLE,

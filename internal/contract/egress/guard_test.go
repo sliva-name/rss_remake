@@ -1,6 +1,8 @@
 package egress_test
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
 	"errors"
 	"strings"
 	"testing"
@@ -27,6 +29,7 @@ func outboundRoots() []proto.Message {
 		&agentv1.ReportSourcesRequest{},
 		&agentv1.RenewCertificateRequest{},
 		&agentv1.GetPolicyRequest{},
+		&agentv1.GetSourcesRequest{},
 		&agentv1.PullJobsRequest{},
 		&agentv1.SubmitScanResultRequest{},
 		&agentv1.SubmitEventsRequest{},
@@ -158,6 +161,21 @@ func TestCheckRejectsValueSmuggledIntoClosedField(t *testing.T) {
 func TestCheckRejectsInboundMaterialOutbound(t *testing.T) {
 	err := egress.Check(&agentv1.GetPolicyResponse{Signature: []byte("x")})
 	if !errors.Is(err, egress.ErrBlocked) {
+		t.Fatalf("want ErrBlocked, got %v", err)
+	}
+}
+
+func TestCheckAcceptsOnlyARealSealingKey(t *testing.T) {
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := egress.Check(&agentv1.EnrollRequest{SealingPublicKey: key.PublicKey().Bytes()}); err != nil {
+		t.Fatalf("real key: %v", err)
+	}
+	// 65 bytes of anything would fit the field if only the length were checked.
+	smuggled := append([]byte{4}, []byte(strings.Repeat(canaryEmail, 2))[:64]...)
+	if err := egress.Check(&agentv1.EnrollRequest{SealingPublicKey: smuggled}); !errors.Is(err, egress.ErrBlocked) {
 		t.Fatalf("want ErrBlocked, got %v", err)
 	}
 }

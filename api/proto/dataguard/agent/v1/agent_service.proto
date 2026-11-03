@@ -22,6 +22,7 @@ service AgentService {
   rpc ReportSources(ReportSourcesRequest) returns (ReportSourcesResponse);
   rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
   rpc GetPolicy(GetPolicyRequest) returns (GetPolicyResponse);
+  rpc GetSources(GetSourcesRequest) returns (GetSourcesResponse);
   rpc PullJobs(PullJobsRequest) returns (PullJobsResponse);
   rpc SubmitScanResult(SubmitScanResultRequest) returns (SubmitScanResultResponse);
   rpc SubmitEvents(SubmitEventsRequest) returns (SubmitEventsResponse);
@@ -31,6 +32,8 @@ message EnrollRequest {
   string enrollment_token = 1 [(field_kind) = FIELD_KIND_ENROLLMENT_TOKEN];
   bytes csr_pem = 2 [(field_kind) = FIELD_KIND_CSR];
   string agent_version = 3 [(field_kind) = FIELD_KIND_VERSION];
+  // The center stores it so browsers can seal passwords that only this agent opens.
+  bytes sealing_public_key = 4 [(field_kind) = FIELD_KIND_SEALING_PUBLIC_KEY];
 }
 
 message EnrollResponse {
@@ -56,6 +59,7 @@ message HeartbeatRequest {
 
 message HeartbeatResponse {
   uint64 latest_policy_version = 1;
+  uint64 latest_sources_version = 2;
 }
 
 message ReportSourcesRequest {
@@ -63,13 +67,9 @@ message ReportSourcesRequest {
   repeated SourceReport sources = 2;
 }
 
-message SourceAssignment {
-  string source_key = 1;
-  string source_id = 2;
-}
-
 message ReportSourcesResponse {
-  repeated SourceAssignment assignments = 1;
+  reserved 1;
+  reserved "assignments";
 }
 
 message RenewCertificateRequest {
@@ -110,6 +110,49 @@ message Policy {
 
 message GetPolicyResponse {
   bytes policy = 1 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+  bytes signature = 2 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+}
+
+message GetSourcesRequest {
+  Envelope envelope = 1;
+}
+
+enum TLSMode {
+  TLS_MODE_UNSPECIFIED = 0;
+  TLS_MODE_VERIFY_FULL = 1;
+  TLS_MODE_REQUIRE = 2;
+  TLS_MODE_DISABLE = 3;
+}
+
+// SourceDefinition is one database the center asks the agent to serve. The agent
+// opens it only if the target is in its local allowlist.
+message SourceDefinition {
+  string source_id = 1;
+  string name = 2;
+  Engine engine = 3;
+  string host = 4;
+  uint32 port = 5;
+  string database = 6;
+  string username = 7;
+  TLSMode tls = 8;
+  // Empty means auditing is not configured for this source.
+  string audit_directory = 9;
+  uint32 max_connections = 10;
+  // Sealed to this agent's key and bound to the target; the center cannot open it.
+  bytes sealed_password = 11;
+}
+
+// SourceList is signed like a policy, addressed to one agent, and its version
+// only grows, so an old list cannot be replayed.
+message SourceList {
+  uint64 version = 1;
+  string tenant_id = 2;
+  string agent_id = 3;
+  repeated SourceDefinition sources = 4;
+}
+
+message GetSourcesResponse {
+  bytes source_list = 1 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
   bytes signature = 2 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
 }
 
