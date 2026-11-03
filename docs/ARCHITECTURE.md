@@ -83,7 +83,7 @@ flowchart LR
 
 ## Решения
 
-Архитектурные решения — в `docs/adr/`. Смежные документы: `DATA_MODEL.md`, `EVENT_SCHEMA.md`, `CONNECTOR_SPEC.md`, `SECURITY_MODEL.md`.
+Архитектурные решения — в `docs/adr/`. Смежные документы: `DATA_MODEL.md`, `EVENT_SCHEMA.md`, `CONNECTOR_SPEC.md`, `SECURITY_MODEL.md`. Что отложено после MVP — в `ROADMAP.md`.
 
 ## Состояние
 
