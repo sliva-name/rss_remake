@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"unicode/utf8"
 
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/policy"
@@ -19,6 +20,9 @@ const (
 	defaultCatalogLimit = 100
 	maxCatalogLimit     = 500
 	maxOffset           = math.MaxInt32
+	minSearchRunes      = 2
+	maxSearchRunes      = 128
+	searchGroupLimit    = 8
 )
 
 // errInvalidParameter marks a query parameter outside the range the schema
@@ -116,7 +120,13 @@ func (s *Server) ListCatalogTables(ctx context.Context, request restapi.ListCata
 	if err != nil {
 		return nil, err
 	}
-	filter := asset.TableFilter{Limit: limit, Offset: offset}
+	filter := asset.TableFilter{
+		Limit: limit, Offset: offset, Query: stringValue(request.Params.Q), Category: stringValue(request.Params.Category),
+		SensitiveOnly: request.Params.Sensitive != nil && *request.Params.Sensitive,
+	}
+	if utf8.RuneCountInString(filter.Query) > maxSearchRunes {
+		return nil, fmt.Errorf("%w: q must be at most %d characters", errInvalidParameter, maxSearchRunes)
+	}
 	if request.Params.SourceId != nil {
 		filter.SourceID = *request.Params.SourceId
 	}
@@ -214,7 +224,14 @@ func (s *Server) ListCatalogChanges(ctx context.Context, request restapi.ListCat
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.catalog.ListHistory(ctx, tenantOf(ctx), limit)
+	filter := asset.HistoryFilter{Limit: limit}
+	if request.Params.From != nil {
+		filter.From = *request.Params.From
+	}
+	if request.Params.To != nil {
+		filter.To = *request.Params.To
+	}
+	entries, err := s.catalog.ListHistory(ctx, tenantOf(ctx), filter)
 	if err != nil {
 		return nil, err
 	}

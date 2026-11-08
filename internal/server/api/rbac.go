@@ -55,6 +55,8 @@ var accessRules = map[string]accessRule{
 	"ListAuditEvents":       {roles: tenantReaders, tenantScoped: true},
 	"GetAuditCoverage":      {roles: tenantReaders, tenantScoped: true},
 	"GetAccessSummary":      {roles: tenantReaders, tenantScoped: true},
+	"GetAccessTimeline":     {roles: tenantReaders, tenantScoped: true},
+	"Search":                {roles: tenantReaders, tenantScoped: true},
 	"ListAccessByPrincipal": {roles: tenantReaders, tenantScoped: true},
 	"ListAccessByCategory":  {roles: tenantReaders, tenantScoped: true},
 	"GetPolicy":             {roles: tenantReaders, tenantScoped: true},

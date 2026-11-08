@@ -444,7 +444,7 @@ func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
 		if summary.Events != want || summary.SensitiveEvents != sensitive {
 			t.Errorf("window %v: summary %+v, want %d events, %d sensitive", window, summary, want, sensitive)
 		}
-		principals, err := store.ByPrincipal(ctx, tenantID, from, to, "")
+		principals, err := store.ByPrincipal(ctx, tenantID, from, to, audit.PrincipalFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}

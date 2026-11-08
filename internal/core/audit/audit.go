@@ -415,11 +415,27 @@ type Summary struct {
 	Gaps            uint64
 }
 
+// Hour is the count of one hour that had events.
+type Hour struct {
+	Start           time.Time
+	Events          uint64
+	SensitiveEvents uint64
+	FailedEvents    uint64
+}
+
+// PrincipalFilter narrows a report by principal to the events that touched a
+// category or read a column; zero values mean all events.
+type PrincipalFilter struct {
+	Category string
+	ColumnID uuid.UUID
+}
+
 // Reader answers questions about stored events.
 type Reader interface {
 	Search(ctx context.Context, tenantID uuid.UUID, filter Filter) ([]Event, uint64, error)
-	ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, category string) ([]PrincipalAccess, error)
+	ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, filter PrincipalFilter) ([]PrincipalAccess, error)
 	ByCategory(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]CategoryAccess, error)
 	Windows(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]SourceWindow, error)
 	Summarize(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (Summary, error)
+	Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]Hour, error)
 }

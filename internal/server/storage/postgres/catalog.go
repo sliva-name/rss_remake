@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -80,7 +81,14 @@ func (s *Store) SummarizeCatalog(ctx context.Context, tenantID uuid.UUID) ([]ass
 	return counts, nil
 }
 
-func (s *Store) ListHistory(ctx context.Context, tenantID uuid.UUID, limit int) ([]asset.HistoryEntry, error) {
+func (s *Store) ListHistory(ctx context.Context, tenantID uuid.UUID, filter asset.HistoryFilter) ([]asset.HistoryEntry, error) {
+	var from, to *time.Time
+	if !filter.From.IsZero() {
+		from = &filter.From
+	}
+	if !filter.To.IsZero() {
+		to = &filter.To
+	}
 	var entries []asset.HistoryEntry
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		const query = `SELECT h.occurred_at, h.kind, h.table_id, src.source_key, t.table_name, h.column_id,
@@ -89,8 +97,9 @@ func (s *Store) ListHistory(ctx context.Context, tenantID uuid.UUID, limit int) 
 			JOIN asset_tables t ON t.id = h.table_id
 			JOIN sources src ON src.id = t.source_id
 			LEFT JOIN asset_columns ac ON ac.id = h.column_id
+			WHERE ($2::timestamptz IS NULL OR h.occurred_at >= $2) AND ($3::timestamptz IS NULL OR h.occurred_at < $3)
 			ORDER BY h.occurred_at DESC LIMIT $1`
-		rows, err := tx.Query(ctx, query, limit)
+		rows, err := tx.Query(ctx, query, filter.Limit, from, to)
 		if err != nil {
 			return err
 		}
@@ -116,8 +125,17 @@ func (s *Store) ListTables(ctx context.Context, tenantID uuid.UUID, filter asset
 	var entries []asset.TableEntry
 	var total int64
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		const where = ` WHERE t.status = 'active' AND ($1::uuid IS NULL OR t.source_id = $1)`
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM asset_tables t`+where, sourceID).Scan(&total); err != nil {
+		// The text is matched with strpos, not LIKE, so % and _ in it mean themselves.
+		const where = ` WHERE t.status = 'active' AND (@source::uuid IS NULL OR t.source_id = @source)
+			AND (@query = '' OR strpos(lower(t.database_name || '.' || t.schema_name || '.' || t.table_name), lower(@query)) > 0)
+			AND (NOT @sensitive AND @category = '' OR EXISTS (
+				SELECT 1 FROM asset_columns sc JOIN classifications sk ON sk.column_id = sc.id
+				WHERE sc.table_id = t.id AND sc.status = 'active' AND sk.status = 'detected' AND (@category = '' OR sk.category_id = @category)))`
+		arguments := pgx.NamedArgs{
+			"source": sourceID, "query": filter.Query, "sensitive": filter.SensitiveOnly, "category": filter.Category,
+			"limit": filter.Limit, "offset": filter.Offset,
+		}
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM asset_tables t`+where, arguments).Scan(&total); err != nil {
 			return err
 		}
 		const query = `SELECT t.id, t.source_id, t.database_name, t.schema_name, t.table_name, t.kind, t.last_seen_at,
@@ -128,8 +146,8 @@ func (s *Store) ListTables(ctx context.Context, tenantID uuid.UUID, filter asset
 			LEFT JOIN asset_columns ac ON ac.table_id = t.id AND ac.status = 'active'
 			LEFT JOIN classifications c ON c.column_id = ac.id` + where + `
 			GROUP BY t.id
-			ORDER BY t.database_name, t.schema_name, t.table_name LIMIT $2 OFFSET $3`
-		rows, err := tx.Query(ctx, query, sourceID, filter.Limit, filter.Offset)
+			ORDER BY t.database_name, t.schema_name, t.table_name LIMIT @limit OFFSET @offset`
+		rows, err := tx.Query(ctx, query, arguments)
 		if err != nil {
 			return err
 		}
@@ -241,4 +259,49 @@ func renames(ctx context.Context, tx pgx.Tx, kind string, objectID uuid.UUID) ([
 		err := row.Scan(&record.OldName, &record.NewName, &record.DetectedAt, &record.DetectedBy)
 		return record, err
 	})
+}
+
+// Search finds active tables and columns by part of their name. Exact and
+// prefix matches come first, then the shorter names.
+func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, text string, limit int) (asset.Matches, error) {
+	var matches asset.Matches
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		const tables = `SELECT id, source_id, database_name, schema_name, table_name FROM asset_tables
+			WHERE status = 'active' AND strpos(lower(table_name), lower($1)) > 0
+			ORDER BY strpos(lower(table_name), lower($1)), length(table_name), table_name LIMIT $2`
+		rows, err := tx.Query(ctx, tables, text, limit)
+		if err != nil {
+			return err
+		}
+		matches.Tables, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.TableMatch, error) {
+			var match asset.TableMatch
+			err := row.Scan(&match.ID, &match.SourceID, &match.Database, &match.Schema, &match.Name)
+			return match, err
+		})
+		if err != nil {
+			return err
+		}
+		const columns = `SELECT ac.id, t.source_id, t.schema_name, t.table_name, ac.column_name,
+				COALESCE(array_agg(c.category_id ORDER BY c.category_id) FILTER (WHERE c.status = 'detected'), '{}')
+			FROM asset_columns ac
+			JOIN asset_tables t ON t.id = ac.table_id AND t.status = 'active'
+			LEFT JOIN classifications c ON c.column_id = ac.id
+			WHERE ac.status = 'active' AND strpos(lower(ac.column_name), lower($1)) > 0
+			GROUP BY ac.id, t.id
+			ORDER BY strpos(lower(ac.column_name), lower($1)), length(ac.column_name), ac.column_name, t.table_name LIMIT $2`
+		rows, err = tx.Query(ctx, columns, text, limit)
+		if err != nil {
+			return err
+		}
+		matches.Columns, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.ColumnMatch, error) {
+			var match asset.ColumnMatch
+			err := row.Scan(&match.ID, &match.SourceID, &match.Schema, &match.Table, &match.Name, &match.Categories)
+			return match, err
+		})
+		return err
+	})
+	if err != nil {
+		return asset.Matches{}, storageError("search catalog", err)
+	}
+	return matches, nil
 }

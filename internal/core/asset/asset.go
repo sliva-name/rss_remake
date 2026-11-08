@@ -111,18 +111,53 @@ var ErrNotFound = errors.New("not found")
 // Reader answers catalog queries.
 type Reader interface {
 	ListCatalog(ctx context.Context, tenantID uuid.UUID, filter CatalogFilter) ([]CatalogEntry, int64, error)
-	ListHistory(ctx context.Context, tenantID uuid.UUID, limit int) ([]HistoryEntry, error)
+	ListHistory(ctx context.Context, tenantID uuid.UUID, filter HistoryFilter) ([]HistoryEntry, error)
 	SummarizeCatalog(ctx context.Context, tenantID uuid.UUID) ([]CategoryCount, error)
 	ListTables(ctx context.Context, tenantID uuid.UUID, filter TableFilter) ([]TableEntry, int64, error)
 	GetTable(ctx context.Context, tenantID, tableID uuid.UUID) (TableView, error)
 	GetColumn(ctx context.Context, tenantID, columnID uuid.UUID) (ColumnView, error)
+	Search(ctx context.Context, tenantID uuid.UUID, text string, limit int) (Matches, error)
+}
+
+// HistoryFilter narrows catalog history; zero times mean no bound.
+type HistoryFilter struct {
+	Limit int
+	From  time.Time
+	To    time.Time
 }
 
 // TableFilter narrows a table listing; zero values mean no filter.
 type TableFilter struct {
 	SourceID uuid.UUID
-	Limit    int
-	Offset   int
+	// Query is part of the database, schema or table name, case-insensitive.
+	Query         string
+	Category      string
+	SensitiveOnly bool
+	Limit         int
+	Offset        int
+}
+
+// Matches are active tables and columns whose name contains a text.
+type Matches struct {
+	Tables  []TableMatch
+	Columns []ColumnMatch
+}
+
+type TableMatch struct {
+	ID       uuid.UUID
+	SourceID uuid.UUID
+	Database string
+	Schema   string
+	Name     string
+}
+
+type ColumnMatch struct {
+	ID         uuid.UUID
+	SourceID   uuid.UUID
+	Schema     string
+	Table      string
+	Name       string
+	Categories []string
 }
 
 // TableEntry is one active table with how much of it is sensitive.

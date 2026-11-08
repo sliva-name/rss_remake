@@ -397,7 +397,7 @@ func TestRescanTracksRenameAndRemoval(t *testing.T) {
 	if columnID("snils") != "" {
 		t.Fatal("removed column still listed as sensitive")
 	}
-	history, err := platform.store.ListHistory(ctx, created.ID, 200)
+	history, err := platform.store.ListHistory(ctx, created.ID, asset.HistoryFilter{Limit: 200})
 	if err != nil {
 		t.Fatal(err)
 	}

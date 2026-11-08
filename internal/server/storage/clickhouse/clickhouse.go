@@ -288,18 +288,33 @@ func facts(tenantID uuid.UUID, from, to time.Time) (string, []any) {
 	return query, []any{tenantID, firstHour, lastHour, tenantID, from, firstHour, lastHour, to}
 }
 
+// columnFacts is facts for the events that read one column. The hourly
+// projection does not keep columns, so these come from the rows.
+func columnFacts(tenantID uuid.UUID, from, to time.Time, columnID uuid.UUID) (string, []any) {
+	const dimensions = `source_id, database_principal, application_principal, identity_confidence,
+		event_type, execution_status, object_resolution, categories`
+	query := `SELECT ` + dimensions + `, count() AS events, max(event_time) AS last_event
+		FROM audit_events
+		WHERE tenant_id = ? AND event_time >= ? AND event_time < ? AND has(column_ids, toUUID(?))
+		GROUP BY ` + dimensions
+	return query, []any{tenantID, from, to, columnID.String()}
+}
+
 // ByPrincipal groups by who acted. A row exists for each distinct way of being
-// known, so an unverified claim never merges into a verified identity. A
-// non-empty category counts only the events that touched it.
-func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, category string) ([]audit.PrincipalAccess, error) {
+// known, so an unverified claim never merges into a verified identity. The
+// filter counts only the events that touched a category or read a column.
+func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, filter audit.PrincipalFilter) ([]audit.PrincipalAccess, error) {
 	body, arguments := facts(tenantID, from, to)
+	if filter.ColumnID != uuid.Nil {
+		body, arguments = columnFacts(tenantID, from, to, filter.ColumnID)
+	}
 	query := `SELECT database_principal, application_principal, identity_confidence, sum(events),
 			sumIf(events, notEmpty(categories)), arraySort(groupUniqArrayArray(categories)), uniqExact(source_id), max(last_event)
 		FROM (` + body + `)
 		WHERE event_type NOT IN (?, ?) AND (? = '' OR has(categories, ?))
 		GROUP BY database_principal, application_principal, identity_confidence
 		ORDER BY sumIf(events, notEmpty(categories)) DESC, sum(events) DESC`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, typeGap, typeAuth, category, category)...)
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, typeGap, typeAuth, filter.Category, filter.Category)...)
 	if err != nil {
 		return nil, storageError("group by principal", err)
 	}
@@ -396,6 +411,39 @@ func (s *Store) Summarize(ctx context.Context, tenantID uuid.UUID, from, to time
 		return audit.Summary{}, storageError("summarize events", err)
 	}
 	return summary, nil
+}
+
+// Timeline counts events per hour over whole hours: the first and the last
+// hour of the window are counted in full. Grouping by the hour and the
+// projection's dimensions lets ClickHouse answer from the hourly projection.
+func (s *Store) Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.Hour, error) {
+	first := from.UTC().Truncate(time.Hour)
+	last := to.UTC().Truncate(time.Hour).Add(time.Hour)
+	query := `SELECT hour, sumIf(events, event_type NOT IN (?, ?)), sumIf(events, notEmpty(categories)), sumIf(events, execution_status = ?)
+		FROM (
+			SELECT toStartOfHour(event_time) AS hour, event_type, execution_status, categories, count() AS events
+			FROM audit_events
+			WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND toStartOfHour(event_time) < ?
+			GROUP BY hour, event_type, execution_status, categories
+		)
+		GROUP BY hour ORDER BY hour`
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, typeGap, typeAuth, statusFail, tenantID, first, last)
+	if err != nil {
+		return nil, storageError("count events per hour", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var hours []audit.Hour
+	for rows.Next() {
+		var hour audit.Hour
+		if err := rows.Scan(&hour.Start, &hour.Events, &hour.SensitiveEvents, &hour.FailedEvents); err != nil {
+			return nil, storageError("decode hour", err)
+		}
+		hours = append(hours, hour)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, storageError("read hours", err)
+	}
+	return hours, nil
 }
 
 // ExecAdmin runs one administrative statement.

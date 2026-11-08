@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -170,9 +171,34 @@ func (s *Server) GetAccessSummary(ctx context.Context, request restapi.GetAccess
 	}, nil
 }
 
+// maxTimeline bounds the hourly series: a quarter is about 2 200 points.
+const maxTimeline = 93 * 24 * time.Hour
+
+func (s *Server) GetAccessTimeline(ctx context.Context, request restapi.GetAccessTimelineRequestObject) (restapi.GetAccessTimelineResponseObject, error) {
+	from, to := period(request.Params.From, request.Params.To)
+	if !from.Before(to) || to.Sub(from) > maxTimeline {
+		return nil, fmt.Errorf("%w: the window must be positive and at most 93 days", errInvalidParameter)
+	}
+	hours, err := s.events.Timeline(ctx, tenantOf(ctx), from, to)
+	if err != nil {
+		return nil, err
+	}
+	response := make(restapi.GetAccessTimeline200JSONResponse, 0, len(hours))
+	for _, hour := range hours {
+		response = append(response, restapi.TimelinePoint{
+			Hour: hour.Start, Events: int64(hour.Events), SensitiveEvents: int64(hour.SensitiveEvents), FailedEvents: int64(hour.FailedEvents),
+		})
+	}
+	return response, nil
+}
+
 func (s *Server) ListAccessByPrincipal(ctx context.Context, request restapi.ListAccessByPrincipalRequestObject) (restapi.ListAccessByPrincipalResponseObject, error) {
 	from, to := period(request.Params.From, request.Params.To)
-	groups, err := s.events.ByPrincipal(ctx, tenantOf(ctx), from, to, stringValue(request.Params.Category))
+	filter := audit.PrincipalFilter{Category: stringValue(request.Params.Category)}
+	if request.Params.ColumnId != nil {
+		filter.ColumnID = *request.Params.ColumnId
+	}
+	groups, err := s.events.ByPrincipal(ctx, tenantOf(ctx), from, to, filter)
 	if err != nil {
 		return nil, err
 	}

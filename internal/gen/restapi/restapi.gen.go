@@ -107,6 +107,7 @@ const (
 	CreateTenant          Permission = "createTenant"
 	DeleteSource          Permission = "deleteSource"
 	GetAccessSummary      Permission = "getAccessSummary"
+	GetAccessTimeline     Permission = "getAccessTimeline"
 	GetAgent              Permission = "getAgent"
 	GetAuditCoverage      Permission = "getAuditCoverage"
 	GetCatalogColumn      Permission = "getCatalogColumn"
@@ -129,6 +130,7 @@ const (
 	PublishPolicy         Permission = "publishPolicy"
 	RequestScan           Permission = "requestScan"
 	RevokeAgent           Permission = "revokeAgent"
+	Search                Permission = "search"
 	UpdateSource          Permission = "updateSource"
 )
 
@@ -146,6 +148,8 @@ func (e Permission) Valid() bool {
 	case DeleteSource:
 		return true
 	case GetAccessSummary:
+		return true
+	case GetAccessTimeline:
 		return true
 	case GetAgent:
 		return true
@@ -190,6 +194,8 @@ func (e Permission) Valid() bool {
 	case RequestScan:
 		return true
 	case RevokeAgent:
+		return true
+	case Search:
 		return true
 	case UpdateSource:
 		return true
@@ -632,6 +638,23 @@ type ScanBudget struct {
 	MaxRowsPerTable    *int64 `json:"maxRowsPerTable,omitempty"`
 }
 
+// SearchHit defines model for SearchHit.
+type SearchHit struct {
+	Categories *[]string `json:"categories,omitempty"`
+
+	// Context Where the object is, such as the source and schema of a table.
+	Context string             `json:"context"`
+	Id      openapi_types.UUID `json:"id"`
+	Name    string             `json:"name"`
+}
+
+// SearchResult defines model for SearchResult.
+type SearchResult struct {
+	Columns []SearchHit `json:"columns"`
+	Sources []SearchHit `json:"sources"`
+	Tables  []SearchHit `json:"tables"`
+}
+
 // Source defines model for Source.
 type Source struct {
 	AgentId        openapi_types.UUID `json:"agentId"`
@@ -691,6 +714,14 @@ type Tenant struct {
 	Name      string             `json:"name"`
 }
 
+// TimelinePoint defines model for TimelinePoint.
+type TimelinePoint struct {
+	Events          int64     `json:"events"`
+	FailedEvents    int64     `json:"failedEvents"`
+	Hour            time.Time `json:"hour"`
+	SensitiveEvents int64     `json:"sensitiveEvents"`
+}
+
 // TlsMode defines model for TlsMode.
 type TlsMode string
 
@@ -703,13 +734,22 @@ type ListAccessByCategoryParams struct {
 // ListAccessByPrincipalParams defines parameters for ListAccessByPrincipal.
 type ListAccessByPrincipalParams struct {
 	// Category Count only the events that touched this category.
-	Category *string    `form:"category,omitempty" json:"category,omitempty"`
-	From     *time.Time `form:"from,omitempty" json:"from,omitempty"`
-	To       *time.Time `form:"to,omitempty" json:"to,omitempty"`
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// ColumnId Count only the events that read this column. Read from the events themselves, not the hourly aggregate.
+	ColumnId *openapi_types.UUID `form:"columnId,omitempty" json:"columnId,omitempty"`
+	From     *time.Time          `form:"from,omitempty" json:"from,omitempty"`
+	To       *time.Time          `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // GetAccessSummaryParams defines parameters for GetAccessSummary.
 type GetAccessSummaryParams struct {
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// GetAccessTimelineParams defines parameters for GetAccessTimeline.
+type GetAccessTimelineParams struct {
 	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
 	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
@@ -743,7 +783,9 @@ type ListAuditEventsParams struct {
 
 // ListCatalogChangesParams defines parameters for ListCatalogChanges.
 type ListCatalogChangesParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
+	From  *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To    *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // ListCatalogColumnsParams defines parameters for ListCatalogColumns.
@@ -757,13 +799,27 @@ type ListCatalogColumnsParams struct {
 // ListCatalogTablesParams defines parameters for ListCatalogTables.
 type ListCatalogTablesParams struct {
 	SourceId *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
-	Limit    *int                `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset   *int                `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Q Part of the database, schema or table name, case-insensitive.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Category Only tables with a column of this category.
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// Sensitive Only tables with at least one sensitive column.
+	Sensitive *bool `form:"sensitive,omitempty" json:"sensitive,omitempty"`
+	Limit     *int  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset    *int  `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListScansParams defines parameters for ListScans.
 type ListScansParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SearchParams defines parameters for Search.
+type SearchParams struct {
+	Q string `form:"q" json:"q"`
 }
 
 // CreateEnrollmentTokenJSONRequestBody defines body for CreateEnrollmentToken for application/json ContentType.
@@ -807,6 +863,9 @@ type ServerInterface interface {
 
 	// (GET /analytics/summary)
 	GetAccessSummary(w http.ResponseWriter, r *http.Request, params GetAccessSummaryParams)
+
+	// (GET /analytics/timeline)
+	GetAccessTimeline(w http.ResponseWriter, r *http.Request, params GetAccessTimelineParams)
 
 	// (GET /audit/coverage)
 	GetAuditCoverage(w http.ResponseWriter, r *http.Request, params GetAuditCoverageParams)
@@ -855,6 +914,9 @@ type ServerInterface interface {
 
 	// (POST /scans)
 	RequestScan(w http.ResponseWriter, r *http.Request)
+
+	// (GET /search)
+	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
 
 	// (GET /sources)
 	ListSources(w http.ResponseWriter, r *http.Request)
@@ -1021,6 +1083,19 @@ func (siw *ServerInterfaceWrapper) ListAccessByPrincipal(w http.ResponseWriter, 
 		return
 	}
 
+	// ------------- Optional query parameter "columnId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "columnId", r.URL.Query(), &params.ColumnId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "columnId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "columnId", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "from" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
@@ -1095,6 +1170,52 @@ func (siw *ServerInterfaceWrapper) GetAccessSummary(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAccessSummary(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAccessTimeline operation middleware
+func (siw *ServerInterfaceWrapper) GetAccessTimeline(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAccessTimelineParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAccessTimeline(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1335,6 +1456,32 @@ func (siw *ServerInterfaceWrapper) ListCatalogChanges(w http.ResponseWriter, r *
 		return
 	}
 
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListCatalogChanges(w, r, params)
 	}))
@@ -1476,6 +1623,45 @@ func (siw *ServerInterfaceWrapper) ListCatalogTables(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sourceId"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sensitive" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sensitive", r.URL.Query(), &params.Sensitive, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sensitive"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sensitive", Err: err})
 		}
 		return
 	}
@@ -1665,6 +1851,39 @@ func (siw *ServerInterfaceWrapper) RequestScan(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RequestScan(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Search operation middleware
+func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchParams
+
+	// ------------- Required query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Search(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1955,6 +2174,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/summary", wrapper.GetAccessSummary)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/principals", wrapper.ListAccessByPrincipal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/categories", wrapper.ListAccessByCategory)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/timeline", wrapper.GetAccessTimeline)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search", wrapper.Search)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy", wrapper.GetPolicy)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/policy", wrapper.PublishPolicy)
 
@@ -2075,6 +2296,28 @@ type GetAccessSummaryResponseObject interface {
 type GetAccessSummary200JSONResponse AccessSummary
 
 func (response GetAccessSummary200JSONResponse) VisitGetAccessSummaryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAccessTimelineRequestObject struct {
+	Params GetAccessTimelineParams
+}
+
+type GetAccessTimelineResponseObject interface {
+	VisitGetAccessTimelineResponse(w http.ResponseWriter) error
+}
+
+type GetAccessTimeline200JSONResponse []TimelinePoint
+
+func (response GetAccessTimeline200JSONResponse) VisitGetAccessTimelineResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2434,6 +2677,28 @@ func (response RequestScan201JSONResponse) VisitRequestScanResponse(w http.Respo
 	return err
 }
 
+type SearchRequestObject struct {
+	Params SearchParams
+}
+
+type SearchResponseObject interface {
+	VisitSearchResponse(w http.ResponseWriter) error
+}
+
+type Search200JSONResponse SearchResult
+
+func (response Search200JSONResponse) VisitSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSourcesRequestObject struct {
 }
 
@@ -2602,6 +2867,9 @@ type StrictServerInterface interface {
 	// (GET /analytics/summary)
 	GetAccessSummary(ctx context.Context, request GetAccessSummaryRequestObject) (GetAccessSummaryResponseObject, error)
 
+	// (GET /analytics/timeline)
+	GetAccessTimeline(ctx context.Context, request GetAccessTimelineRequestObject) (GetAccessTimelineResponseObject, error)
+
 	// (GET /audit/coverage)
 	GetAuditCoverage(ctx context.Context, request GetAuditCoverageRequestObject) (GetAuditCoverageResponseObject, error)
 
@@ -2649,6 +2917,9 @@ type StrictServerInterface interface {
 
 	// (POST /scans)
 	RequestScan(ctx context.Context, request RequestScanRequestObject) (RequestScanResponseObject, error)
+
+	// (GET /search)
+	Search(ctx context.Context, request SearchRequestObject) (SearchResponseObject, error)
 
 	// (GET /sources)
 	ListSources(ctx context.Context, request ListSourcesRequestObject) (ListSourcesResponseObject, error)
@@ -2858,6 +3129,32 @@ func (sh *strictHandler) GetAccessSummary(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetAccessSummaryResponseObject); ok {
 		if err := validResponse.VisitGetAccessSummaryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAccessTimeline operation middleware
+func (sh *strictHandler) GetAccessTimeline(w http.ResponseWriter, r *http.Request, params GetAccessTimelineParams) {
+	var request GetAccessTimelineRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAccessTimeline(ctx, request.(GetAccessTimelineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAccessTimeline")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAccessTimelineResponseObject); ok {
+		if err := validResponse.VisitGetAccessTimelineResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3286,6 +3583,32 @@ func (sh *strictHandler) RequestScan(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RequestScanResponseObject); ok {
 		if err := validResponse.VisitRequestScanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Search operation middleware
+func (sh *strictHandler) Search(w http.ResponseWriter, r *http.Request, params SearchParams) {
+	var request SearchRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Search(ctx, request.(SearchRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Search")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchResponseObject); ok {
+		if err := validResponse.VisitSearchResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

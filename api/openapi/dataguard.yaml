@@ -235,6 +235,18 @@ paths:
       description: Active tables, by database, schema and name
       parameters:
         - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - name: q
+          in: query
+          description: Part of the database, schema or table name, case-insensitive.
+          schema: {type: string, maxLength: 128}
+        - name: category
+          in: query
+          description: Only tables with a column of this category.
+          schema: {type: string}
+        - name: sensitive
+          in: query
+          description: Only tables with at least one sensitive column.
+          schema: {type: boolean, default: false}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
         - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
       responses:
@@ -274,6 +286,8 @@ paths:
       operationId: listCatalogChanges
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
       responses:
         "200":
           description: Recent changes of the inventory
@@ -346,6 +360,10 @@ paths:
           in: query
           description: Count only the events that touched this category.
           schema: {type: string}
+        - name: columnId
+          in: query
+          description: Count only the events that read this column. Read from the events themselves, not the hourly aggregate.
+          schema: {type: string, format: uuid}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
       responses:
@@ -370,6 +388,36 @@ paths:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/CategoryAccess"}
+  /analytics/timeline:
+    get:
+      operationId: getAccessTimeline
+      description: Events per hour. Hours without events are absent; coverage tells whether an hour was observed.
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: Hourly counts, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/TimelinePoint"}
+  /search:
+    get:
+      operationId: search
+      description: Objects whose name contains the text. Each group is filled only when the caller may read that kind of object.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 2, maxLength: 128}
+      responses:
+        "200":
+          description: Matches, at most 8 per group
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SearchResult"}
   /policy:
     get:
       operationId: getPolicy
@@ -446,6 +494,8 @@ components:
         - listAuditEvents
         - getAuditCoverage
         - getAccessSummary
+        - getAccessTimeline
+        - search
         - listAccessByPrincipal
         - listAccessByCategory
         - getPolicy
@@ -829,6 +879,39 @@ components:
         columnsShare: {type: number, format: double}
         verifiedShare: {type: number, format: double}
         principalShare: {type: number, format: double}
+    TimelinePoint:
+      type: object
+      required: [hour, events, sensitiveEvents, failedEvents]
+      properties:
+        hour: {type: string, format: date-time}
+        events: {type: integer, format: int64}
+        sensitiveEvents: {type: integer, format: int64}
+        failedEvents: {type: integer, format: int64}
+    SearchResult:
+      type: object
+      required: [sources, tables, columns]
+      properties:
+        sources:
+          type: array
+          items: {$ref: "#/components/schemas/SearchHit"}
+        tables:
+          type: array
+          items: {$ref: "#/components/schemas/SearchHit"}
+        columns:
+          type: array
+          items: {$ref: "#/components/schemas/SearchHit"}
+    SearchHit:
+      type: object
+      required: [id, name, context]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        context:
+          description: Where the object is, such as the source and schema of a table.
+          type: string
+        categories:
+          type: array
+          items: {type: string}
     AccessSummary:
       type: object
       required: [events, sensitiveEvents, failedEvents, principals, gaps]

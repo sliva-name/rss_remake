@@ -158,7 +158,11 @@ func TestReportsAndSearchAtReferenceVolume(t *testing.T) {
 	}
 
 	timed(t, "summary", reportTarget, func() error { _, err := store.Summarize(ctx, tenantID, from, to); return err })
-	timed(t, "principals", reportTarget, func() error { _, err := store.ByPrincipal(ctx, tenantID, from, to, ""); return err })
+	timed(t, "principals", reportTarget, func() error {
+		_, err := store.ByPrincipal(ctx, tenantID, from, to, audit.PrincipalFilter{})
+		return err
+	})
+	timed(t, "timeline", reportTarget, func() error { _, err := store.Timeline(ctx, tenantID, from, to); return err })
 	timed(t, "categories", reportTarget, func() error { _, err := store.ByCategory(ctx, tenantID, from, to); return err })
 	timed(t, "coverage", reportTarget, func() error { _, err := store.Windows(ctx, tenantID, from, to); return err })
 	timed(t, "search", searchTarget, func() error {

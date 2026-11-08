@@ -349,6 +349,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Events per hour. Hours without events are absent; coverage tells whether an hour was observed. */
+        get: operations["getAccessTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Objects whose name contains the text. Each group is filled only when the caller may read that kind of object. */
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/policy": {
         parameters: {
             query?: never;
@@ -385,7 +419,7 @@ export interface components {
          * @description An operationId of this API.
          * @enum {string}
          */
-        Permission: "getCurrentUser" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
+        Permission: "getCurrentUser" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
         NewTenant: {
             name: string;
         };
@@ -754,6 +788,29 @@ export interface components {
             verifiedShare?: number;
             /** Format: double */
             principalShare?: number;
+        };
+        TimelinePoint: {
+            /** Format: date-time */
+            hour: string;
+            /** Format: int64 */
+            events: number;
+            /** Format: int64 */
+            sensitiveEvents: number;
+            /** Format: int64 */
+            failedEvents: number;
+        };
+        SearchResult: {
+            sources: components["schemas"]["SearchHit"][];
+            tables: components["schemas"]["SearchHit"][];
+            columns: components["schemas"]["SearchHit"][];
+        };
+        SearchHit: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Where the object is, such as the source and schema of a table. */
+            context: string;
+            categories?: string[];
         };
         AccessSummary: {
             /** Format: int64 */
@@ -1211,6 +1268,12 @@ export interface operations {
         parameters: {
             query?: {
                 sourceId?: string;
+                /** @description Part of the database, schema or table name, case-insensitive. */
+                q?: string;
+                /** @description Only tables with a column of this category. */
+                category?: string;
+                /** @description Only tables with at least one sensitive column. */
+                sensitive?: boolean;
                 limit?: number;
                 offset?: number;
             };
@@ -1277,6 +1340,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                from?: string;
+                to?: string;
             };
             header?: never;
             path?: never;
@@ -1381,6 +1446,8 @@ export interface operations {
             query?: {
                 /** @description Count only the events that touched this category. */
                 category?: string;
+                /** @description Count only the events that read this column. Read from the events themselves, not the hourly aggregate. */
+                columnId?: string;
                 from?: string;
                 to?: string;
             };
@@ -1420,6 +1487,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CategoryAccess"][];
+                };
+            };
+        };
+    };
+    getAccessTimeline: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hourly counts, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelinePoint"][];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matches, at most 8 per group */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResult"];
                 };
             };
         };
