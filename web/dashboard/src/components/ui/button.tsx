@@ -4,10 +4,10 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "./cn";
 
 const variants = {
-  primary: "bg-accent text-accent-fg border-transparent hover:brightness-110",
-  secondary: "bg-surface text-fg border-border hover:bg-surface-2 hover:border-border-strong",
-  ghost: "bg-transparent text-fg-2 border-transparent hover:bg-surface-2 hover:text-fg",
-  danger: "bg-surface text-bad border-border hover:bg-bad-bg hover:border-bad/40",
+  primary: "bg-accent text-accent-fg border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/0.14),var(--shadow-xs)] hover:bg-accent-hover",
+  secondary: "bg-surface text-fg border-border shadow-xs hover:bg-surface-2 hover:border-border-strong",
+  ghost: "bg-transparent text-fg-2 border-transparent hover:bg-neutral-bg hover:text-fg",
+  danger: "bg-surface text-bad border-border shadow-xs hover:bg-bad-bg hover:border-bad/40",
 };
 
 const sizes = {
@@ -30,7 +30,7 @@ export function Button({ variant = "secondary", size = "md", asChild, className,
     <Component
       type={asChild ? undefined : (type ?? "button")}
       className={cn(
-        "inline-flex shrink-0 cursor-pointer items-center rounded-md border font-medium whitespace-nowrap transition-colors",
+        "inline-flex shrink-0 cursor-pointer items-center rounded-md border font-medium whitespace-nowrap transition-[background-color,border-color,color,box-shadow] active:translate-y-px",
         "disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
         variants[variant],
         sizes[size],

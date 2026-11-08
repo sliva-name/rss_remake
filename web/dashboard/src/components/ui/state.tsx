@@ -1,12 +1,14 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { AlertTriangle, Inbox, SearchX } from "lucide-react";
+import { AlertTriangle, SearchX } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { ApiError } from "../../api";
 import { cn } from "./cn";
+import { EmptyMark } from "./empty-mark";
+import { SuccessMark } from "./success-mark";
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div aria-hidden className={cn("animate-pulse rounded bg-surface-2", className)} />;
+  return <div aria-hidden className={cn("animate-pulse rounded-md bg-neutral-bg", className)} />;
 }
 
 export function Loading({ rows = 3, className }: { rows?: number; className?: string }) {
@@ -19,11 +21,24 @@ export function Loading({ rows = 3, className }: { rows?: number; className?: st
   );
 }
 
-export function EmptyState({ title, children, icon = "empty", action, className }: { title: string; children?: ReactNode; icon?: "empty" | "search"; action?: ReactNode; className?: string }) {
-  const Icon = icon === "search" ? SearchX : Inbox;
+// Centred in its block, also when the block is stretched to its row's height.
+// "ok" means there is nothing to show because nothing is wrong: it is said as
+// good news, not as a gap.
+export function EmptyState({ title, children, icon = "empty", action, className }: { title: string; children?: ReactNode; icon?: "empty" | "search" | "ok"; action?: ReactNode; className?: string }) {
+  // A mark's circle is half of it; the rest is room for its motion, so the
+  // margins pull the text up to where it sits under a plain icon.
+  const mark = "-mt-7 -mb-4 size-28";
   return (
-    <div className={cn("flex flex-col items-center gap-1.5 px-4 py-10 text-center", className)}>
-      <Icon aria-hidden className="mb-1 size-5 text-fg-3" />
+    <div className={cn("flex flex-1 flex-col items-center justify-center gap-1.5 px-4 py-10 text-center", className)}>
+      {icon === "ok" ? (
+        <SuccessMark className={mark} />
+      ) : icon === "empty" ? (
+        <EmptyMark className={mark} />
+      ) : (
+        <span aria-hidden className="mb-3 grid size-14 place-items-center rounded-full bg-surface-2 text-fg-3 ring-1 ring-border">
+          <SearchX className="size-7" strokeWidth={1.75} />
+        </span>
+      )}
       <p className="text-sm font-medium text-fg">{title}</p>
       {children && <div className="max-w-md text-sm text-fg-2">{children}</div>}
       {action && <div className="mt-2">{action}</div>}

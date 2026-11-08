@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { Database, ScrollText } from "lucide-react";
+import { Activity, Columns3, Database, Plug, ScrollText, Table2, Users } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { api } from "../api";
 import { BarList } from "../components/bar-list";
-import { Confidence, Mono, PeriodPicker } from "../components/domain";
+import { Confidence, Mono, PeriodPicker, SourceName } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page";
-import { Panel, Stat } from "../components/ui/panel";
+import { Panel, PanelLink, Stat } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
 import { ago, category, count, dateTime, eventType, executionStatus } from "../labels";
 import { ObjectLink, paths, usePeriod } from "../links";
@@ -28,15 +28,15 @@ function Figures({ id }: { id: string }) {
     <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
       {can("getCatalogSummary") && (
         <>
-          <Stat label="Колонок" value={inventory.data ? count(stored?.columns ?? 0) : "…"} to={paths.findings({ category: id })} />
-          <Stat label="Таблиц" value={inventory.data ? count(stored?.tables ?? 0) : "…"} to={paths.inventory({ category: id })} />
+          <Stat label="Колонок" icon={Columns3} value={inventory.data ? count(stored?.columns ?? 0) : "…"} to={paths.findings({ category: id })} />
+          <Stat label="Таблиц" icon={Table2} value={inventory.data ? count(stored?.tables ?? 0) : "…"} to={paths.inventory({ category: id })} />
         </>
       )}
       {can("listAccessByCategory") && (
         <>
-          <Stat label={`Обращений за ${period.label}`} value={access.data ? count(read?.events ?? 0) : "…"} to={paths.events({ category: id, period: period.id === "7d" ? undefined : period.id })} />
-          <Stat label="Пользователей" value={access.data ? count(read?.principals ?? 0) : "…"} />
-          <Stat label="Источников" value={access.data ? count(read?.sources ?? 0) : "…"} hint={read ? `последнее обращение ${ago(read.lastAccess)}` : undefined} />
+          <Stat label={`Обращений за ${period.label}`} icon={Activity} value={access.data ? count(read?.events ?? 0) : "…"} to={paths.events({ category: id, period: period.id === "7d" ? undefined : period.id })} />
+          <Stat label="Пользователей" icon={Users} value={access.data ? count(read?.principals ?? 0) : "…"} />
+          <Stat label="Источников" icon={Plug} value={access.data ? count(read?.sources ?? 0) : "…"} hint={read ? `последнее обращение ${ago(read.lastAccess)}` : undefined} />
         </>
       )}
     </div>
@@ -45,9 +45,8 @@ function Figures({ id }: { id: string }) {
 
 function Storage({ id }: { id: string }) {
   const columns = useQuery({ queryKey: ["catalog", "category", id], queryFn: () => api.catalog({ category: id, limit: shown }) });
-  const sources = usePermittedQuery(queries.sources());
   return (
-    <Panel title="Где хранятся" actions={<Button size="sm" asChild><Link to={paths.findings({ category: id })}>Все колонки</Link></Button>} flush>
+    <Panel title="Где хранятся" actions={<PanelLink to={paths.findings({ category: id })}>Все колонки</PanelLink>} flush>
       <Loadable query={columns} isEmpty={(page) => page.items.length === 0} empty={<EmptyState title="В каталоге таких колонок нет" />}>
         {(page) => (
           <>
@@ -61,7 +60,7 @@ function Storage({ id }: { id: string }) {
                       <ObjectLink to={paths.column(item.columnId)} needs="getCatalogColumn" className="font-mono text-[13px]">{item.column}</ObjectLink>
                     </div>
                     <div className="text-xs text-fg-2">
-                      <ObjectLink to={paths.source(item.sourceId)} needs="getSource" className="text-fg-2">{sources.data?.find((source) => source.id === item.sourceId)?.key ?? "Источник"}</ObjectLink> · <Mono>{item.nativeType}</Mono>
+                      <SourceName id={item.sourceId} className="text-fg-2" /> · <Mono className="text-xs">{item.nativeType}</Mono>
                     </div>
                   </div>
                   <Confidence value={item.confidence} />
@@ -105,7 +104,7 @@ function Readers({ id }: { id: string }) {
 function Recent({ id }: { id: string }) {
   const events = useQuery({ queryKey: ["events", "category", id], queryFn: () => api.events({ category: id, limit: 8 }) });
   return (
-    <Panel title="Последние обращения" actions={<Button size="sm" asChild><Link to={paths.events({ category: id })}>Все</Link></Button>} flush>
+    <Panel title="Последние обращения" actions={<PanelLink to={paths.events({ category: id })}>Все</PanelLink>} flush>
       <Loadable query={events} isEmpty={(page) => page.items.length === 0} empty={<EmptyState title="За 7 дней обращений не было" />}>
         {(page) => (
           <ul className="divide-y divide-border">
@@ -149,7 +148,7 @@ export function CategoryPage() {
       />
       <div className="flex flex-col gap-6">
         <Figures id={id} />
-        <div className="grid gap-6 xl:grid-cols-2">
+        <div className="grid items-start gap-6 xl:grid-cols-2">
           {can("listCatalogColumns") && <Storage id={id} />}
           {can("listAccessByPrincipal") && <Readers id={id} />}
         </div>

@@ -14,21 +14,23 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Rows3 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, CircleHelp, Columns3, Rows3 } from "lucide-react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { count } from "../../labels";
 import { type Permission, useCan } from "../../permissions";
 import { Button } from "./button";
 import { cn } from "./cn";
 import { Checkbox } from "./form";
-import { Menu, MenuCheckbox, MenuSeparator } from "./menu";
+import { Menu, MenuCheckbox, MenuSeparator, Tooltip } from "./menu";
 import { ErrorState, Loading } from "./state";
 
 interface ColumnMeta {
   align?: "right";
   // The name in the column settings menu when the header is not plain text.
   label?: string;
+  // What the figure in the column means, behind a mark beside the header.
+  hint?: string;
   className?: string;
   // Without this permission the column is left out, not merely hidden: the
   // server would refuse the data behind it.
@@ -97,8 +99,16 @@ export interface DataTableProps<T extends RowData> {
   selectedId?: string;
   bulkActions?: (rows: T[], clear: () => void) => ReactNode;
   toolbar?: ReactNode;
+  // A short line in place of the toolbar when the table has no filters, so
+  // the bar above the rows says what they are instead of standing empty.
+  caption?: ReactNode;
   // Columns hidden until the user turns them on in the column settings.
   defaultHidden?: string[];
+}
+
+// A click on a link or a control inside the row is that element's, not the row's.
+function fromControl(target: EventTarget): boolean {
+  return (target as HTMLElement).closest("a, button, input, select, label, [role=checkbox]") !== null;
 }
 
 export function DataTable<T extends RowData>({
@@ -115,6 +125,7 @@ export function DataTable<T extends RowData>({
   selectedId,
   bulkActions,
   toolbar,
+  caption,
   defaultHidden = [],
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -134,9 +145,13 @@ export function DataTable<T extends RowData>({
     const permitted = columns.filter((column) => column.meta?.needs === undefined || can(column.meta.needs));
     return selectable ? [selectColumn<T>(), ...permitted] : permitted;
   }, [selectable, columns, can]);
+  // A row keeps the values its accessors returned until the data changes.
+  // Columns are rebuilt when something they read arrives later (the names of
+  // environments, say), so the rows are rebuilt with them.
+  const rows = useMemo(() => (data ? [...data] : noRows), [data, allColumns]);
   const table = useTable({
     features,
-    data: data ?? noRows,
+    data: rows,
     columns: allColumns,
     getRowId,
     state: { sorting, columnVisibility: visibility, rowSelection: selection },
@@ -148,7 +163,9 @@ export function DataTable<T extends RowData>({
   });
 
   const chosen = table.getSelectedRowModel().rows.map((row) => row.original);
-  const cell = density === "compact" ? "px-4 py-2" : "px-4 py-3.5";
+  // The outer columns line up with the toolbar; inner ones are closer together.
+  const edges = "px-3 first:pl-4 last:pr-4";
+  const cell = cn(edges, density === "compact" ? "py-2" : "py-3.5");
   const hideable = table.getAllLeafColumns().filter((column) => column.getCanHide() && column.id !== "select");
 
   return (
@@ -162,7 +179,7 @@ export function DataTable<T extends RowData>({
               <Button variant="ghost" size="sm" onClick={() => setSelection({})}>Снять выбор</Button>
             </div>
           ) : (
-            toolbar
+            toolbar ?? (caption && <p className="flex min-h-8 items-center text-[13px] text-fg-2">{caption}</p>)
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -200,7 +217,7 @@ export function DataTable<T extends RowData>({
           <table className="w-full border-collapse text-sm">
             <thead>
               {table.getHeaderGroups().map((group) => (
-                <tr key={group.id} className="border-b border-border bg-surface-2/60">
+                <tr key={group.id} className="border-b border-border bg-surface-2">
                   {group.headers.map((header) => {
                     const meta = header.column.columnDef.meta;
                     const sorted = header.column.getIsSorted();
@@ -209,20 +226,29 @@ export function DataTable<T extends RowData>({
                         key={header.id}
                         scope="col"
                         aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}
-                        className={cn("px-4 py-2.5 text-left text-xs font-medium whitespace-nowrap text-fg-2", meta?.align === "right" && "text-right", meta?.className)}
+                        className={cn(edges, "py-2.5 text-left text-xs font-medium whitespace-nowrap text-fg-3", meta?.align === "right" && "text-right", meta?.className)}
                       >
-                        {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className={cn("inline-flex cursor-pointer items-center gap-1 hover:text-fg", meta?.align === "right" && "flex-row-reverse")}
-                          >
+                        <span className={cn("inline-flex items-center gap-1", meta?.align === "right" && "flex-row-reverse")}>
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <button
+                              type="button"
+                              onClick={header.column.getToggleSortingHandler()}
+                              className={cn("inline-flex cursor-pointer items-center gap-1 hover:text-fg", meta?.align === "right" && "flex-row-reverse")}
+                            >
+                              <table.FlexRender header={header} />
+                              {sorted === "asc" ? <ArrowUp className="size-3" /> : sorted === "desc" ? <ArrowDown className="size-3" /> : null}
+                            </button>
+                          ) : (
                             <table.FlexRender header={header} />
-                            {sorted === "asc" ? <ArrowUp className="size-3" /> : sorted === "desc" ? <ArrowDown className="size-3" /> : null}
-                          </button>
-                        ) : (
-                          <table.FlexRender header={header} />
-                        )}
+                          )}
+                          {meta?.hint && (
+                            <Tooltip content={meta.hint}>
+                              <span tabIndex={0} aria-label={meta.hint} className="inline-flex cursor-help rounded text-fg-3 hover:text-fg">
+                                <CircleHelp aria-hidden className="size-3.5" />
+                              </span>
+                            </Tooltip>
+                          )}
+                        </span>
                       </th>
                     );
                   })}
@@ -233,21 +259,26 @@ export function DataTable<T extends RowData>({
               {table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
-                  onClick={onRowClick ? (event) => {
-                    if ((event.target as HTMLElement).closest("a, button, input, select, label")) return;
-                    onRowClick(row.original);
+                  // A row that opens something is reachable from the keyboard too.
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onClick={onRowClick ? (event: MouseEvent) => { if (!fromControl(event.target)) onRowClick(row.original); } : undefined}
+                  onKeyDown={onRowClick ? (event: KeyboardEvent) => {
+                    if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
+                      event.preventDefault();
+                      onRowClick(row.original);
+                    }
                   } : undefined}
                   className={cn(
-                    "border-b border-border last:border-b-0",
-                    onRowClick && "cursor-pointer hover:bg-surface-2/60",
-                    row.getIsSelected() && "bg-accent-bg/60",
-                    selectedId === row.id && "bg-accent-bg",
+                    "border-b border-border transition-colors last:border-b-0 hover:bg-surface-2/70",
+                    onRowClick && "cursor-pointer outline-offset-[-2px]",
+                    row.getIsSelected() && "bg-accent-bg/50 hover:bg-accent-bg/60",
+                    selectedId === row.id && "bg-accent-bg shadow-[inset_3px_0_0_var(--accent)] hover:bg-accent-bg",
                   )}
                 >
                   {row.getVisibleCells().map((item) => {
                     const meta = item.column.columnDef.meta;
                     return (
-                      <td key={item.id} className={cn(cell, "align-top text-fg", meta?.align === "right" && "text-right", meta?.className)}>
+                      <td key={item.id} className={cn(cell, "align-top text-fg", meta?.align === "right" && "text-right tabular-nums", meta?.className)}>
                         <table.FlexRender cell={item} />
                       </td>
                     );
@@ -287,7 +318,7 @@ function selectColumn<T extends RowData>(): TableColumn<T> {
 export function Pager({ page }: { page: Page }) {
   const last = Math.min(page.offset + page.size, page.total);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3 text-xs text-fg-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface-2/50 px-4 py-2.5 text-xs text-fg-2 tabular-nums">
       <span>
         {count(page.offset + 1)}–{count(last)} из {page.exact === false ? `более ${count(page.total)}` : count(page.total)}
         {page.exact === false && <span className="text-fg-3"> · уточните фильтр, чтобы увидеть точное число</span>}

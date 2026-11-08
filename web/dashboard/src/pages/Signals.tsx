@@ -4,14 +4,14 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router";
 
 import type { Schemas } from "../api";
-import { Mono } from "../components/domain";
+import { Categories, Mono } from "../components/domain";
 import { Badge, type Tone } from "../components/ui/badge";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
-import { ago, category, count, identity } from "../labels";
-import { CategoryLink, linkStyle, paths } from "../links";
+import { ago, count, identity } from "../labels";
+import { paths } from "../links";
 import { useCan } from "../permissions";
 import { queries } from "../queries";
 
@@ -36,6 +36,16 @@ export function observed(signal: Signal): string {
   }
 }
 
+// The events a signal was raised on: the same person, category and day.
+export function signalEvents(signal: Signal): string {
+  return paths.events({
+    principal: signal.applicationPrincipal || signal.databasePrincipal,
+    category: signal.category || undefined,
+    eventType: signal.kind === "FAILED_ACCESS" ? "EVENT_TYPE_FAILED_ACCESS" : undefined,
+    period: "24h",
+  });
+}
+
 export function Signals() {
   const can = useCan();
   const navigate = useNavigate();
@@ -50,14 +60,14 @@ export function Signals() {
       id: "who", header: "Кто", accessorFn: (row) => row.applicationPrincipal || row.databasePrincipal,
       cell: ({ row }) => (
         <div>
-          <div className="font-medium">{row.original.applicationPrincipal || row.original.databasePrincipal || "Не идентифицирован"}</div>
+          <div className="font-medium">{row.original.applicationPrincipal || row.original.databasePrincipal || "Учётная запись неизвестна"}</div>
           <div className="text-xs text-fg-2">{row.original.applicationPrincipal ? <>через <Mono>{row.original.databasePrincipal}</Mono></> : identity(row.original.identityConfidence)}</div>
         </div>
       ),
     },
     {
       id: "category", header: "Категория", accessorFn: (row) => row.category,
-      cell: ({ row }) => (row.original.category ? <CategoryLink id={row.original.category} className={linkStyle}>{category(row.original.category)}</CategoryLink> : <span className="text-fg-3">все данные</span>),
+      cell: ({ row }) => <Categories ids={row.original.category ? [row.original.category] : []} empty="все данные" />,
     },
     { id: "observed", header: "Что замечено", accessorFn: (row) => row.observed, cell: ({ row }) => <span className="text-fg-2">{observed(row.original)}</span> },
     { id: "last", header: "Последнее", accessorFn: (row) => row.lastSeen, cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{ago(row.original.lastSeen)}</span> },
@@ -79,13 +89,9 @@ export function Signals() {
             loading={signals.isPending}
             error={signals.error}
             sortable
-            onRowClick={can("listAuditEvents") ? (row) => navigate(paths.events({
-              principal: row.applicationPrincipal || row.databasePrincipal,
-              category: row.category || undefined,
-              eventType: row.kind === "FAILED_ACCESS" ? "EVENT_TYPE_FAILED_ACCESS" : undefined,
-              period: "24h",
-            })) : undefined}
-            empty={<EmptyState title="Сигналов нет">За последние сутки активность не отличалась от обычной по правилам ниже.</EmptyState>}
+            caption={signals.data && `За последние сутки: ${count(signals.data.length)}.${can("listAuditEvents") ? " Строка открывает события, на которых сработало правило." : ""}`}
+            onRowClick={can("listAuditEvents") ? (row) => navigate(signalEvents(row)) : undefined}
+            empty={<EmptyState icon="ok" title="Сигналов нет">За последние сутки активность не отличалась от обычной по правилам ниже.</EmptyState>}
           />
         </Panel>
         <Panel title="Правила" description="Учётные записи сканера DataGuard не учитываются">

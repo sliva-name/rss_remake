@@ -27,13 +27,19 @@ export function Tabs({ items: all, param = "tab", className }: { items: TabItem[
   };
   return (
     <Primitive.Root value={current} onValueChange={choose} className={className}>
-      <Primitive.List aria-label="Разделы страницы" className="mb-6 flex gap-2 overflow-x-auto border-b border-border">
+      {/* The rule under the tabs is an inset shadow, so the active tab's
+          underline covers it without hanging below the list: anything below
+          would make the list scroll vertically. */}
+      <Primitive.List
+        aria-label="Разделы страницы"
+        className="mb-6 flex gap-2 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--border)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {items.map((item) => (
           <Primitive.Trigger
             key={item.id}
             value={item.id}
             className={cn(
-              "-mb-px cursor-pointer border-b-2 border-transparent px-3 py-2.5 text-sm font-medium whitespace-nowrap text-fg-2 transition-colors",
+              "cursor-pointer border-b-2 border-transparent px-3 py-2.5 text-sm font-medium whitespace-nowrap text-fg-2 transition-colors",
               "hover:text-fg data-[state=active]:border-accent data-[state=active]:text-fg",
             )}
           >

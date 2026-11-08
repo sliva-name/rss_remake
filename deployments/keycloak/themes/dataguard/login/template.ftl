@@ -72,7 +72,7 @@
 <body class="${properties.kcBodyClass!}" data-page-id="login-${pageId}">
 <main class="${properties.kcLoginClass!}">
     <div class="${properties.kcFormCardClass!}">
-        <div class="dg-brand">${kcSanitize(msg("loginTitleHtml",(realm.displayNameHtml!'')))?no_esc}</div>
+        <div class="dg-brand"><span class="dg-mark" aria-hidden="true"><span class="dg-icon dg-icon-shield"></span></span>${kcSanitize(msg("loginTitleHtml",(realm.displayNameHtml!'')))?no_esc}</div>
         <header>
             <#if !(auth?has_content && auth.showUsername() && !auth.showResetCredentials())>
                 <h1 id="kc-page-title"><#nested "header"></h1>

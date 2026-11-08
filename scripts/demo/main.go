@@ -1,8 +1,9 @@
 // Command demo brings the local stand to a filled dashboard: accounts, an
 // organization, an enrolled agent, the four stand databases as sources,
-// synthetic data, some access traffic and finished scans. Running it again
-// keeps what exists, repairs what is missing and issues new passwords, which
-// are printed once and stored only in Keycloak.
+// synthetic data, some access traffic and finished scans. make demo runs it on
+// an empty stand. Run on its own against a filled one, it keeps what exists and
+// repairs what is missing. Either way it issues new passwords, which are
+// printed once and stored only in Keycloak.
 package main
 
 import (

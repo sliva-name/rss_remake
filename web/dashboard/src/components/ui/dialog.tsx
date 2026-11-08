@@ -5,7 +5,15 @@ import { createContext, use, useCallback, useRef, useState, type ReactNode } fro
 import { Button } from "./button";
 import { cn } from "./cn";
 
-const overlay = "fixed inset-0 z-40 bg-black/40";
+const overlay = "fixed inset-0 z-40 bg-black/45 backdrop-blur-[2px]";
+
+// On opening, focus goes to the window itself, so the first key press reads
+// from the top instead of landing on the close button. A field marked
+// autoFocus already holds the focus and keeps it.
+function focusWindow(event: Event) {
+  event.preventDefault();
+  (event.currentTarget as HTMLElement | null)?.focus();
+}
 
 export function Dialog({
   open,
@@ -29,9 +37,10 @@ export function Dialog({
       <Primitive.Portal>
         <Primitive.Overlay className={overlay} />
         <Primitive.Content
+          onOpenAutoFocus={focusWindow}
           className={cn(
             "fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col",
-            "rounded-lg border border-border bg-surface shadow-xl focus:outline-hidden",
+            "rounded-xl border border-border bg-surface shadow-2xl focus:outline-hidden",
             className,
           )}
         >
@@ -75,8 +84,9 @@ export function Drawer({
   return (
     <Primitive.Root open={open} onOpenChange={onOpenChange}>
       <Primitive.Portal>
-        <Primitive.Overlay className="fixed inset-0 z-40 bg-black/20" />
+        <Primitive.Overlay className="fixed inset-0 z-40 bg-black/25" />
         <Primitive.Content
+          onOpenAutoFocus={focusWindow}
           className="fixed inset-y-0 right-0 z-50 flex w-[min(36rem,100vw)] flex-col border-l border-border bg-surface shadow-xl focus:outline-hidden"
         >
           <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">

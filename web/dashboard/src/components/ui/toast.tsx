@@ -28,7 +28,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
           <Toast.Root
             key={notice.id}
             onOpenChange={(open) => { if (!open) dismiss(notice.id); }}
-            className="flex items-start gap-2.5 rounded-lg border border-border bg-surface p-3 shadow-lg"
+            className="flex items-start gap-2.5 rounded-xl border border-border bg-surface p-3.5 shadow-raised"
           >
             {notice.tone === "ok" ? <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-ok" /> : <XCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-bad" />}
             <div className="min-w-0 flex-1">

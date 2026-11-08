@@ -67,7 +67,7 @@ export function Environments() {
   const columns = useMemo<TableColumn<Schemas["Environment"]>[]>(() => [
     { id: "name", header: "Среда", enableHiding: false, accessorFn: (row) => row.name, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: "kind", header: "Вид", accessorFn: (row) => row.kind, cell: ({ row }) => <Badge tone={row.original.kind === "production" ? "accent" : "neutral"}>{environmentKind(row.original.kind)}</Badge> },
-    { id: "agents", header: "Агентов", meta: { align: "right", needs: "listAgents" }, accessorFn: (row) => agents.data?.filter((agent) => agent.environmentId === row.id && agent.status === "active").length ?? 0, cell: ({ getValue }) => count(getValue() as number) },
+    { id: "agents", header: "Агентов", meta: { align: "right", needs: "listAgents", hint: "Работающих, без отозванных" }, accessorFn: (row) => agents.data?.filter((agent) => agent.environmentId === row.id && agent.status === "active").length ?? 0, cell: ({ getValue }) => count(getValue() as number) },
     { id: "created", header: "Создана", accessorFn: (row) => row.createdAt, cell: ({ row }) => <span className="text-fg-2">{dateTime(row.original.createdAt)}</span> },
     { id: "id", header: "Идентификатор", cell: ({ row }) => <Mono className="text-fg-3">{row.original.id}</Mono> },
   ], [agents.data]);
@@ -79,7 +79,18 @@ export function Environments() {
         actions={can("createEnvironment") ? <Button variant="primary" onClick={() => setOpen(true)}><Plus /> Новая среда</Button> : undefined}
       />
       <Panel flush>
-        <DataTable id="environments" columns={columns} data={environments.data} getRowId={(row) => row.id} loading={environments.isPending} error={environments.error} sortable empty={<EmptyState title="Сред пока нет">Создайте среду, чтобы подключить первого агента.</EmptyState>} />
+        <DataTable
+          id="environments"
+          columns={columns}
+          defaultHidden={["id"]}
+          data={environments.data}
+          getRowId={(row) => row.id}
+          loading={environments.isPending}
+          error={environments.error}
+          sortable
+          caption={environments.data && `Сред: ${count(environments.data.length)}`}
+          empty={<EmptyState title="Сред пока нет">Создайте среду, чтобы подключить первого агента.</EmptyState>}
+        />
       </Panel>
       <CreateDialog open={open} onOpenChange={setOpen} title="Новая среда" description="Имя видно в списках агентов и источников." label="Создать" onSubmit={() => create.mutate()} pending={create.isPending} error={create.error}>
         <Field label="Название"><Input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="Основной ЦОД" /></Field>
@@ -120,7 +131,17 @@ export function Tenants() {
         actions={can("createTenant") ? <Button variant="primary" onClick={() => setOpen(true)}><Plus /> Новая организация</Button> : undefined}
       />
       <Panel flush>
-        <DataTable id="tenants" columns={columns} data={tenants.data} getRowId={(row) => row.id} loading={tenants.isPending} error={tenants.error} sortable empty={<EmptyState title="Организаций пока нет" />} />
+        <DataTable
+          id="tenants"
+          columns={columns}
+          data={tenants.data}
+          getRowId={(row) => row.id}
+          loading={tenants.isPending}
+          error={tenants.error}
+          sortable
+          caption={tenants.data && `Организаций: ${count(tenants.data.length)}`}
+          empty={<EmptyState title="Организаций пока нет" />}
+        />
       </Panel>
       <CreateDialog open={open} onOpenChange={setOpen} title="Новая организация" description="Учётные записи организации заводятся в провайдере входа с её идентификатором." label="Создать" onSubmit={() => create.mutate()} pending={create.isPending} error={create.error}>
         <Field label="Название"><Input required maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></Field>

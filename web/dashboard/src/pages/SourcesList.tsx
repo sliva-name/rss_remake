@@ -3,7 +3,7 @@ import { MoreHorizontal, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { api, type Schemas } from "../api";
-import { CoverageState, FailureNote, Mono, NoValue, ScanState, SourceState } from "../components/domain";
+import { CoverageState, FailureNote, Mono, NoValue, ScanState, SourceName, SourceState } from "../components/domain";
 import { SourceDrawer } from "../components/source-form";
 import { Badge, type Tone } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -82,8 +82,8 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
     {
       id: "name", header: "Источник", enableHiding: false, accessorFn: (row) => row.key,
       cell: ({ row }) => (
-        <div>
-          <ObjectLink to={paths.source(row.original.id)} needs="getSource" className="font-medium">{row.original.key}</ObjectLink>
+        <div className="min-w-40">
+          <ObjectLink to={paths.source(row.original.id)} needs="getSource" className="font-medium whitespace-nowrap">{row.original.key}</ObjectLink>
           <div className="text-xs text-fg-2">{engine(row.original.engine)} {row.original.engineVersion}</div>
         </div>
       ),
@@ -162,12 +162,12 @@ function CoverageTab() {
   const columns = useMemo<TableColumn<Schemas["CoverageRow"]>[]>(() => [
     { id: "source", header: "Источник", enableHiding: false, accessorFn: (row) => row.sourceKey, cell: ({ row }) => <div><ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{row.original.sourceKey}</ObjectLink><div className="text-xs text-fg-2">{engine(row.original.engine)}</div></div> },
     { id: "status", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <div className="flex flex-col gap-0.5"><CoverageState status={row.original.status} reason={row.original.reason} />{row.original.reason && <FailureNote code={row.original.reason} className="max-w-xs" />}</div> },
-    { id: "reads", header: "Аудит чтения", accessorFn: (row) => row.readsAudited, cell: ({ row }) => (row.original.readsAudited ? "Да" : <Badge tone="bad">Нет</Badge>) },
-    { id: "statements", header: "Запросов", accessorFn: (row) => row.statements, meta: { align: "right" }, cell: ({ row }) => count(row.original.statements) },
-    { id: "columns", header: "До колонок", accessorFn: (row) => row.columnsShare ?? -1, meta: { align: "right" }, cell: ({ row }) => percent(row.original.columnsShare) },
-    { id: "principal", header: "Учётная запись", accessorFn: (row) => row.principalShare ?? -1, meta: { align: "right" }, cell: ({ row }) => percent(row.original.principalShare) },
-    { id: "verified", header: "Подтверждён", accessorFn: (row) => row.verifiedShare ?? -1, meta: { align: "right" }, cell: ({ row }) => percent(row.original.verifiedShare) },
-    { id: "gaps", header: "Потерь", accessorFn: (row) => row.gaps, meta: { align: "right" }, cell: ({ row }) => <span className={row.original.gaps > 0 ? "font-medium text-bad" : undefined}>{count(row.original.gaps)}</span> },
+    { id: "reads", header: "Аудит чтения", accessorFn: (row) => row.readsAudited, meta: { hint: "Пишет ли СУБД в журнал чтения, а не только изменения" }, cell: ({ row }) => (row.original.readsAudited ? "Да" : <Badge tone="bad">Нет</Badge>) },
+    { id: "statements", header: "Запросов", accessorFn: (row) => row.statements, meta: { align: "right", hint: "Запросов к данным в журнале за сутки" }, cell: ({ row }) => count(row.original.statements) },
+    { id: "columns", header: "До колонок", accessorFn: (row) => row.columnsShare ?? -1, meta: { align: "right", hint: "Доля запросов, разобранных до колонок" }, cell: ({ row }) => percent(row.original.columnsShare) },
+    { id: "principal", header: "Учётная запись", accessorFn: (row) => row.principalShare ?? -1, meta: { align: "right", hint: "Доля событий, в которых известна учётная запись СУБД" }, cell: ({ row }) => percent(row.original.principalShare) },
+    { id: "verified", header: "Подтверждён", accessorFn: (row) => row.verifiedShare ?? -1, meta: { align: "right", hint: "Доля событий, где пользователя приложения подтвердила подпись" }, cell: ({ row }) => percent(row.original.verifiedShare) },
+    { id: "gaps", header: "Потерь", accessorFn: (row) => row.gaps, meta: { align: "right", hint: "Периоды, когда агент не видел журнал: события за них могли пропасть" }, cell: ({ row }) => <span className={row.original.gaps > 0 ? "font-medium text-bad" : undefined}>{count(row.original.gaps)}</span> },
     { id: "last", header: "Последнее событие", accessorFn: (row) => row.lastEventAt ?? "", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{ago(row.original.lastEventAt)}</span> },
   ], []);
   return (
@@ -181,7 +181,7 @@ function CoverageTab() {
         error={coverage.error}
         sortable
         empty={<EmptyState title="Источники ещё не подключены" />}
-        toolbar={<p className="py-1.5 text-[13px] text-fg-2">«Нет данных» значит, что измерять было нечего: это не ноль.</p>}
+        caption="За последние сутки. «Нет данных» значит, что измерять было нечего: это не ноль."
       />
     </Panel>
   );
@@ -232,18 +232,16 @@ function CapabilitiesTab() {
 
 function ScansTab() {
   const scans = useQuery(queries.scans());
-  const sources = useQuery(queries.sources());
-  const keyOf = (id: string) => sources.data?.find((source) => source.id === id)?.key ?? shortId(id);
   const columns = useMemo<TableColumn<Schemas["Scan"]>[]>(() => [
-    { id: "source", header: "Источник", enableHiding: false, cell: ({ row }) => <ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{keyOf(row.original.sourceId)}</ObjectLink> },
+    { id: "source", header: "Источник", enableHiding: false, cell: ({ row }) => <SourceName id={row.original.sourceId} /> },
     { id: "status", header: "Статус", cell: ({ row }) => <ScanState status={row.original.status} /> },
     { id: "created", header: "Запущено", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{dateTime(row.original.createdAt)}</span> },
     { id: "finished", header: "Завершено", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{dateTime(row.original.finishedAt)}</span> },
     { id: "reason", header: "Причина", cell: ({ row }) => <FailureNote code={row.original.failureCode} /> },
-  ], [sources.data]);
+  ], []);
   return (
     <Panel flush>
-      <DataTable id="scans" columns={columns} data={scans.data} getRowId={(scan) => scan.id} loading={scans.isPending} error={scans.error} empty={<EmptyState title="Сканирований ещё не было" />} toolbar={<p className="py-1.5 text-[13px] text-fg-2">Последние 20 заданий</p>} />
+      <DataTable id="scans" columns={columns} data={scans.data} getRowId={(scan) => scan.id} loading={scans.isPending} error={scans.error} empty={<EmptyState title="Сканирований ещё не было" />} caption="Последние 20 заданий" />
     </Panel>
   );
 }

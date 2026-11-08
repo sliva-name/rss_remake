@@ -1,16 +1,46 @@
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Minus } from "lucide-react";
 import { Select as Primitive } from "radix-ui";
-import { cloneElement, isValidElement, useId, type ComponentProps, type InputHTMLAttributes, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ComponentProps, type InputHTMLAttributes, type ReactNode } from "react";
 
 import { cn } from "./cn";
 
 const control =
-  "h-9 w-full min-w-0 rounded-md border border-border bg-surface px-3 text-sm text-fg placeholder:text-fg-3 " +
-  "transition-colors hover:border-border-strong focus:border-accent focus:outline-hidden " +
-  "focus:ring-2 focus:ring-accent/20 disabled:opacity-60 aria-[invalid=true]:border-bad";
+  "h-9 w-full min-w-0 rounded-md border border-border bg-surface px-3 text-sm text-fg shadow-xs placeholder:text-fg-3 " +
+  "transition-[border-color,box-shadow] hover:border-border-strong focus:border-accent focus:outline-hidden " +
+  "focus:ring-3 focus:ring-accent/15 disabled:opacity-60 aria-[invalid=true]:border-bad";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(control, className)} {...props} />;
+}
+
+// A filter typed into a list kept in the address: the value leaves the field
+// once typing pauses, so the list asks the server once per pause instead of
+// once per key. A value changed from outside (back button, a saved view) shows
+// up in the field.
+export function FilterInput({
+  value,
+  onValueChange,
+  delay = 300,
+  ...props
+}: { value: string; onValueChange: (value: string) => void; delay?: number } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
+  const [text, setText] = useState(value);
+  // The value this field sent last: its echo from the address must not
+  // overwrite what was typed since.
+  const sent = useRef(value);
+  useEffect(() => {
+    if (value === sent.current) return;
+    sent.current = value;
+    setText(value);
+  }, [value]);
+  useEffect(() => {
+    if (text === sent.current) return;
+    const timer = setTimeout(() => {
+      sent.current = text;
+      onValueChange(text);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [text, delay, onValueChange]);
+  return <Input {...props} value={text} onChange={(event) => setText(event.target.value)} />;
 }
 
 export interface Option {
@@ -61,7 +91,7 @@ export function Select({
         <Primitive.Content
           position="popper"
           sideOffset={4}
-          className="z-[70] max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-xl"
+          className="z-[70] max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-raised"
         >
           <Primitive.Viewport>
             {options.map((option) => (
@@ -84,9 +114,29 @@ export function Select({
   );
 }
 
+// A checkbox drawn in the app's style; the input underneath keeps the keyboard,
+// the form value and the indeterminate state.
 export function Checkbox({ className, ...props }: Omit<ComponentProps<"input">, "type">) {
-  return <input type="checkbox" className={cn("size-4 cursor-pointer rounded accent-[var(--accent)]", className)} {...props} />;
+  return (
+    <span className={cn("relative inline-grid size-4 shrink-0 place-items-center", className)}>
+      <input
+        type="checkbox"
+        className={cn(
+          "peer size-4 cursor-pointer appearance-none rounded-[5px] border border-border-strong bg-surface shadow-xs transition-colors",
+          "hover:border-fg-3 checked:border-accent checked:bg-accent indeterminate:border-accent indeterminate:bg-accent",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default disabled:opacity-50",
+        )}
+        {...props}
+      />
+      <Check aria-hidden strokeWidth={3} className="pointer-events-none absolute size-3 text-accent-fg opacity-0 peer-checked:opacity-100 peer-indeterminate:opacity-0" />
+      <Minus aria-hidden strokeWidth={3} className="pointer-events-none absolute size-3 text-accent-fg opacity-0 peer-indeterminate:opacity-100" />
+    </span>
+  );
 }
+
+// The width of a filter above a list: two to a row on a phone, one fixed
+// width on a wider screen.
+export const filterField = "min-w-36 flex-1 sm:w-48 sm:flex-none";
 
 // A labelled control. The label wraps the control, so clicking it focuses the
 // control; the hint sits outside the label so the control's name stays just

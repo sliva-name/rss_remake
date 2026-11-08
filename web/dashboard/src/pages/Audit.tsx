@@ -3,11 +3,11 @@ import { Download, Link2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { api, downloadEvents, type Schemas } from "../api";
-import { Categories, categoryOptions, FailureNote, Mono, NoValue, PeriodPicker, sourceOptions } from "../components/domain";
+import { Categories, categoryOptions, FailureNote, Mono, NoValue, PeriodPicker, SourceName, sourceOptions } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Drawer } from "../components/ui/dialog";
-import { CheckField, Field, Input, Select } from "../components/ui/form";
+import { CheckField, Field, filterField, FilterInput, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { cn } from "../components/ui/cn";
 import { Facts, groupLabel, Panel } from "../components/ui/panel";
@@ -15,7 +15,7 @@ import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
 import { stamp } from "../csv";
-import { count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
+import { count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, lowerFirst, resolution } from "../labels";
 import { ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
@@ -77,7 +77,7 @@ function useCatalogLinks(event: Event | null) {
   });
 }
 
-function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; sourceKey: string | undefined; onClose: () => void; onFilter: (patch: Record<string, string>) => void }) {
+function EventDetails({ event, onClose, onFilter }: { event: Event; onClose: () => void; onFilter: (patch: Record<string, string>) => void }) {
   const links = useCatalogLinks(event);
   const person = who(event);
   const objectLink = (name: string) => {
@@ -94,9 +94,9 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap gap-2">
-        <Badge tone={event.executionStatus === "EXECUTION_STATUS_FAILURE" ? "bad" : "neutral"}>{executionStatus(event.executionStatus)}</Badge>
-        <Badge tone="accent">{evidenceLevel(event.evidenceLevel)}</Badge>
-        <Badge>{resolution(event.objectResolution)}</Badge>
+        <Badge tone={event.executionStatus === "EXECUTION_STATUS_FAILURE" ? "bad" : "neutral"}>Исход: {lowerFirst(executionStatus(event.executionStatus))}</Badge>
+        <Badge tone="accent">Доказательство: {lowerFirst(evidenceLevel(event.evidenceLevel))}</Badge>
+        <Badge>Разбор: {lowerFirst(resolution(event.objectResolution))}</Badge>
       </div>
       <section>
         <h3 className={cn("mb-2", groupLabel)}>Кто</h3>
@@ -126,7 +126,7 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
         <h3 className={cn("mb-2", groupLabel)}>К чему</h3>
         <Facts
           items={[
-            ["Источник", <ObjectLink key="source" to={paths.source(event.sourceId)} needs="getSource">{sourceKey ?? "Источник"}</ObjectLink>],
+            ["Источник", <SourceName key="source" id={event.sourceId} />],
             ["Операция", event.operation.replace("OPERATION_TYPE_", "")],
             ["Объекты", objects(event).length > 0 ? <ul className="flex flex-col gap-0.5">{objects(event).map((name) => <li key={name}>{objectLink(name)}</li>)}</ul> : "—"],
             ["Категории", <Categories key="categories" ids={event.categories} />],
@@ -198,8 +198,31 @@ export function Audit() {
   const isScanner = (event: Event) => sources.data?.some((source) => source.id === event.sourceId && source.username === event.databasePrincipal) ?? false;
 
   const columns = useMemo<TableColumn<Event>[]>(() => [
-    { id: "time", header: "Время", enableHiding: false, meta: { className: "whitespace-nowrap" }, cell: ({ row }) => <span className="text-fg-2">{dateTime(row.original.time)}</span> },
-    { id: "type", header: "Тип", cell: ({ row }) => eventType(row.original.type) },
+    {
+      id: "time", header: "Время", enableHiding: false, meta: { className: "whitespace-nowrap" },
+      cell: ({ row }) => {
+        const at = new Date(row.original.time);
+        return (
+          <div title={dateTime(row.original.time)} className="tabular-nums">
+            <div>{at.toLocaleTimeString("ru-RU")}</div>
+            <div className="text-xs text-fg-2">{at.toLocaleDateString("ru-RU")}</div>
+          </div>
+        );
+      },
+    },
+    {
+      // The outcome sits under the type: a refused read is told at a glance
+      // without a column of its own.
+      id: "type", header: "Тип", meta: { className: "whitespace-nowrap" },
+      cell: ({ row }) => (
+        <div>
+          <div>{eventType(row.original.type)}</div>
+          {row.original.type !== "EVENT_TYPE_AUDIT_GAP" && (
+            <div className={cn("text-xs", row.original.executionStatus === "EXECUTION_STATUS_FAILURE" ? "text-bad" : "text-fg-2")}>{lowerFirst(executionStatus(row.original.executionStatus))}</div>
+          )}
+        </div>
+      ),
+    },
     {
       id: "who", header: "Кто", meta: { className: "min-w-44" }, cell: ({ row }) => {
         const person = who(row.original);
@@ -211,7 +234,7 @@ export function Audit() {
         );
       },
     },
-    { id: "source", header: "Источник", meta: { className: "whitespace-nowrap" }, cell: ({ row }) => <span className="text-fg-2">{sourceKey(row.original.sourceId) ?? "—"}</span> },
+    { id: "source", header: "Источник", cell: ({ row }) => <SourceName id={row.original.sourceId} /> },
     {
       id: "objects", header: "К чему", meta: { className: "max-w-72 min-w-48" }, cell: ({ row }) => {
         const shown = objects(row.original);
@@ -225,9 +248,12 @@ export function Audit() {
         );
       },
     },
-    { id: "categories", header: "Категории", cell: ({ row }) => <Categories ids={row.original.categories} /> },
+    { id: "categories", header: "Категории", cell: ({ row }) => <Categories ids={row.original.categories} limit={1} /> },
     { id: "outcome", header: "Исход", meta: { className: "whitespace-nowrap" }, cell: ({ row }) => <span className={row.original.executionStatus === "EXECUTION_STATUS_FAILURE" ? "text-bad" : undefined}>{executionStatus(row.original.executionStatus)}</span> },
-    { id: "evidence", header: "Доказательство", meta: { className: "min-w-36" }, cell: ({ row }) => <span className="text-fg-2">{evidenceLevel(row.original.evidenceLevel)}</span> },
+    {
+      id: "evidence", header: "Доказательство", meta: { className: "min-w-36", hint: "Что подтверждено: упоминание в запросе, выполнение, возврат строк или получение данных. Упоминание колонки в запросе не значит, что её прочитали." },
+      cell: ({ row }) => <span className="text-fg-2">{evidenceLevel(row.original.evidenceLevel)}</span>,
+    },
     { id: "resolution", header: "Разбор", meta: { className: "whitespace-nowrap" }, cell: ({ row }) => <span className="text-fg-2">{resolution(row.original.objectResolution)}</span> },
   ], [sources.data]);
 
@@ -249,7 +275,7 @@ export function Audit() {
     <>
       <PageHeader
         title="Журнал событий"
-        description="Нативный аудит СУБД. «Доказательство» показывает, что подтверждено: упоминание в запросе не значит, что данные прочитаны."
+        description="Обращения к данным из нативного аудита СУБД. Строка открывает подробности события и переходы к объектам."
         actions={
           <>
             {!custom && <PeriodPicker />}
@@ -264,29 +290,37 @@ export function Audit() {
         <DataTable
           id="audit"
           columns={columns}
-          defaultHidden={["resolution"]}
+          defaultHidden={["resolution", "outcome"]}
           data={events.data?.items}
           getRowId={(event) => event.id}
           loading={events.isPending}
           error={events.error}
           onRowClick={setSelected}
           selectedId={selected?.id}
-          empty={<EmptyState icon="search" title="Событий нет">Измените фильтры или период.</EmptyState>}
+          empty={
+            <EmptyState
+              icon="search"
+              title="Событий нет"
+              action={filterKeys.some((key) => filters[key] !== "") ? <Button size="sm" onClick={() => update(Object.fromEntries(filterKeys.map((key) => [key, ""])))}>Сбросить фильтры</Button> : undefined}
+            >
+              Измените фильтры или период.
+            </EmptyState>
+          }
           page={events.data ? { offset, size: pageSize, total: events.data.total, exact: events.data.totalExact, onChange: (next) => update({ offset: String(next) }) } : undefined}
           toolbar={
             <>
               {can("listSources") && (
-                <Field label="Источник" className="w-48">
+                <Field label="Источник" className={filterField}>
                   <Select value={filters.sourceId} onValueChange={(sourceId) => update({ sourceId })} options={sourceOptions(sources.data)} />
                 </Field>
               )}
-              <Field label="Пользователь" className="w-48">
-                <Input value={filters.principal} onChange={(event) => update({ principal: event.target.value })} placeholder="Точное совпадение" />
+              <Field label="Пользователь" className={filterField}>
+                <FilterInput value={filters.principal} onValueChange={(principal) => update({ principal })} placeholder="Точное совпадение" />
               </Field>
-              <Field label="Категория" className="w-48">
+              <Field label="Категория" className={filterField}>
                 <Select value={filters.category} onValueChange={(value) => update({ category: value })} options={categoryOptions("Все категории")} />
               </Field>
-              <Field label="Тип" className="w-52">
+              <Field label="Тип" className={filterField}>
                 <Select
                   value={filters.eventType}
                   onValueChange={(value) => update({ eventType: value })}
@@ -303,7 +337,7 @@ export function Audit() {
         />
       </Panel>
       <Drawer open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }} title={selected ? eventType(selected.type) : ""} description={selected ? dateTime(selected.time) : undefined}>
-        {selected && <EventDetails event={selected} sourceKey={sourceKey(selected.sourceId)} onClose={() => setSelected(null)} onFilter={(patch) => update(patch)} />}
+        {selected && <EventDetails event={selected} onClose={() => setSelected(null)} onFilter={(patch) => update(patch)} />}
       </Drawer>
     </>
   );
