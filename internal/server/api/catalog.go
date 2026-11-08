@@ -50,11 +50,7 @@ func (s *Server) ListScans(ctx context.Context, request restapi.ListScansRequest
 	if err != nil {
 		return nil, err
 	}
-	response := make(restapi.ListScans200JSONResponse, 0, len(jobs))
-	for _, job := range jobs {
-		response = append(response, toScan(job))
-	}
-	return response, nil
+	return restapi.ListScans200JSONResponse(convertAll(jobs, toScan)), nil
 }
 
 func (s *Server) RequestScan(ctx context.Context, request restapi.RequestScanRequestObject) (restapi.RequestScanResponseObject, error) {
