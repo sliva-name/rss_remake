@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -329,10 +330,7 @@ func enrich(event *Event, operation *agentv1.Operation, columns map[ColumnKey]Co
 			categories[category] = true
 		}
 	}
-	for category := range categories {
-		event.Categories = append(event.Categories, category)
-	}
-	slices.Sort(event.Categories)
+	event.Categories = slices.Sorted(maps.Keys(categories))
 }
 
 // SourceAccount is one database login on one source.
