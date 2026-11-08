@@ -5,6 +5,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // Small font subsets would otherwise be inlined as data: addresses, which
+    // the server's policy refuses (default-src 'self'). Fonts stay files.
+    assetsInlineLimit: (file) => (file.endsWith(".woff2") ? false : undefined),
+  },
   server: {
     // The login theme test reads the Keycloak theme's copy of the colours.
     fs: { allow: [".", "../../deployments/keycloak/themes"] },

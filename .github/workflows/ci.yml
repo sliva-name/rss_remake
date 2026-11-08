@@ -62,6 +62,10 @@ jobs:
           npm run api
           git diff --exit-code -- src/schema.d.ts
       - run: npm run build
+      # The server's policy (default-src 'self') refuses fonts from data:
+      # addresses; the end-to-end test would catch it only minutes later.
+      - name: Fonts are files, not inlined
+        run: "! grep -l 'data:font' dist/assets/*.css"
       - run: npm test
 
   stand:
