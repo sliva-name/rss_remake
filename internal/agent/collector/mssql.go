@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -66,21 +67,17 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 		return r.recover(ctx, err)
 	}
 	var batch Batch
-	if position.File != "" && !containsFile(rows, position.File) && len(rows) > 0 {
+	if position.File != "" && len(rows) > 0 && !slices.ContainsFunc(rows, func(row connector.AuditRow) bool { return row.File == position.File }) {
 		batch.Gap = lostLogGap()
 	}
 	// fn_get_audit_file restarts at the beginning of the offset, so ordinals are
 	// counted from zero again; the first position.Seen of them were delivered.
-	next := mssqlCursor{File: position.File, Offset: position.Offset}
+	next := position.start()
 	var merged *Record
 	for i := range rows {
 		row := &rows[i]
-		if row.File == next.File && row.Offset == next.Offset {
-			next.Seen++
-		} else {
-			next = mssqlCursor{File: row.File, Offset: row.Offset, Seen: 1}
-		}
-		if row.File == position.File && row.Offset == position.Offset && next.Seen <= position.Seen {
+		next = next.step(row)
+		if next.within(position) {
 			continue
 		}
 		merged = mergeRow(&batch, merged, row, next)
@@ -88,15 +85,44 @@ func (r *sqlServerReader) Read(ctx context.Context, cursor []byte) (Batch, error
 	if merged != nil {
 		batch.Records = append(batch.Records, *merged)
 	}
-	if next.File == position.File && next.Offset == position.Offset && next.Seen < position.Seen {
+	if next.within(position) {
 		next = position
 	}
-	r.live = &next
-	batch.Cursor, err = json.Marshal(next)
+	batch.Cursor, err = r.moveTo(next)
 	if err != nil {
-		return Batch{}, fmt.Errorf("encode audit cursor: %w", err)
+		return Batch{}, err
 	}
 	return batch, nil
+}
+
+// start is the cursor before the first record of the current offset.
+func (c mssqlCursor) start() mssqlCursor {
+	return mssqlCursor{File: c.File, Offset: c.Offset}
+}
+
+// step moves the cursor onto row. Records sharing an offset are told apart by
+// their ordinal in it.
+func (c mssqlCursor) step(row *connector.AuditRow) mssqlCursor {
+	if row.File == c.File && row.Offset == c.Offset {
+		c.Seen++
+		return c
+	}
+	return mssqlCursor{File: row.File, Offset: row.Offset, Seen: 1}
+}
+
+// within reports whether position already covers the cursor.
+func (c mssqlCursor) within(position mssqlCursor) bool {
+	return c.File == position.File && c.Offset == position.Offset && c.Seen <= position.Seen
+}
+
+// moveTo makes position the live cursor and encodes it for the batch.
+func (r *sqlServerReader) moveTo(position mssqlCursor) ([]byte, error) {
+	r.live = &position
+	cursor, err := json.Marshal(position)
+	if err != nil {
+		return nil, fmt.Errorf("encode audit cursor: %w", err)
+	}
+	return cursor, nil
 }
 
 // recover handles a cursor whose file was removed by rollover. The server refuses
@@ -131,38 +157,23 @@ func (r *sqlServerReader) seekEnd(ctx context.Context) (Batch, error) {
 		}
 		position = next
 	}
-	r.live = &position
-	cursor, err := json.Marshal(position)
+	cursor, err := r.moveTo(position)
 	if err != nil {
-		return Batch{}, fmt.Errorf("encode audit cursor: %w", err)
+		return Batch{}, err
 	}
 	return Batch{Cursor: cursor}, nil
 }
 
-// advance moves past rows; records sharing an offset are counted by ordinal.
+// advance moves past rows, and stays at position when they bring nothing new.
 func advance(position mssqlCursor, rows []connector.AuditRow) mssqlCursor {
-	next := mssqlCursor{File: position.File, Offset: position.Offset}
+	next := position.start()
 	for i := range rows {
-		row := &rows[i]
-		if row.File == next.File && row.Offset == next.Offset {
-			next.Seen++
-		} else {
-			next = mssqlCursor{File: row.File, Offset: row.Offset, Seen: 1}
-		}
+		next = next.step(&rows[i])
 	}
-	if next.File == position.File && next.Offset == position.Offset && next.Seen <= position.Seen {
+	if next.within(position) {
 		return position
 	}
 	return next
-}
-
-func containsFile(rows []connector.AuditRow, file string) bool {
-	for i := range rows {
-		if rows[i].File == file {
-			return true
-		}
-	}
-	return false
 }
 
 // mergeRow folds the rows of one statement. SQL Server writes one row per table,
