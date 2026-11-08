@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,20 +28,24 @@ type Source struct {
 
 // Open connects without running a query; the first use reports failures.
 func Open(credentials connector.Credentials, maxConnections int) (*Source, error) {
-	dsn := url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(credentials.Username, credentials.Password),
-		Host:   fmt.Sprintf("%s:%d", credentials.Host, credentials.Port),
-		Path:   "/" + credentials.Database,
-	}
-	query := url.Values{"application_name": {"dataguard-scanner"}, "sslmode": {string(credentials.TLS)}}
-	dsn.RawQuery = query.Encode()
-	db, err := sql.Open("pgx", dsn.String())
+	db, err := sql.Open("pgx", dataSourceName(credentials))
 	if err != nil {
 		return nil, safeerr.New("open postgres source", safeerr.CodeInvalid, err)
 	}
 	sqlsource.Configure(db, maxConnections)
 	return &Source{db: db, database: credentials.Database}, nil
+}
+
+func dataSourceName(credentials connector.Credentials) string {
+	dsn := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(credentials.Username, credentials.Password),
+		Host:   net.JoinHostPort(credentials.Host, strconv.Itoa(credentials.Port)),
+		Path:   "/" + credentials.Database,
+	}
+	query := url.Values{"application_name": {"dataguard-scanner"}, "sslmode": {string(credentials.TLS)}}
+	dsn.RawQuery = query.Encode()
+	return dsn.String()
 }
 
 // Close releases the pool.

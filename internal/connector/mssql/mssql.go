@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -42,7 +43,7 @@ func Open(credentials connector.Credentials, auditDirectory string, maxConnectio
 	dsn := url.URL{
 		Scheme:   "sqlserver",
 		User:     url.UserPassword(credentials.Username, credentials.Password),
-		Host:     credentials.Host + ":" + strconv.Itoa(credentials.Port),
+		Host:     net.JoinHostPort(credentials.Host, strconv.Itoa(credentials.Port)),
 		RawQuery: query.Encode(),
 	}
 	db, err := sql.Open("sqlserver", dsn.String())
