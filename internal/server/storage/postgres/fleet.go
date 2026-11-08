@@ -27,13 +27,7 @@ func (s *Store) CreateEnrollmentToken(ctx context.Context, tenantID, environment
 		_, err := tx.Exec(ctx, insert, uuid.Must(uuid.NewV7()), tenantID, environmentID, hash, expiresAt)
 		return err
 	})
-	if errors.Is(err, fleet.ErrNotFound) {
-		return err
-	}
-	if err != nil {
-		return storageError("create enrollment token", err)
-	}
-	return nil
+	return writeError("create enrollment token", err, fleet.ErrNotFound)
 }
 
 func (s *Store) ConsumeEnrollmentToken(ctx context.Context, tenantID uuid.UUID, hash []byte) (uuid.UUID, error) {
@@ -44,11 +38,8 @@ func (s *Store) ConsumeEnrollmentToken(ctx context.Context, tenantID uuid.UUID, 
 			RETURNING environment_id`
 		return tx.QueryRow(ctx, consume, hash).Scan(&environmentID)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, fleet.ErrInvalidToken
-	}
-	if err != nil {
-		return uuid.Nil, storageError("consume enrollment token", err)
+	if err := readError("consume enrollment token", err, fleet.ErrInvalidToken); err != nil {
+		return uuid.Nil, err
 	}
 	return environmentID, nil
 }
@@ -79,11 +70,8 @@ func (s *Store) GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (flee
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		return scanAgent(tx.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents WHERE id = $1`, agentID), &agent)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fleet.Agent{}, fleet.ErrNotFound
-	}
-	if err != nil {
-		return fleet.Agent{}, storageError("get agent", err)
+	if err := readError("get agent", err, fleet.ErrNotFound); err != nil {
+		return fleet.Agent{}, err
 	}
 	return agent, nil
 }
@@ -107,11 +95,8 @@ func (s *Store) TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, ver
 		const update = `UPDATE agents SET last_seen_at = now(), version = $2 WHERE id = $1 RETURNING sources_version`
 		return tx.QueryRow(ctx, update, agentID, version).Scan(&sourcesVersion)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, fleet.ErrNotFound
-	}
-	if err != nil {
-		return 0, storageError("touch agent", err)
+	if err := readError("touch agent", err, fleet.ErrNotFound); err != nil {
+		return 0, err
 	}
 	return sourcesVersion, nil
 }
@@ -137,13 +122,7 @@ func (s *Store) updateAgent(ctx context.Context, tenantID uuid.UUID, op, stateme
 		}
 		return nil
 	})
-	if errors.Is(err, fleet.ErrNotFound) {
-		return err
-	}
-	if err != nil {
-		return storageError(op, err)
-	}
-	return nil
+	return writeError(op, err, fleet.ErrNotFound)
 }
 
 const sourceColumns = `id, tenant_id, agent_id, source_key, engine, host, port, database_name, username,
@@ -208,9 +187,6 @@ func (s *Store) ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID
 		}
 		return bumpSourcesVersion(ctx, tx, agentID)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fleet.ErrNotFound
-	}
 	return sourceWriteError("activate source", err)
 }
 
@@ -248,9 +224,6 @@ func (s *Store) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) 
 		}
 		return bumpSourcesVersion(ctx, tx, agentID)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fleet.ErrNotFound
-	}
 	return sourceWriteError("delete source", err)
 }
 
@@ -260,6 +233,8 @@ func sourceWriteError(op string, err error) error {
 		return nil
 	case errors.Is(err, fleet.ErrNotFound):
 		return err
+	case errors.Is(err, pgx.ErrNoRows):
+		return fleet.ErrNotFound
 	case isUniqueViolation(err):
 		return fleet.ErrConflict
 	default:
@@ -280,11 +255,8 @@ func (s *Store) GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (fl
 		source = one[0]
 		return nil
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fleet.Source{}, fleet.ErrNotFound
-	}
-	if err != nil {
-		return fleet.Source{}, storageError("get source", err)
+	if err := readError("get source", err, fleet.ErrNotFound); err != nil {
+		return fleet.Source{}, err
 	}
 	return source, nil
 }
@@ -319,11 +291,8 @@ func (s *Store) AgentSourceList(ctx context.Context, tenantID, agentID uuid.UUID
 			WHERE agent_id = $1 AND deleted_at IS NULL ORDER BY id`, agentID)
 		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil, fleet.ErrNotFound
-	}
-	if err != nil {
-		return 0, nil, storageError("agent source list", err)
+	if err := readError("agent source list", err, fleet.ErrNotFound); err != nil {
+		return 0, nil, err
 	}
 	return version, sources, nil
 }

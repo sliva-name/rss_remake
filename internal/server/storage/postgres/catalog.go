@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -170,11 +169,8 @@ func (s *Store) GetTable(ctx context.Context, tenantID, tableID uuid.UUID) (asse
 		view.Renames, err = renames(ctx, tx, "table", tableID)
 		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return asset.TableView{}, asset.ErrNotFound
-	}
-	if err != nil {
-		return asset.TableView{}, storageError("get table", err)
+	if err := readError("get table", err, asset.ErrNotFound); err != nil {
+		return asset.TableView{}, err
 	}
 	return view, nil
 }
@@ -209,11 +205,8 @@ func (s *Store) GetColumn(ctx context.Context, tenantID, columnID uuid.UUID) (as
 		view.Renames, err = renames(ctx, tx, "column", columnID)
 		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return asset.ColumnView{}, asset.ErrNotFound
-	}
-	if err != nil {
-		return asset.ColumnView{}, storageError("get column", err)
+	if err := readError("get column", err, asset.ErrNotFound); err != nil {
+		return asset.ColumnView{}, err
 	}
 	return view, nil
 }

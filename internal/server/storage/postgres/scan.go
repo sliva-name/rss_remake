@@ -104,13 +104,7 @@ func (s *Store) Complete(ctx context.Context, tenantID, agentID, jobID uuid.UUID
 		}
 		return persistOutcome(ctx, tx, tenantID, sourceID, jobID, outcome)
 	})
-	if errors.Is(err, scan.ErrStale) {
-		return err
-	}
-	if err != nil {
-		return storageError("complete scan job", err)
-	}
-	return nil
+	return writeError("complete scan job", err, scan.ErrStale)
 }
 
 // lockRunningJob serializes completion, and rejects a late or duplicate result

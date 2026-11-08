@@ -101,6 +101,31 @@ func storageError(op string, err error) error {
 	return safeerr.New(op, safeerr.CodeInternal, err)
 }
 
+// readError is storageError for a read whose missing row means missing.
+func readError(op string, err, missing error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, pgx.ErrNoRows):
+		return missing
+	default:
+		return storageError(op, err)
+	}
+}
+
+// writeError is storageError that lets known, raised by the transaction
+// itself, through.
+func writeError(op string, err, known error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, known):
+		return err
+	default:
+		return storageError(op, err)
+	}
+}
+
 func isUniqueViolation(err error) bool {
 	pgError, ok := errors.AsType[*pgconn.PgError](err)
 	return ok && pgError.Code == uniqueViolation
