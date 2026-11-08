@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/stat
 import { ago, dateTime, engine, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { useRevokeAgent } from "./AgentsList";
 
@@ -19,8 +19,8 @@ export function AgentPage() {
   const can = useCan();
   const revoke = useRevokeAgent();
   const agent = useQuery({ ...queries.agent(id), refetchInterval: 10_000 });
-  const environments = useQuery({ ...queries.environments(), enabled: can("listEnvironments") });
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const environments = usePermittedQuery(queries.environments());
+  const sources = usePermittedQuery(queries.sources());
   const item: ObjectRef | undefined = agent.data && { kind: "agent", id, label: `Агент ${shortId(id)}`, context: agent.data.version };
   useRememberVisit(item);
 

@@ -14,14 +14,13 @@ import { DataTable, type TableColumn } from "../components/ui/table";
 import { dateTime, tableKind } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 
 // The source's name in a trail. Without permission to read the source, its
 // identifier is all the page can honestly show.
 export function SourceCrumb({ id }: { id: string }) {
-  const can = useCan();
-  const source = useQuery({ ...queries.source(id), enabled: can("getSource") });
+  const source = usePermittedQuery(queries.source(id));
   return <ObjectLink to={paths.source(id)} needs="getSource">{source.data?.key ?? "Источник"}</ObjectLink>;
 }
 

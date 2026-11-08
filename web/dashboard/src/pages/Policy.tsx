@@ -14,7 +14,7 @@ import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/stat
 import { useNotify } from "../components/ui/toast";
 import { count, dateTime } from "../labels";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 
 type Detector = Schemas["CustomDetector"];
 type Budget = NonNullable<Schemas["PolicyDraft"]["scanBudget"]>;
@@ -178,7 +178,7 @@ function History({ current }: { current: number }) {
   const can = useCan();
   const versions = useQuery(queries.policyVersions(current));
   const [opened, setOpened] = useState<number | null>(null);
-  const version = useQuery({ ...queries.policyVersion(opened), enabled: can("getPolicyVersion") });
+  const version = usePermittedQuery(queries.policyVersion(opened));
   return (
     <Panel title="История версий" description="Каждая публикация подписана и хранится; агенты принимают только версию новее своей" flush>
       <Loadable query={versions} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Версий нет" />}>

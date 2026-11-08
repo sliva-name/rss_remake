@@ -17,7 +17,7 @@ import { ago, capability, count, dateTime, engine, percent, support, tableKind }
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useMe } from "../me";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { useSourceActions } from "./SourcesList";
 
@@ -25,7 +25,7 @@ const supportTone: Record<string, Tone> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT
 
 function Overview({ source }: { source: Schemas["Source"] }) {
   const can = useCan();
-  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
+  const coverage = usePermittedQuery(queries.coverage(24));
   const row = coverage.data?.find((item) => item.sourceId === source.id);
   return (
     <div className="grid gap-6 xl:grid-cols-2">

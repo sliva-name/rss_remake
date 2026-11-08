@@ -18,7 +18,7 @@ import { useNotify } from "../components/ui/toast";
 import { ago, capability, count, dateTime, engine, failure, percent, shortId, support } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 
 type Source = Schemas["Source"];
 
@@ -75,7 +75,7 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
   const can = useCan();
   const actions = useSourceActions(tenantId);
   const sources = useQuery({ ...queries.sources(), refetchInterval: 5000 });
-  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
+  const coverage = usePermittedQuery(queries.coverage(24));
   const coverageOf = (id: string) => coverage.data?.find((row) => row.sourceId === id);
 
   const columns = useMemo<TableColumn<Source>[]>(() => [

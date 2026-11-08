@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ban, Copy, MoreHorizontal, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -17,7 +17,7 @@ import { useNotify } from "../components/ui/toast";
 import { ago, count, dateTime, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 
 type Agent = Schemas["Agent"];
 
@@ -53,7 +53,7 @@ export const environmentKinds: Record<Schemas["EnvironmentKind"], string> = {
 function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const can = useCan();
   const notify = useNotify();
-  const environments = useQuery({ ...queries.environments(), enabled: open && can("listEnvironments") });
+  const environments = usePermittedQuery({ ...queries.environments(), enabled: open });
   const [environmentId, setEnvironmentId] = useState("");
   const token = useMutation({ mutationFn: api.createToken });
   const selected = environmentId || environments.data?.[0]?.id || "";
@@ -115,9 +115,9 @@ export function AgentsList() {
   const can = useCan();
   const revoke = useRevokeAgent();
   const [enrolling, setEnrolling] = useState(false);
-  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
-  const environments = useQuery({ ...queries.environments(), enabled: can("listEnvironments") });
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const agents = usePermittedQuery(queries.agents());
+  const environments = usePermittedQuery(queries.environments());
+  const sources = usePermittedQuery(queries.sources());
 
   const columns = useMemo<TableColumn<Agent>[]>(() => [
     { id: "agent", header: "Агент", enableHiding: false, accessorFn: (row) => row.id, cell: ({ row }) => <ObjectLink to={paths.agent(row.original.id)} needs="getAgent" className="font-mono text-[13px]">{row.original.id}</ObjectLink> },

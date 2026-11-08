@@ -17,7 +17,7 @@ import { stamp } from "../csv";
 import { count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
 import { ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
@@ -189,9 +189,9 @@ export function Audit() {
     placeholderData: (previous) => previous,
     queryFn: () => api.events({ ...selection, limit: pageSize, offset }),
   });
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
-  const table = useQuery({ ...queries.table(filters.tableId), enabled: filters.tableId !== "" && can("getCatalogTable") });
-  const column = useQuery({ ...queries.column(filters.columnId), enabled: filters.columnId !== "" && can("getCatalogColumn") });
+  const sources = usePermittedQuery(queries.sources());
+  const table = usePermittedQuery({ ...queries.table(filters.tableId), enabled: filters.tableId !== "" });
+  const column = usePermittedQuery({ ...queries.column(filters.columnId), enabled: filters.columnId !== "" });
   const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
   // The scanner is the login the agent was given for that source.
   const isScanner = (event: Event) => sources.data?.some((source) => source.id === event.sourceId && source.username === event.databasePrincipal) ?? false;
