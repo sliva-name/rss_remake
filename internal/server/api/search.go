@@ -26,50 +26,76 @@ func (s *Server) Search(ctx context.Context, request restapi.SearchRequestObject
 		return nil, fmt.Errorf("%w: q must be %d..%d characters", errInvalidParameter, minSearchRunes, maxSearchRunes)
 	}
 	tenantID := tenantOf(ctx)
-	result := restapi.SearchResult{Sources: []restapi.SearchHit{}, Tables: []restapi.SearchHit{}, Columns: []restapi.SearchHit{}, Principals: []restapi.PrincipalHit{}}
-
-	if checkAccess(ctx, "ListAccessByPrincipal") == nil {
-		scanners, err := s.scannerAccounts(ctx)
-		if err != nil {
-			return nil, err
-		}
-		matches, err := s.events.MatchPrincipals(ctx, tenantID, text, time.Now().Add(-principalSearchWindow), scanners, searchGroupLimit)
-		if err != nil {
-			return nil, err
-		}
-		for _, match := range matches {
-			result.Principals = append(result.Principals, restapi.PrincipalHit{
-				DatabasePrincipal: match.DatabasePrincipal, ApplicationPrincipal: match.ApplicationPrincipal, Events: int64(match.Events),
-			})
-		}
-	}
-
-	keys := map[uuid.UUID]string{}
-	if checkAccess(ctx, "ListSources") == nil {
-		sources, err := s.fleet.ListSources(ctx, tenantID)
-		if err != nil {
-			return nil, err
-		}
-		for _, source := range sources {
-			keys[source.ID] = source.Key
-		}
-		if checkAccess(ctx, "GetSource") == nil {
-			result.Sources = matchingSources(sources, text)
-		}
-	}
-
-	wantTables := checkAccess(ctx, "GetCatalogTable") == nil
-	wantColumns := checkAccess(ctx, "GetCatalogColumn") == nil
-	if !wantTables && !wantColumns {
-		return restapi.Search200JSONResponse(result), nil
-	}
-	matches, err := s.catalog.Search(ctx, tenantID, text, searchGroupLimit)
+	principals, err := s.searchPrincipals(ctx, tenantID, text)
 	if err != nil {
 		return nil, err
 	}
+	sources, keys, err := s.searchSources(ctx, tenantID, text)
+	if err != nil {
+		return nil, err
+	}
+	tables, columns, err := s.searchCatalog(ctx, tenantID, text, keys)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.Search200JSONResponse(restapi.SearchResult{Sources: sources, Tables: tables, Columns: columns, Principals: principals}), nil
+}
+
+func (s *Server) searchPrincipals(ctx context.Context, tenantID uuid.UUID, text string) ([]restapi.PrincipalHit, error) {
+	hits := []restapi.PrincipalHit{}
+	if checkAccess(ctx, "ListAccessByPrincipal") != nil {
+		return hits, nil
+	}
+	scanners, err := s.scannerAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	matches, err := s.events.MatchPrincipals(ctx, tenantID, text, time.Now().Add(-principalSearchWindow), scanners, searchGroupLimit)
+	if err != nil {
+		return nil, err
+	}
+	for _, match := range matches {
+		hits = append(hits, restapi.PrincipalHit{
+			DatabasePrincipal: match.DatabasePrincipal, ApplicationPrincipal: match.ApplicationPrincipal, Events: int64(match.Events),
+		})
+	}
+	return hits, nil
+}
+
+// searchSources also returns the names of all readable sources, which place
+// tables and columns even when the sources themselves cannot be opened.
+func (s *Server) searchSources(ctx context.Context, tenantID uuid.UUID, text string) ([]restapi.SearchHit, map[uuid.UUID]string, error) {
+	hits, keys := []restapi.SearchHit{}, map[uuid.UUID]string{}
+	if checkAccess(ctx, "ListSources") != nil {
+		return hits, keys, nil
+	}
+	sources, err := s.fleet.ListSources(ctx, tenantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, source := range sources {
+		keys[source.ID] = source.Key
+	}
+	if checkAccess(ctx, "GetSource") == nil {
+		hits = matchingSources(sources, text)
+	}
+	return hits, keys, nil
+}
+
+func (s *Server) searchCatalog(ctx context.Context, tenantID uuid.UUID, text string, keys map[uuid.UUID]string) (tables, columns []restapi.SearchHit, err error) {
+	tables, columns = []restapi.SearchHit{}, []restapi.SearchHit{}
+	wantTables := checkAccess(ctx, "GetCatalogTable") == nil
+	wantColumns := checkAccess(ctx, "GetCatalogColumn") == nil
+	if !wantTables && !wantColumns {
+		return tables, columns, nil
+	}
+	matches, err := s.catalog.Search(ctx, tenantID, text, searchGroupLimit)
+	if err != nil {
+		return nil, nil, err
+	}
 	if wantTables {
 		for _, table := range matches.Tables {
-			result.Tables = append(result.Tables, restapi.SearchHit{
+			tables = append(tables, restapi.SearchHit{
 				Id: table.ID, Name: table.Name, Context: place(keys[table.SourceID], table.Database, table.Schema),
 			})
 		}
@@ -77,12 +103,12 @@ func (s *Server) Search(ctx context.Context, request restapi.SearchRequestObject
 	if wantColumns {
 		for _, column := range matches.Columns {
 			categories := orEmpty(column.Categories)
-			result.Columns = append(result.Columns, restapi.SearchHit{
+			columns = append(columns, restapi.SearchHit{
 				Id: column.ID, Name: column.Name, Context: place(keys[column.SourceID], column.Schema, column.Table), Categories: &categories,
 			})
 		}
 	}
-	return restapi.Search200JSONResponse(result), nil
+	return tables, columns, nil
 }
 
 func matchingSources(sources []fleet.Source, text string) []restapi.SearchHit {
