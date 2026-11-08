@@ -84,6 +84,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAgent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/revoke": {
         parameters: {
             query?: never;
@@ -126,7 +142,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        get: operations["getSource"];
         /** @description The agent and the engine cannot change. A change of host, port, database, user or TLS needs the password sealed again. */
         put: operations["updateSource"];
         post?: never;
@@ -162,6 +178,57 @@ export interface paths {
         };
         /** @description Active columns with detected classifications */
         get: operations["listCatalogColumns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/columns/{columnId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A column with every classification decision and its renames, also after it was removed */
+        get: operations["getCatalogColumn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Active tables, by database, schema and name */
+        get: operations["listCatalogTables"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/tables/{tableId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A table with its active columns, also after it was removed */
+        get: operations["getCatalogTable"];
         put?: never;
         post?: never;
         delete?: never;
@@ -318,7 +385,7 @@ export interface components {
          * @description An operationId of this API.
          * @enum {string}
          */
-        Permission: "getCurrentUser" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "revokeAgent" | "listSources" | "createSource" | "updateSource" | "deleteSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
+        Permission: "getCurrentUser" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
         NewTenant: {
             name: string;
         };
@@ -481,6 +548,114 @@ export interface components {
             /** Format: int64 */
             total: number;
             items: components["schemas"]["CatalogColumn"][];
+        };
+        CatalogTable: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            sourceId: string;
+            database: string;
+            schema: string;
+            table: string;
+            kind: string;
+            /** Format: int64 */
+            columns: number;
+            /** Format: int64 */
+            sensitiveColumns: number;
+            categories: string[];
+            /** Format: date-time */
+            lastSeenAt: string;
+        };
+        CatalogTablePage: {
+            /** Format: int64 */
+            total: number;
+            items: components["schemas"]["CatalogTable"][];
+        };
+        /** @enum {string} */
+        ObjectStatus: "active" | "removed";
+        TableColumn: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            nativeType: string;
+            /** Format: int32 */
+            ordinal: number;
+            nullable: boolean;
+            /** @description Detected categories only. */
+            categories: string[];
+        };
+        CatalogTableDetail: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            sourceId: string;
+            database: string;
+            schema: string;
+            table: string;
+            kind: string;
+            status: components["schemas"]["ObjectStatus"];
+            /** Format: date-time */
+            firstSeenAt: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+            columns: components["schemas"]["TableColumn"][];
+            renames: components["schemas"]["Rename"][];
+        };
+        Classification: {
+            categoryId: string;
+            /** @description False when the classifier looked and decided the category is absent. */
+            detected: boolean;
+            /** Format: double */
+            confidence: number;
+            nameMatch: boolean;
+            contextMatch: boolean;
+            /** Format: double */
+            formatRatio: number;
+            /** Format: double */
+            checksumRatio?: number;
+            /** Format: int64 */
+            rowsInspected: number;
+            /** Format: int64 */
+            rowsNonNull: number;
+            /** Format: int64 */
+            rowsMatched: number;
+            /** Format: int64 */
+            uniqueEstimate: number;
+            samplingMethod: string;
+            /** Format: date-time */
+            firstSeenAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        Rename: {
+            oldName: string;
+            newName: string;
+            /** Format: date-time */
+            detectedAt: string;
+            detectedBy: string;
+        };
+        CatalogColumnDetail: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tableId: string;
+            /** Format: uuid */
+            sourceId: string;
+            database: string;
+            schema: string;
+            table: string;
+            name: string;
+            nativeType: string;
+            /** Format: int32 */
+            ordinal: number;
+            nullable: boolean;
+            status: components["schemas"]["ObjectStatus"];
+            /** Format: date-time */
+            firstSeenAt: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+            classifications: components["schemas"]["Classification"][];
+            renames: components["schemas"]["Rename"][];
         };
         CatalogChange: {
             /** Format: date-time */
@@ -785,6 +960,28 @@ export interface operations {
             };
         };
     };
+    getAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+        };
+    };
     revokeAgent: {
         parameters: {
             query?: never;
@@ -840,6 +1037,28 @@ export interface operations {
         responses: {
             /** @description Created; the agent picks it up with its next heartbeat */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+        };
+    };
+    getSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The source; a deleted one is not found */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -966,6 +1185,74 @@ export interface operations {
             };
         };
     };
+    getCatalogColumn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                columnId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The column */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogColumnDetail"];
+                };
+            };
+        };
+    };
+    listCatalogTables: {
+        parameters: {
+            query?: {
+                sourceId?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tables */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogTablePage"];
+                };
+            };
+        };
+    };
+    getCatalogTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The table */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogTableDetail"];
+                };
+            };
+        };
+    };
     getCatalogSummary: {
         parameters: {
             query?: never;
@@ -1012,6 +1299,9 @@ export interface operations {
         parameters: {
             query?: {
                 sourceId?: string;
+                /** @description Events that name the table or read any of its columns, also under names it had before a rename. */
+                tableId?: string;
+                columnId?: string;
                 principal?: string;
                 category?: string;
                 eventType?: string;

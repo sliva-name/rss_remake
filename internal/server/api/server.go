@@ -89,7 +89,8 @@ func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeProblem(w, http.StatusUnauthorized, "unauthenticated", err.Error())
 	case errors.Is(err, errForbidden), errors.Is(err, errNoTenant):
 		writeProblem(w, http.StatusForbidden, "forbidden", err.Error())
-	case errors.Is(err, fleet.ErrNotFound), errors.Is(err, scan.ErrNotFound), errors.Is(err, policy.ErrNotFound):
+	case errors.Is(err, fleet.ErrNotFound), errors.Is(err, scan.ErrNotFound), errors.Is(err, policy.ErrNotFound),
+		errors.Is(err, asset.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "not_found", "resource not found")
 	case errors.Is(err, tenant.ErrConflict), errors.Is(err, fleet.ErrConflict):
 		writeProblem(w, http.StatusConflict, "conflict", err.Error())
@@ -184,6 +185,14 @@ func (s *Server) ListAgents(ctx context.Context, _ restapi.ListAgentsRequestObje
 	return response, nil
 }
 
+func (s *Server) GetAgent(ctx context.Context, request restapi.GetAgentRequestObject) (restapi.GetAgentResponseObject, error) {
+	agent, err := s.fleet.GetAgent(ctx, tenantOf(ctx), request.AgentId)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.GetAgent200JSONResponse(toAgent(agent)), nil
+}
+
 func (s *Server) RevokeAgent(ctx context.Context, request restapi.RevokeAgentRequestObject) (restapi.RevokeAgentResponseObject, error) {
 	if err := s.fleet.Revoke(ctx, tenantOf(ctx), request.AgentId); err != nil {
 		return nil, err
@@ -201,6 +210,14 @@ func (s *Server) ListSources(ctx context.Context, _ restapi.ListSourcesRequestOb
 		response = append(response, toSource(item))
 	}
 	return response, nil
+}
+
+func (s *Server) GetSource(ctx context.Context, request restapi.GetSourceRequestObject) (restapi.GetSourceResponseObject, error) {
+	source, err := s.fleet.GetSource(ctx, tenantOf(ctx), request.SourceId)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.GetSource200JSONResponse(toSource(source)), nil
 }
 
 func (s *Server) CreateSource(ctx context.Context, request restapi.CreateSourceRequestObject) (restapi.CreateSourceResponseObject, error) {

@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api } from "../api";
 import { capability, count, dateTime, engine, explain, percent, scanStatus, support } from "../labels";
+import { ObjectLink, paths } from "../links";
 import { Allowed, useCan } from "../permissions";
 import { CoverageBadge, FailureNote, Loadable, Page } from "../ui";
 import { Sources } from "./Sources";
@@ -121,7 +122,7 @@ export function Infrastructure({ tenantId }: { tenantId: string }) {
                     {rows.map((row) => (
                       <tr key={row.sourceId}>
                         <td>
-                          {row.sourceKey}
+                          <ObjectLink to={paths.source(row.sourceId)} needs="getSource">{row.sourceKey}</ObjectLink>
                           <div className="muted">{engine(row.engine)}</div>
                         </td>
                         <td>
@@ -207,7 +208,7 @@ export function Infrastructure({ tenantId }: { tenantId: string }) {
                   <tbody>
                     {rows.map((row) => (
                       <tr key={row.id}>
-                        <td>{keyOf(row.sourceId)}</td>
+                        <td><ObjectLink to={paths.source(row.sourceId)} needs="getSource">{keyOf(row.sourceId)}</ObjectLink></td>
                         <td>{scanStatus(row.status)}</td>
                         <td className="muted">{dateTime(row.createdAt)}</td>
                         <td className="muted">{dateTime(row.finishedAt)}</td>
@@ -236,7 +237,7 @@ export function Infrastructure({ tenantId }: { tenantId: string }) {
                   <tbody>
                     {rows.map((row) => (
                       <tr key={row.id}>
-                        <td className="mono">{row.id}</td>
+                        <td className="mono"><ObjectLink to={paths.agent(row.id)} needs="getAgent">{row.id}</ObjectLink></td>
                         <td><span className={`badge ${row.status === "active" ? "ok" : "bad"}`}>{row.status === "active" ? "Активен" : "Отозван"}</span></td>
                         <td className="mono">{row.version}</td>
                         <td className="muted">{dateTime(row.lastSeenAt)}</td>

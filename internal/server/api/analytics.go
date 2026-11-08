@@ -4,6 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
+
+	"dataguard/internal/core/asset"
 	"dataguard/internal/core/audit"
 	"dataguard/internal/gen/restapi"
 )
@@ -28,6 +31,19 @@ func period(from, to *time.Time) (time.Time, time.Time) {
 		return *from, end
 	}
 	return end.Add(-defaultPeriod), end
+}
+
+// tableMatch lists the names events may use for the table: its current name and
+// every name it had before a rename, all in the schema.table form events carry.
+func tableMatch(table *asset.TableView) *audit.TableMatch {
+	match := &audit.TableMatch{Names: []string{table.Schema + "." + table.Name}}
+	for _, rename := range table.Renames {
+		match.Names = append(match.Names, table.Schema+"."+rename.OldName)
+	}
+	for _, column := range table.Columns {
+		match.ColumnIDs = append(match.ColumnIDs, column.ID)
+	}
+	return match
 }
 
 func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditEventsRequestObject) (restapi.ListAuditEventsResponseObject, error) {
@@ -56,6 +72,21 @@ func (s *Server) ListAuditEvents(ctx context.Context, request restapi.ListAuditE
 	}
 	if params.SourceId != nil {
 		filter.SourceID = *params.SourceId
+	}
+	if params.ColumnId != nil {
+		filter.ColumnID = *params.ColumnId
+	}
+	if params.TableId != nil {
+		table, err := s.catalog.GetTable(ctx, tenantOf(ctx), *params.TableId)
+		if err != nil {
+			return nil, err
+		}
+		filter.Table = tableMatch(&table)
+		if filter.SourceID == uuid.Nil {
+			filter.SourceID = table.SourceID
+		} else if filter.SourceID != table.SourceID {
+			return restapi.ListAuditEvents200JSONResponse{Items: []restapi.AuditEvent{}, TotalExact: true}, nil
+		}
 	}
 	if params.IncludeLogins == nil || !*params.IncludeLogins {
 		filter.ExcludeType = typeAuthentication

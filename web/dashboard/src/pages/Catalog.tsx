@@ -1,17 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 
 import { api } from "../api";
 import { category, categoryIds, count, samplingMethod } from "../labels";
+import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
 import { Confidence, Loadable, Page } from "../ui";
 
 const pageSize = 50;
 
 export function Catalog() {
-  const [selected, setSelected] = useState("");
-  const [sourceId, setSourceId] = useState("");
-  const [offset, setOffset] = useState(0);
+  const [filters, update] = useUrlFilters(["sourceId", "category"]);
+  const { sourceId, category: selected } = filters;
+  const offset = Number(filters.offset) || 0;
   const can = useCan();
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
   const columns = useQuery({
@@ -24,7 +24,7 @@ export function Catalog() {
       <div className="filters">
         <label className="field">
           Источник
-          <select value={sourceId} onChange={(event) => { setSourceId(event.target.value); setOffset(0); }}>
+          <select value={sourceId} onChange={(event) => update({ sourceId: event.target.value })}>
             <option value="">Все</option>
             {sources.data?.map((source) => (
               <option key={source.id} value={source.id}>{source.key}</option>
@@ -33,7 +33,7 @@ export function Catalog() {
         </label>
         <label className="field">
           Категория
-          <select value={selected} onChange={(event) => { setSelected(event.target.value); setOffset(0); }}>
+          <select value={selected} onChange={(event) => update({ category: event.target.value })}>
             <option value="">Все</option>
             {categoryIds.map((id) => (
               <option key={id} value={id}>{category(id)}</option>
@@ -62,8 +62,15 @@ export function Catalog() {
                   <tbody>
                     {page.items.map((item) => (
                       <tr key={`${item.columnId}-${item.categoryId}`}>
-                        <td>{sources.data?.find((source) => source.id === item.sourceId)?.key ?? "—"}</td>
-                        <td className="mono">{item.schema}.{item.table}.{item.column}</td>
+                        <td>
+                          <ObjectLink to={paths.source(item.sourceId)} needs="getSource">
+                            {sources.data?.find((source) => source.id === item.sourceId)?.key ?? "Источник"}
+                          </ObjectLink>
+                        </td>
+                        <td className="mono">
+                          <ObjectLink to={paths.table(item.tableId)} needs="getCatalogTable">{item.schema}.{item.table}</ObjectLink>.
+                          <ObjectLink to={paths.column(item.columnId)} needs="getCatalogColumn">{item.column}</ObjectLink>
+                        </td>
                         <td className="mono muted">{item.nativeType}</td>
                         <td>{category(item.categoryId)}</td>
                         <td><Confidence value={item.confidence} /></td>
@@ -79,8 +86,8 @@ export function Catalog() {
                 </table>
               </div>
               <div className="pager">
-                <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>Назад</button>
-                <button disabled={offset + pageSize >= page.total} onClick={() => setOffset(offset + pageSize)}>Дальше</button>
+                <button disabled={offset === 0} onClick={() => update({ offset: String(Math.max(0, offset - pageSize)) })}>Назад</button>
+                <button disabled={offset + pageSize >= page.total} onClick={() => update({ offset: String(offset + pageSize) })}>Дальше</button>
                 <span>Всего: {count(page.total)}</span>
               </div>
             </>

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api";
 import { category, change, count, dateTime, percent } from "../labels";
+import { ObjectLink, paths } from "../links";
 import { Allowed, useCan } from "../permissions";
 import { CoverageBadge, Loadable, Page, Tile } from "../ui";
 
@@ -53,7 +54,7 @@ export function Overview() {
                   <tbody>
                     {rows.map((row) => (
                       <tr key={row.sourceId}>
-                        <td>{row.sourceKey}</td>
+                        <td><ObjectLink to={paths.source(row.sourceId)} needs="getSource">{row.sourceKey}</ObjectLink></td>
                         <td>
                           <CoverageBadge status={row.status} reason={row.reason} />
                         </td>
@@ -111,8 +112,10 @@ export function Overview() {
                         <td>{change(row.kind)}</td>
                         <td>{row.sourceKey}</td>
                         <td className="mono">
-                          {row.tableName}
-                          {row.columnName ? `.${row.columnName}` : ""}
+                          <ObjectLink to={paths.table(row.tableId)} needs="getCatalogTable">{row.tableName}</ObjectLink>
+                          {row.columnId && row.columnName && (
+                            <>.<ObjectLink to={paths.column(row.columnId)} needs="getCatalogColumn">{row.columnName}</ObjectLink></>
+                          )}
                         </td>
                         <td>{row.categoryId ? category(row.categoryId) : ""}</td>
                       </tr>

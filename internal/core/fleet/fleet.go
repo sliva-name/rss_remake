@@ -238,6 +238,10 @@ func (s *Service) Revoke(ctx context.Context, tenantID, agentID uuid.UUID) error
 	return s.repository.RevokeAgent(ctx, tenantID, agentID)
 }
 
+func (s *Service) GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (Agent, error) {
+	return s.repository.GetAgent(ctx, tenantID, agentID)
+}
+
 func (s *Service) ListAgents(ctx context.Context, tenantID uuid.UUID) ([]Agent, error) {
 	return s.repository.ListAgents(ctx, tenantID)
 }

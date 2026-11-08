@@ -216,6 +216,16 @@ func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
 	if filter.SourceID != uuid.Nil {
 		add("source_id = ?", filter.SourceID)
 	}
+	if filter.ColumnID != uuid.Nil {
+		add("has(column_ids, toUUID(?))", filter.ColumnID.String())
+	}
+	if filter.Table != nil {
+		conditions = append(conditions, tableCondition(filter.Table))
+		arguments = append(arguments, filter.Table.Names)
+		if len(filter.Table.ColumnIDs) > 0 {
+			arguments = append(arguments, uuidStrings(filter.Table.ColumnIDs))
+		}
+	}
 	if filter.Type != "" {
 		add("event_type = ?", filter.Type)
 	} else if filter.ExcludeType != "" {
@@ -233,6 +243,21 @@ func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
 		arguments = append(arguments, filter.Principal, filter.Principal)
 	}
 	return strings.Join(conditions, " AND "), arguments
+}
+
+func tableCondition(table *audit.TableMatch) string {
+	if len(table.ColumnIDs) == 0 {
+		return "hasAny(tables, ?)"
+	}
+	return "(hasAny(tables, ?) OR hasAny(column_ids, arrayMap(id -> toUUID(id), ?)))"
+}
+
+func uuidStrings(ids []uuid.UUID) []string {
+	result := make([]string, len(ids))
+	for i, id := range ids {
+		result[i] = id.String()
+	}
+	return result
 }
 
 // facts is the shared body of the reports: events counted per hour and per

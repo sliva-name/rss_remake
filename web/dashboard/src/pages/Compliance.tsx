@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api";
 import { category, count, dateTime } from "../labels";
+import { ObjectLink, paths } from "../links";
 import { Allowed, useCan } from "../permissions";
 import { Loadable, Page } from "../ui";
 
@@ -28,7 +29,7 @@ export function Compliance() {
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.category}>
-                      <td>{category(row.category)}</td>
+                      <td><ObjectLink to={paths.catalog({ category: row.category })} needs="listCatalogColumns">{category(row.category)}</ObjectLink></td>
                       <td className="num">{count(row.columns)}</td>
                       <td className="num">{count(row.tables)}</td>
                     </tr>
@@ -58,7 +59,7 @@ export function Compliance() {
                   <tbody>
                     {rows.map((row) => (
                       <tr key={row.category}>
-                        <td>{category(row.category)}</td>
+                        <td><ObjectLink to={paths.events({ category: row.category })} needs="listAuditEvents">{category(row.category)}</ObjectLink></td>
                         <td className="num">{count(row.events)}</td>
                         <td className="num">{count(row.principals)}</td>
                         <td className="num">{count(row.sources)}</td>

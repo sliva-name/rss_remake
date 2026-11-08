@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { api, type Schemas } from "../api";
 import { engine as engineLabel, failure, sourceStatus } from "../labels";
 import { fromBase64, sealPassword, toBase64 } from "../sealing";
+import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
 import { Loadable } from "../ui";
 
@@ -218,7 +219,7 @@ export function Sources({ tenantId }: { tenantId: string }) {
                   return (
                     <tr key={row.id}>
                       <td>
-                        {row.key}
+                        <ObjectLink to={paths.source(row.id)} needs="getSource">{row.key}</ObjectLink>
                         <div className="muted">{engineLabel(row.engine)} {row.engineVersion}</div>
                       </td>
                       <td>
@@ -229,7 +230,7 @@ export function Sources({ tenantId }: { tenantId: string }) {
                         {row.host}:{row.port}/{row.database}
                         <div className="muted">{row.username}</div>
                       </td>
-                      <td className="mono muted">{row.agentId.slice(0, 8)}</td>
+                      <td className="mono"><ObjectLink to={paths.agent(row.agentId)} needs="getAgent">{row.agentId.slice(0, 8)}</ObjectLink></td>
                       <td className="mono muted">{row.auditDirectory || "—"}</td>
                       <td className="actions">
                         {can("requestScan") && !row.statusCode && row.probedAt && (

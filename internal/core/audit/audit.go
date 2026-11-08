@@ -347,7 +347,10 @@ const CountLimit = 10_000
 
 // Filter narrows an event search; zero values mean no filter.
 type Filter struct {
-	SourceID  uuid.UUID
+	SourceID uuid.UUID
+	// Table matches events that name the table or read one of its columns.
+	Table     *TableMatch
+	ColumnID  uuid.UUID
 	Principal string
 	Category  string
 	Type      string
@@ -361,6 +364,14 @@ type Filter struct {
 	To     time.Time
 	Limit  int
 	Offset int
+}
+
+// TableMatch is how events refer to one table. Events carry names as the
+// agent saw them, so a renamed table is matched by every name it had; column
+// IDs survive renames on their own.
+type TableMatch struct {
+	Names     []string
+	ColumnIDs []uuid.UUID
 }
 
 // PrincipalAccess aggregates access by who did it.

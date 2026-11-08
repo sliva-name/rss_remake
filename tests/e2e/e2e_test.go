@@ -702,7 +702,7 @@ func TestPlatformEndToEnd(t *testing.T) {
 		var refreshed []restapi.Agent
 		eventually(t, "heartbeats stop", func() bool {
 			s.must(t, http.MethodGet, "/agents", nil, &refreshed)
-			return refreshed[0].Status == restapi.Revoked
+			return refreshed[0].Status == restapi.AgentStatusRevoked
 		})
 		first := refreshed[0].LastSeenAt
 		time.Sleep(35 * time.Second)

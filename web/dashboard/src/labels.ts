@@ -176,3 +176,11 @@ export const dateTime = (value: string | undefined): string =>
   value ? new Date(value).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "medium" }) : "—";
 
 export const count = (value: number): string => value.toLocaleString("ru-RU");
+
+const tableKinds: Record<string, string> = {
+  TABLE_KIND_TABLE: "Таблица",
+  TABLE_KIND_VIEW: "Представление",
+  TABLE_KIND_MATERIALIZED_VIEW: "Материализованное представление",
+};
+
+export const tableKind = (id: string): string => tableKinds[id] ?? id;

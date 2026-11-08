@@ -128,6 +128,10 @@ func (s *Service) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID
 	return s.repository.DeleteSource(ctx, tenantID, sourceID)
 }
 
+func (s *Service) GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (Source, error) {
+	return s.repository.GetSource(ctx, tenantID, sourceID)
+}
+
 func (s *Service) ListSources(ctx context.Context, tenantID uuid.UUID) ([]Source, error) {
 	return s.repository.ListSources(ctx, tenantID)
 }

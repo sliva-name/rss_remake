@@ -78,6 +78,58 @@ for (const scheme of ["light", "dark"]) {
   }
 }
 
+// The chain from a source to the events of one column, by links alone (ADR-0010).
+// Links navigate inside the page, so the load state stays idle from the first
+// load: each expected text is waited for instead.
+async function expectOnPage(step, expected) {
+  for (const item of expected) {
+    try {
+      await page.locator("main").getByText(item, { exact: false }).first().waitFor({ timeout: 30_000 });
+    } catch {
+      failures.push(`${step}: no "${item}"`);
+    }
+  }
+  const text = await page.locator("main").innerText();
+  if (text.includes("undefined") || text.includes("NaN")) failures.push(`${step}: broken value on screen`);
+  if (text.includes("dgcanary")) failures.push(`${step}: a source value is on screen`);
+}
+
+await page.emulateMedia({ colorScheme: "light" });
+try {
+  await page.goto(`${credentials.api}/infrastructure`);
+  const sources = page.locator("section").filter({ has: page.getByRole("heading", { name: "Источники", exact: true }) });
+  const source = sources.getByRole("row").filter({ hasText: "PostgreSQL" }).filter({ hasText: "Подключено" }).filter({ hasNotText: "ui-postgres" }).first().getByRole("link").first();
+  const sourceName = await source.innerText();
+  await source.click();
+  await page.getByRole("heading", { name: sourceName, exact: true }).waitFor();
+  await expectOnPage("source", ["Подключение", "Агент", "Базы, схемы и таблицы", "Аудит за сутки"]);
+  await page.screenshot({ path: `${output}/object-source.png`, fullPage: true });
+
+  await page.locator("main dl").getByRole("link").first().click();
+  await page.getByRole("heading", { name: "Агент", exact: true }).waitFor();
+  await expectOnPage("agent", ["Активен", "Источники агента", sourceName]);
+  await page.goBack();
+
+  await page.getByRole("link", { name: "dg_users", exact: true }).click();
+  await page.getByRole("heading", { name: "dg_users", exact: true }).waitFor();
+  await expectOnPage("table", ["Колонки", "email", "Email", sourceName]);
+  await page.screenshot({ path: `${output}/object-table.png`, fullPage: true });
+
+  await page.getByRole("link", { name: "email", exact: true }).click();
+  await page.getByRole("heading", { name: "email", exact: true }).waitFor();
+  await expectOnPage("column", ["Классификация", "Найдено", "Email", "Последние обращения", "dg_app"]);
+  await page.screenshot({ path: `${output}/object-column.png`, fullPage: true });
+
+  await page.getByRole("link", { name: "Все обращения к колонке" }).click();
+  await page.getByRole("heading", { name: "Обращения", exact: true }).waitFor();
+  await expectOnPage("events of the column", ["Колонка:", "dg_app"]);
+  if (!new URL(page.url()).searchParams.get("columnId")) failures.push("events of the column: the filter is not in the address");
+  await page.screenshot({ path: `${output}/object-events.png`, fullPage: true });
+} catch (error) {
+  await page.screenshot({ path: `${output}/object-failure.png`, fullPage: true });
+  throw error;
+}
+
 await page.setViewportSize({ width: 380, height: 800 });
 await page.goto(`${credentials.api}/infrastructure`);
 await page.getByRole("heading", { name: "Инфраструктура", exact: true }).waitFor();
@@ -91,4 +143,4 @@ if (failures.length > 0) {
   process.stderr.write(`${failures.join("\n")}\n`);
   process.exit(1);
 }
-process.stdout.write(`checked ${pages.length} pages in 2 themes and phone width\n`);
+process.stdout.write(`checked ${pages.length} pages in 2 themes, the object chain and phone width\n`);

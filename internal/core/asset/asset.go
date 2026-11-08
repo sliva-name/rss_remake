@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -104,11 +105,110 @@ type HistoryEntry struct {
 	CategoryID string
 }
 
+// ErrNotFound means the object does not exist in the tenant.
+var ErrNotFound = errors.New("not found")
+
 // Reader answers catalog queries.
 type Reader interface {
 	ListCatalog(ctx context.Context, tenantID uuid.UUID, filter CatalogFilter) ([]CatalogEntry, int64, error)
 	ListHistory(ctx context.Context, tenantID uuid.UUID, limit int) ([]HistoryEntry, error)
 	SummarizeCatalog(ctx context.Context, tenantID uuid.UUID) ([]CategoryCount, error)
+	ListTables(ctx context.Context, tenantID uuid.UUID, filter TableFilter) ([]TableEntry, int64, error)
+	GetTable(ctx context.Context, tenantID, tableID uuid.UUID) (TableView, error)
+	GetColumn(ctx context.Context, tenantID, columnID uuid.UUID) (ColumnView, error)
+}
+
+// TableFilter narrows a table listing; zero values mean no filter.
+type TableFilter struct {
+	SourceID uuid.UUID
+	Limit    int
+	Offset   int
+}
+
+// TableEntry is one active table with how much of it is sensitive.
+type TableEntry struct {
+	ID               uuid.UUID
+	SourceID         uuid.UUID
+	Database         string
+	Schema           string
+	Name             string
+	Kind             string
+	Columns          int64
+	SensitiveColumns int64
+	Categories       []string
+	LastSeenAt       time.Time
+}
+
+// TableView is one table with its active columns. A removed table is still
+// shown: events keep referring to it.
+type TableView struct {
+	ID          uuid.UUID
+	SourceID    uuid.UUID
+	Database    string
+	Schema      string
+	Name        string
+	Kind        string
+	Status      string
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+	Columns     []ColumnEntry
+	Renames     []RenameRecord
+}
+
+// ColumnEntry is one column of a table with its detected categories.
+type ColumnEntry struct {
+	ID         uuid.UUID
+	Name       string
+	NativeType string
+	Ordinal    int32
+	Nullable   bool
+	Categories []string
+}
+
+// ColumnView is one column with every classification decision about it.
+type ColumnView struct {
+	ID              uuid.UUID
+	TableID         uuid.UUID
+	SourceID        uuid.UUID
+	Database        string
+	Schema          string
+	Table           string
+	Name            string
+	NativeType      string
+	Ordinal         int32
+	Nullable        bool
+	Status          string
+	FirstSeenAt     time.Time
+	LastSeenAt      time.Time
+	Classifications []Decision
+	Renames         []RenameRecord
+}
+
+// Decision is what the classifier concluded about one category of a column,
+// including that it is absent.
+type Decision struct {
+	CategoryID     string
+	Detected       bool
+	Confidence     float64
+	NameMatch      bool
+	ContextMatch   bool
+	FormatRatio    float64
+	ChecksumRatio  *float64
+	RowsInspected  int64
+	RowsNonNull    int64
+	RowsMatched    int64
+	UniqueEstimate int64
+	SamplingMethod string
+	FirstSeenAt    time.Time
+	UpdatedAt      time.Time
+}
+
+// RenameRecord is a stored rename.
+type RenameRecord struct {
+	OldName    string
+	NewName    string
+	DetectedAt time.Time
+	DetectedBy string
 }
 
 // CategoryCount says how much of a category is stored.

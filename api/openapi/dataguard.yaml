@@ -89,6 +89,20 @@ paths:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/Agent"}
+  /agents/{agentId}:
+    get:
+      operationId: getAgent
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The agent
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Agent"}
   /agents/{agentId}/revoke:
     post:
       operationId: revokeAgent
@@ -131,6 +145,14 @@ paths:
         in: path
         required: true
         schema: {type: string, format: uuid}
+    get:
+      operationId: getSource
+      responses:
+        "200":
+          description: The source; a deleted one is not found
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Source"}
     put:
       operationId: updateSource
       description: The agent and the engine cannot change. A change of host, port, database, user or TLS needs the password sealed again.
@@ -192,6 +214,50 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/CatalogPage"}
+  /catalog/columns/{columnId}:
+    get:
+      operationId: getCatalogColumn
+      description: A column with every classification decision and its renames, also after it was removed
+      parameters:
+        - name: columnId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The column
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CatalogColumnDetail"}
+  /catalog/tables:
+    get:
+      operationId: listCatalogTables
+      description: Active tables, by database, schema and name
+      parameters:
+        - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+      responses:
+        "200":
+          description: Tables
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CatalogTablePage"}
+  /catalog/tables/{tableId}:
+    get:
+      operationId: getCatalogTable
+      description: A table with its active columns, also after it was removed
+      parameters:
+        - name: tableId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The table
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CatalogTableDetail"}
   /catalog/summary:
     get:
       operationId: getCatalogSummary
@@ -221,6 +287,11 @@ paths:
       operationId: listAuditEvents
       parameters:
         - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - name: tableId
+          in: query
+          description: Events that name the table or read any of its columns, also under names it had before a rename.
+          schema: {type: string, format: uuid}
+        - {name: columnId, in: query, schema: {type: string, format: uuid}}
         - {name: principal, in: query, schema: {type: string}}
         - {name: category, in: query, schema: {type: string}}
         - {name: eventType, in: query, schema: {type: string}}
@@ -353,14 +424,19 @@ components:
         - createEnvironment
         - createEnrollmentToken
         - listAgents
+        - getAgent
         - revokeAgent
         - listSources
+        - getSource
         - createSource
         - updateSource
         - deleteSource
         - listScans
         - requestScan
         - listCatalogColumns
+        - getCatalogColumn
+        - listCatalogTables
+        - getCatalogTable
         - getCatalogSummary
         - listCatalogChanges
         - listAuditEvents
@@ -535,6 +611,116 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/CatalogColumn"}
+    CatalogTable:
+      type: object
+      required: [id, sourceId, database, schema, table, kind, columns, sensitiveColumns, categories, lastSeenAt]
+      properties:
+        id: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        database: {type: string}
+        schema: {type: string}
+        table: {type: string}
+        kind: {type: string}
+        columns: {type: integer, format: int64}
+        sensitiveColumns: {type: integer, format: int64}
+        categories:
+          type: array
+          items: {type: string}
+        lastSeenAt: {type: string, format: date-time}
+    CatalogTablePage:
+      type: object
+      required: [total, items]
+      properties:
+        total: {type: integer, format: int64}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CatalogTable"}
+    ObjectStatus:
+      type: string
+      enum: [active, removed]
+    TableColumn:
+      type: object
+      required: [id, name, nativeType, ordinal, nullable, categories]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        nativeType: {type: string}
+        ordinal: {type: integer, format: int32}
+        nullable: {type: boolean}
+        categories:
+          description: Detected categories only.
+          type: array
+          items: {type: string}
+    CatalogTableDetail:
+      type: object
+      required: [id, sourceId, database, schema, table, kind, status, firstSeenAt, lastSeenAt, columns, renames]
+      properties:
+        id: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        database: {type: string}
+        schema: {type: string}
+        table: {type: string}
+        kind: {type: string}
+        status: {$ref: "#/components/schemas/ObjectStatus"}
+        firstSeenAt: {type: string, format: date-time}
+        lastSeenAt: {type: string, format: date-time}
+        columns:
+          type: array
+          items: {$ref: "#/components/schemas/TableColumn"}
+        renames:
+          type: array
+          items: {$ref: "#/components/schemas/Rename"}
+    Classification:
+      type: object
+      required: [categoryId, detected, confidence, nameMatch, contextMatch, formatRatio, rowsInspected, rowsNonNull, rowsMatched, uniqueEstimate, samplingMethod, firstSeenAt, updatedAt]
+      properties:
+        categoryId: {type: string}
+        detected:
+          description: False when the classifier looked and decided the category is absent.
+          type: boolean
+        confidence: {type: number, format: double}
+        nameMatch: {type: boolean}
+        contextMatch: {type: boolean}
+        formatRatio: {type: number, format: double}
+        checksumRatio: {type: number, format: double}
+        rowsInspected: {type: integer, format: int64}
+        rowsNonNull: {type: integer, format: int64}
+        rowsMatched: {type: integer, format: int64}
+        uniqueEstimate: {type: integer, format: int64}
+        samplingMethod: {type: string}
+        firstSeenAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    Rename:
+      type: object
+      required: [oldName, newName, detectedAt, detectedBy]
+      properties:
+        oldName: {type: string}
+        newName: {type: string}
+        detectedAt: {type: string, format: date-time}
+        detectedBy: {type: string}
+    CatalogColumnDetail:
+      type: object
+      required: [id, tableId, sourceId, database, schema, table, name, nativeType, ordinal, nullable, status, firstSeenAt, lastSeenAt, classifications, renames]
+      properties:
+        id: {type: string, format: uuid}
+        tableId: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        database: {type: string}
+        schema: {type: string}
+        table: {type: string}
+        name: {type: string}
+        nativeType: {type: string}
+        ordinal: {type: integer, format: int32}
+        nullable: {type: boolean}
+        status: {$ref: "#/components/schemas/ObjectStatus"}
+        firstSeenAt: {type: string, format: date-time}
+        lastSeenAt: {type: string, format: date-time}
+        classifications:
+          type: array
+          items: {$ref: "#/components/schemas/Classification"}
+        renames:
+          type: array
+          items: {$ref: "#/components/schemas/Rename"}
     CatalogChange:
       type: object
       required: [occurredAt, kind, tableId, categoryId, tableName, sourceKey]

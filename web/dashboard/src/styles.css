@@ -83,7 +83,7 @@ code, .mono { font-family: var(--mono); font-size: 13px; }
 
 .brand { font-weight: 650; font-size: 16px; padding: 4px 10px 16px; }
 
-.side a {
+.side a, .side a:hover {
   color: var(--text-2);
   text-decoration: none;
   padding: 7px 10px;
@@ -174,3 +174,22 @@ button.danger { color: var(--bad); }
   .side-foot { margin-top: 0; width: 100%; }
   main { padding: 16px; }
 }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.trail { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-2); font-size: 13px; margin-bottom: 6px; }
+.trail span + span::before { content: "›"; margin-right: 6px; }
+
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0; }
+.facts dt { color: var(--text-2); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+tr.group td { background: var(--surface-2); color: var(--text-2); font-size: 12.5px; padding: 5px 10px; }
+
+.chip-filter { display: inline-flex; align-items: center; gap: 6px; background: var(--neutral-bg); border-radius: 12px; padding: 2px 4px 2px 10px; font-size: 13px; }
+.chip-filter button { border: 0; background: transparent; padding: 0 6px; line-height: 1.4; }
+
+button.link { background: none; border: 0; padding: 0; color: var(--accent); text-align: left; }
+button.link:hover:not(:disabled) { text-decoration: underline; }
+h1.mono { font-size: 20px; overflow-wrap: anywhere; }

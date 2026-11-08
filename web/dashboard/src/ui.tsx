@@ -1,7 +1,8 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import { coverageStatus, explain, failure } from "./labels";
+import { ApiError } from "./api";
+import { category, coverageStatus, explain, failure } from "./labels";
 
 export function Loadable<T>({
   query,
@@ -15,6 +16,9 @@ export function Loadable<T>({
   children: (data: T) => ReactNode;
 }) {
   if (query.isPending) return <div className="empty">Загрузка…</div>;
+  if (query.isError && query.error instanceof ApiError && query.error.status === 404) {
+    return <div className="empty">Объект не найден. Возможно, он удалён или принадлежит другой организации.</div>;
+  }
   if (query.isError) return <div className="error">Не удалось загрузить: {query.error.message}</div>;
   if (isEmpty?.(query.data)) return <div className="empty">{empty}</div>;
   return <>{children(query.data)}</>;
@@ -27,6 +31,28 @@ export function Page({ title, lead, children }: { title: string; lead?: string; 
       <p className="lead">{lead}</p>
       {children}
     </>
+  );
+}
+
+export function Facts({ items }: { items: [string, ReactNode][] }) {
+  return (
+    <dl className="facts">
+      {items.map(([term, value]) => (
+        <div key={term} style={{ display: "contents" }}>
+          <dt>{term}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function Categories({ ids, tone = "warn" }: { ids: string[]; tone?: string }) {
+  if (ids.length === 0) return <span className="muted">—</span>;
+  return (
+    <div className="chips">
+      {ids.map((id) => <span key={id} className={`badge ${tone}`}>{category(id)}</span>)}
+    </div>
   );
 }
 

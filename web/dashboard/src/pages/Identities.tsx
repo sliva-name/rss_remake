@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api";
 import { category, count, dateTime, identity } from "../labels";
+import { ObjectLink, paths } from "../links";
 import { Loadable, Page } from "../ui";
 
 export function Identities() {
@@ -27,8 +28,18 @@ export function Identities() {
                 <tbody>
                   {rows.map((row, index) => (
                     <tr key={index}>
-                      <td>{row.applicationPrincipal || <span className="muted">Не идентифицирован</span>}</td>
-                      <td className="mono">{row.databasePrincipal || "—"}</td>
+                      <td>
+                        {row.applicationPrincipal ? (
+                          <ObjectLink to={paths.events({ principal: row.applicationPrincipal })} needs="listAuditEvents">{row.applicationPrincipal}</ObjectLink>
+                        ) : (
+                          <span className="muted">Не идентифицирован</span>
+                        )}
+                      </td>
+                      <td className="mono">
+                        {row.databasePrincipal ? (
+                          <ObjectLink to={paths.events({ principal: row.databasePrincipal })} needs="listAuditEvents">{row.databasePrincipal}</ObjectLink>
+                        ) : "—"}
+                      </td>
                       <td className="muted">{identity(row.identityConfidence)}</td>
                       <td className="num">{count(row.events)}</td>
                       <td className="num">{count(row.sensitiveEvents)}</td>

@@ -6,13 +6,17 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-do
 import { api } from "./api";
 import { completeSignIn, signIn, signOut } from "./auth";
 import { Access } from "./pages/Access";
+import { AgentPage } from "./pages/AgentPage";
 import { Catalog } from "./pages/Catalog";
+import { ColumnPage } from "./pages/ColumnPage";
 import { Compliance } from "./pages/Compliance";
 import { Identities } from "./pages/Identities";
 import { Infrastructure } from "./pages/Infrastructure";
 import { Overview } from "./pages/Overview";
+import { SourcePage } from "./pages/SourcePage";
+import { TablePage } from "./pages/TablePage";
 import { Tenants } from "./pages/Tenants";
-import { PermissionsProvider } from "./permissions";
+import { type Permission, PermissionsProvider } from "./permissions";
 import { visibleSections } from "./sections";
 import "./styles.css";
 
@@ -57,6 +61,14 @@ const pages: Record<string, (tenantId: string) => ReactElement> = {
   "/tenants": () => <Tenants />,
 };
 
+// Every object has an address, so any list can link to it (ADR-0010).
+const objectPages: { path: string; needs: Permission; element: ReactElement }[] = [
+  { path: "/sources/:id", needs: "getSource", element: <SourcePage /> },
+  { path: "/agents/:id", needs: "getAgent", element: <AgentPage /> },
+  { path: "/tables/:id", needs: "getCatalogTable", element: <TablePage /> },
+  { path: "/columns/:id", needs: "getCatalogColumn", element: <ColumnPage /> },
+];
+
 function Shell() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me, refetchInterval: false });
   if (me.isPending) return <div className="login">Загрузка…</div>;
@@ -85,6 +97,9 @@ function Shell() {
             <Routes>
               {visible.map((section) => (
                 <Route key={section.path} path={section.path} element={pages[section.path]?.(tenantId)} />
+              ))}
+              {objectPages.filter((page) => permissions.has(page.needs)).map((page) => (
+                <Route key={page.path} path={page.path} element={page.element} />
               ))}
               <Route path="*" element={<Navigate to={visible[0]?.path ?? "/"} replace />} />
             </Routes>
