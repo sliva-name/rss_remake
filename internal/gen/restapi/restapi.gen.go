@@ -81,6 +81,90 @@ func (e EnvironmentKind) Valid() bool {
 	}
 }
 
+// Defines values for Permission.
+const (
+	CreateEnrollmentToken Permission = "createEnrollmentToken"
+	CreateEnvironment     Permission = "createEnvironment"
+	CreateSource          Permission = "createSource"
+	CreateTenant          Permission = "createTenant"
+	DeleteSource          Permission = "deleteSource"
+	GetAccessSummary      Permission = "getAccessSummary"
+	GetAuditCoverage      Permission = "getAuditCoverage"
+	GetCatalogSummary     Permission = "getCatalogSummary"
+	GetCurrentUser        Permission = "getCurrentUser"
+	GetPolicy             Permission = "getPolicy"
+	ListAccessByCategory  Permission = "listAccessByCategory"
+	ListAccessByPrincipal Permission = "listAccessByPrincipal"
+	ListAgents            Permission = "listAgents"
+	ListAuditEvents       Permission = "listAuditEvents"
+	ListCatalogChanges    Permission = "listCatalogChanges"
+	ListCatalogColumns    Permission = "listCatalogColumns"
+	ListEnvironments      Permission = "listEnvironments"
+	ListScans             Permission = "listScans"
+	ListSources           Permission = "listSources"
+	ListTenants           Permission = "listTenants"
+	PublishPolicy         Permission = "publishPolicy"
+	RequestScan           Permission = "requestScan"
+	RevokeAgent           Permission = "revokeAgent"
+	UpdateSource          Permission = "updateSource"
+)
+
+// Valid indicates whether the value is a known member of the Permission enum.
+func (e Permission) Valid() bool {
+	switch e {
+	case CreateEnrollmentToken:
+		return true
+	case CreateEnvironment:
+		return true
+	case CreateSource:
+		return true
+	case CreateTenant:
+		return true
+	case DeleteSource:
+		return true
+	case GetAccessSummary:
+		return true
+	case GetAuditCoverage:
+		return true
+	case GetCatalogSummary:
+		return true
+	case GetCurrentUser:
+		return true
+	case GetPolicy:
+		return true
+	case ListAccessByCategory:
+		return true
+	case ListAccessByPrincipal:
+		return true
+	case ListAgents:
+		return true
+	case ListAuditEvents:
+		return true
+	case ListCatalogChanges:
+		return true
+	case ListCatalogColumns:
+		return true
+	case ListEnvironments:
+		return true
+	case ListScans:
+		return true
+	case ListSources:
+		return true
+	case ListTenants:
+		return true
+	case PublishPolicy:
+		return true
+	case RequestScan:
+		return true
+	case RevokeAgent:
+		return true
+	case UpdateSource:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ScanStatus.
 const (
 	Cancelled ScanStatus = "cancelled"
@@ -303,9 +387,11 @@ type CoverageRowStatus string
 
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
-	Roles    []string            `json:"roles"`
-	Subject  string              `json:"subject"`
-	TenantId *openapi_types.UUID `json:"tenantId,omitempty"`
+	// Permissions Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010).
+	Permissions []Permission        `json:"permissions"`
+	Roles       []string            `json:"roles"`
+	Subject     string              `json:"subject"`
+	TenantId    *openapi_types.UUID `json:"tenantId,omitempty"`
 }
 
 // CustomDetector defines model for CustomDetector.
@@ -369,6 +455,9 @@ type NewSource struct {
 type NewTenant struct {
 	Name string `json:"name"`
 }
+
+// Permission An operationId of this API.
+type Permission string
 
 // Policy defines model for Policy.
 type Policy struct {

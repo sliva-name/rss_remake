@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api, type Schemas } from "../api";
 import { category, categoryIds, count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
+import { useCan } from "../permissions";
 import { FailureNote, Loadable, Page } from "../ui";
 
 const pageSize = 50;
@@ -69,7 +70,8 @@ export function Access() {
       eventType: filters.eventType === "all" ? "" : filters.eventType, limit: pageSize, offset,
     }),
   });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  const can = useCan();
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
   // The scanner is the login the agent was given for that source.
   const isScanner = (event: Schemas["AuditEvent"]) =>
     sources.data?.some((source) => source.id === event.sourceId && source.username === event.databasePrincipal) ?? false;

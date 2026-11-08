@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api } from "../api";
 import { capability, count, dateTime, engine, explain, percent, scanStatus, support } from "../labels";
+import { Allowed, useCan } from "../permissions";
 import { CoverageBadge, FailureNote, Loadable, Page } from "../ui";
 import { Sources } from "./Sources";
 
@@ -28,7 +29,8 @@ function IssuedToken({ token, expiresAt }: { token: string; expiresAt: string })
 }
 
 function Enrollment() {
-  const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments });
+  const can = useCan();
+  const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments, enabled: can("listEnvironments") });
   const client = useQueryClient();
   const [environmentId, setEnvironmentId] = useState("");
   const [name, setName] = useState("");
@@ -45,11 +47,15 @@ function Enrollment() {
     <section className="card">
       <h2>Подключить агента</h2>
       <div className="filters">
-        <label className="field">
-          Новая среда
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Название" />
-        </label>
-        <button disabled={!name || create.isPending} onClick={() => create.mutate()}>Создать</button>
+        {can("createEnvironment") && (
+          <>
+            <label className="field">
+              Новая среда
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Название" />
+            </label>
+            <button disabled={!name || create.isPending} onClick={() => create.mutate()}>Создать</button>
+          </>
+        )}
         <label className="field">
           Среда
           <select value={selected} onChange={(event) => setEnvironmentId(event.target.value)}>
@@ -67,14 +73,13 @@ function Enrollment() {
   );
 }
 
-export function Infrastructure({ roles, tenantId }: { roles: string[]; tenantId: string }) {
+export function Infrastructure({ tenantId }: { tenantId: string }) {
   const client = useQueryClient();
-  const admin = roles.includes("tenant_admin");
-  const canScan = admin || roles.includes("security_analyst");
-  const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24) });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
-  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
-  const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
+  const can = useCan();
+  const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24), enabled: can("getAuditCoverage") });
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: can("listAgents") });
+  const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans, enabled: can("listScans") });
   const scan = useMutation({
     mutationFn: api.requestScan,
     onSuccess: () => client.invalidateQueries({ queryKey: ["scans"] }),
@@ -87,165 +92,180 @@ export function Infrastructure({ roles, tenantId }: { roles: string[]; tenantId:
 
   return (
     <Page title="Инфраструктура" lead="Что платформа видит и чего не видит. «Нет данных» значит, что измерять было нечего: это не ноль.">
-      <Sources tenantId={tenantId} admin={admin} canScan={canScan} />
+      <Allowed to="listSources">
+        <Sources tenantId={tenantId} />
+      </Allowed>
 
-      <section className="card">
-        <h2>Покрытие аудита за сутки</h2>
-        <Loadable query={coverage} empty="Источники ещё не подключены." isEmpty={(rows) => rows.length === 0}>
-          {(rows) => (
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Источник</th>
-                    <th>Состояние</th>
-                    <th>Аудит чтения</th>
-                    <th>Последний скан</th>
-                    <th className="num">Запросов</th>
-                    <th className="num">До колонок</th>
-                    <th className="num">Учётная запись</th>
-                    <th className="num">Подтверждён</th>
-                    <th className="num">Потерь</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.sourceId}>
-                      <td>
-                        {row.sourceKey}
-                        <div className="muted">{engine(row.engine)}</div>
-                      </td>
-                      <td>
-                        <CoverageBadge status={row.status} reason={row.reason} />
-                        <FailureNote code={row.reason} />
-                      </td>
-                      <td>{row.readsAudited ? "Да" : <span className="badge bad">Нет</span>}</td>
-                      <td>
-                        {row.lastScanStatus ? scanStatus(row.lastScanStatus) : "Не было"}
-                        <div className="muted">{dateTime(row.lastScanAt)}</div>
-                      </td>
-                      <td className="num">{count(row.statements)}</td>
-                      <td className="num">{percent(row.columnsShare)}</td>
-                      <td className="num">{percent(row.principalShare)}</td>
-                      <td className="num">{percent(row.verifiedShare)}</td>
-                      <td className="num">{count(row.gaps)}</td>
-                      <td>
-                        {canScan && (
-                          <button disabled={scan.isPending} onClick={() => scan.mutate(row.sourceId)}>Сканировать</button>
-                        )}
-                      </td>
+      <Allowed to="getAuditCoverage">
+        <section className="card">
+          <h2>Покрытие аудита за сутки</h2>
+          <Loadable query={coverage} empty="Источники ещё не подключены." isEmpty={(rows) => rows.length === 0}>
+            {(rows) => (
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Источник</th>
+                      <th>Состояние</th>
+                      <th>Аудит чтения</th>
+                      <th>Последний скан</th>
+                      <th className="num">Запросов</th>
+                      <th className="num">До колонок</th>
+                      <th className="num">Учётная запись</th>
+                      <th className="num">Подтверждён</th>
+                      <th className="num">Потерь</th>
+                      <th />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Loadable>
-        {scan.isError && <div className="error">{scan.error.message}</div>}
-      </section>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.sourceId}>
+                        <td>
+                          {row.sourceKey}
+                          <div className="muted">{engine(row.engine)}</div>
+                        </td>
+                        <td>
+                          <CoverageBadge status={row.status} reason={row.reason} />
+                          <FailureNote code={row.reason} />
+                        </td>
+                        <td>{row.readsAudited ? "Да" : <span className="badge bad">Нет</span>}</td>
+                        <td>
+                          {row.lastScanStatus ? scanStatus(row.lastScanStatus) : "Не было"}
+                          <div className="muted">{dateTime(row.lastScanAt)}</div>
+                        </td>
+                        <td className="num">{count(row.statements)}</td>
+                        <td className="num">{percent(row.columnsShare)}</td>
+                        <td className="num">{percent(row.principalShare)}</td>
+                        <td className="num">{percent(row.verifiedShare)}</td>
+                        <td className="num">{count(row.gaps)}</td>
+                        <td>
+                          {can("requestScan") && (
+                            <button disabled={scan.isPending} onClick={() => scan.mutate(row.sourceId)}>Сканировать</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Loadable>
+          {scan.isError && <div className="error">{scan.error.message}</div>}
+        </section>
 
-      <section className="card">
-        <h2>Возможности источников</h2>
-        <Loadable query={sources} empty="Источники ещё не подключены." isEmpty={(rows) => rows.length === 0}>
-          {(rows) => (
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Возможность</th>
-                    {rows.map((source) => <th key={source.id}>{source.key}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...new Set(rows.flatMap((source) => source.capabilities.map((item) => item.capability)))].sort().map((name) => (
-                    <tr key={name}>
-                      <td>{capability(name)}</td>
-                      {rows.map((source) => {
-                        const item = source.capabilities.find((candidate) => candidate.capability === name);
-                        return (
-                          <td key={source.id}>
-                            {item ? (
-                              <span className={`badge ${supportTone[item.support] ?? ""}`} title={item.reasonCode ? explain(item.reasonCode) : undefined}>
-                                {support(item.support)}
-                              </span>
-                            ) : "—"}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Loadable>
-      </section>
+        <Allowed to="listSources">
+          <section className="card">
+            <h2>Возможности источников</h2>
+            <Loadable query={sources} empty="Источники ещё не подключены." isEmpty={(rows) => rows.length === 0}>
+              {(rows) => (
+                <div className="scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Возможность</th>
+                        {rows.map((source) => <th key={source.id}>{source.key}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...new Set(rows.flatMap((source) => source.capabilities.map((item) => item.capability)))].sort().map((name) => (
+                        <tr key={name}>
+                          <td>{capability(name)}</td>
+                          {rows.map((source) => {
+                            const item = source.capabilities.find((candidate) => candidate.capability === name);
+                            return (
+                              <td key={source.id}>
+                                {item ? (
+                                  <span className={`badge ${supportTone[item.support] ?? ""}`} title={item.reasonCode ? explain(item.reasonCode) : undefined}>
+                                    {support(item.support)}
+                                  </span>
+                                ) : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Loadable>
+          </section>
+        </Allowed>
 
-      <section className="card">
-        <h2>Сканирования</h2>
-        <Loadable query={scans} empty="Сканирований ещё не было." isEmpty={(rows) => rows.length === 0}>
-          {(rows) => (
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr><th>Источник</th><th>Статус</th><th>Запущено</th><th>Завершено</th><th>Причина</th></tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      <td>{keyOf(row.sourceId)}</td>
-                      <td>{scanStatus(row.status)}</td>
-                      <td className="muted">{dateTime(row.createdAt)}</td>
-                      <td className="muted">{dateTime(row.finishedAt)}</td>
-                      <td><FailureNote code={row.failureCode} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Loadable>
-      </section>
+      </Allowed>
 
-      <section className="card">
-        <h2>Агенты</h2>
-        <Loadable query={agents} empty="Агентов пока нет." isEmpty={(rows) => rows.length === 0}>
-          {(rows) => (
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr><th>Идентификатор</th><th>Статус</th><th>Версия</th><th>Был на связи</th><th>Сертификат до</th><th /></tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      <td className="mono">{row.id}</td>
-                      <td><span className={`badge ${row.status === "active" ? "ok" : "bad"}`}>{row.status === "active" ? "Активен" : "Отозван"}</span></td>
-                      <td className="mono">{row.version}</td>
-                      <td className="muted">{dateTime(row.lastSeenAt)}</td>
-                      <td className="muted">{dateTime(row.certificateExpires)}</td>
-                      <td>
-                        {admin && row.status === "active" && (
-                          <button
-                            className="danger"
-                            disabled={revoke.isPending}
-                            onClick={() => { if (window.confirm("Отозвать агента? Он сразу потеряет доступ.")) revoke.mutate(row.id); }}
-                          >
-                            Отозвать
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Loadable>
-      </section>
+      <Allowed to="listScans">
+        <section className="card">
+          <h2>Сканирования</h2>
+          <Loadable query={scans} empty="Сканирований ещё не было." isEmpty={(rows) => rows.length === 0}>
+            {(rows) => (
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr><th>Источник</th><th>Статус</th><th>Запущено</th><th>Завершено</th><th>Причина</th></tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id}>
+                        <td>{keyOf(row.sourceId)}</td>
+                        <td>{scanStatus(row.status)}</td>
+                        <td className="muted">{dateTime(row.createdAt)}</td>
+                        <td className="muted">{dateTime(row.finishedAt)}</td>
+                        <td><FailureNote code={row.failureCode} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Loadable>
+        </section>
 
-      {admin && <Enrollment />}
+      </Allowed>
+
+      <Allowed to="listAgents">
+        <section className="card">
+          <h2>Агенты</h2>
+          <Loadable query={agents} empty="Агентов пока нет." isEmpty={(rows) => rows.length === 0}>
+            {(rows) => (
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr><th>Идентификатор</th><th>Статус</th><th>Версия</th><th>Был на связи</th><th>Сертификат до</th><th /></tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id}>
+                        <td className="mono">{row.id}</td>
+                        <td><span className={`badge ${row.status === "active" ? "ok" : "bad"}`}>{row.status === "active" ? "Активен" : "Отозван"}</span></td>
+                        <td className="mono">{row.version}</td>
+                        <td className="muted">{dateTime(row.lastSeenAt)}</td>
+                        <td className="muted">{dateTime(row.certificateExpires)}</td>
+                        <td>
+                          {can("revokeAgent") && row.status === "active" && (
+                            <button
+                              className="danger"
+                              disabled={revoke.isPending}
+                              onClick={() => { if (window.confirm("Отозвать агента? Он сразу потеряет доступ.")) revoke.mutate(row.id); }}
+                            >
+                              Отозвать
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Loadable>
+        </section>
+
+      </Allowed>
+
+      <Allowed to="createEnrollmentToken">
+        <Enrollment />
+      </Allowed>
     </Page>
   );
 }

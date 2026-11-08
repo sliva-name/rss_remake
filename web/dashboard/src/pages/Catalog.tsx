@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api } from "../api";
 import { category, categoryIds, count, samplingMethod } from "../labels";
+import { useCan } from "../permissions";
 import { Confidence, Loadable, Page } from "../ui";
 
 const pageSize = 50;
@@ -11,7 +12,8 @@ export function Catalog() {
   const [selected, setSelected] = useState("");
   const [sourceId, setSourceId] = useState("");
   const [offset, setOffset] = useState(0);
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  const can = useCan();
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
   const columns = useQuery({
     queryKey: ["catalog", selected, sourceId, offset],
     queryFn: () => api.catalog({ category: selected, sourceId, limit: pageSize, offset }),

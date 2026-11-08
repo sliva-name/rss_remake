@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
 
@@ -12,6 +12,8 @@ import { Identities } from "./pages/Identities";
 import { Infrastructure } from "./pages/Infrastructure";
 import { Overview } from "./pages/Overview";
 import { Tenants } from "./pages/Tenants";
+import { PermissionsProvider } from "./permissions";
+import { visibleSections } from "./sections";
 import "./styles.css";
 
 const client = new QueryClient({
@@ -45,50 +47,51 @@ function ThemeSwitch() {
   );
 }
 
+const pages: Record<string, (tenantId: string) => ReactElement> = {
+  "/overview": () => <Overview />,
+  "/catalog": () => <Catalog />,
+  "/access": () => <Access />,
+  "/identities": () => <Identities />,
+  "/compliance": () => <Compliance />,
+  "/infrastructure": (tenantId) => <Infrastructure tenantId={tenantId} />,
+  "/tenants": () => <Tenants />,
+};
+
 function Shell() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me, refetchInterval: false });
   if (me.isPending) return <div className="login">Загрузка…</div>;
   if (me.isError) return <div className="login">Нет доступа: {me.error.message}</div>;
 
-  const inTenant = me.data.tenantId !== undefined;
-  const platform = me.data.roles.includes("platform_admin");
+  const permissions = new Set(me.data.permissions);
+  const visible = visibleSections((permission) => permissions.has(permission));
+  const tenantId = me.data.tenantId ?? "";
   return (
-    <div className="shell">
-      <nav className="side" aria-label="Разделы">
-        <div className="brand">DataGuard</div>
-        {inTenant && (
-          <>
-            <NavLink to="/overview">Обзор</NavLink>
-            <NavLink to="/catalog">Каталог данных</NavLink>
-            <NavLink to="/access">Обращения</NavLink>
-            <NavLink to="/identities">Пользователи</NavLink>
-            <NavLink to="/compliance">Отчёты</NavLink>
-            <NavLink to="/infrastructure">Инфраструктура</NavLink>
-          </>
-        )}
-        {platform && <NavLink to="/tenants">Организации</NavLink>}
-        <div className="side-foot">
-          <ThemeSwitch />
-          <button onClick={() => void signOut()}>Выйти</button>
-        </div>
-      </nav>
-      <main>
-        <Routes>
-          {inTenant && (
-            <>
-              <Route path="/overview" element={<Overview />} />
-              <Route path="/catalog" element={<Catalog />} />
-              <Route path="/access" element={<Access />} />
-              <Route path="/identities" element={<Identities />} />
-              <Route path="/compliance" element={<Compliance />} />
-              <Route path="/infrastructure" element={<Infrastructure roles={me.data.roles} tenantId={me.data.tenantId ?? ""} />} />
-            </>
+    <PermissionsProvider permissions={me.data.permissions}>
+      <div className="shell">
+        <nav className="side" aria-label="Разделы">
+          <div className="brand">DataGuard</div>
+          {visible.map((section) => (
+            <NavLink key={section.path} to={section.path}>{section.title}</NavLink>
+          ))}
+          <div className="side-foot">
+            <ThemeSwitch />
+            <button onClick={() => void signOut()}>Выйти</button>
+          </div>
+        </nav>
+        <main>
+          {visible.length === 0 ? (
+            <div className="empty">Учётной записи пока не выдано ни одного разрешения. Обратитесь к администратору организации.</div>
+          ) : (
+            <Routes>
+              {visible.map((section) => (
+                <Route key={section.path} path={section.path} element={pages[section.path]?.(tenantId)} />
+              ))}
+              <Route path="*" element={<Navigate to={visible[0]?.path ?? "/"} replace />} />
+            </Routes>
           )}
-          {platform && <Route path="/tenants" element={<Tenants />} />}
-          <Route path="*" element={<Navigate to={inTenant ? "/overview" : "/tenants"} replace />} />
-        </Routes>
-      </main>
-    </div>
+        </main>
+      </div>
+    </PermissionsProvider>
   );
 }
 

@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { api, type Schemas } from "../api";
 import { engine as engineLabel, failure, sourceStatus } from "../labels";
 import { fromBase64, sealPassword, toBase64 } from "../sealing";
+import { useCan } from "../permissions";
 import { Loadable } from "../ui";
 
 type EngineName = Schemas["SourceEngine"];
@@ -174,10 +175,11 @@ function SourceForm({ tenantId, agents, editing, onDone }: {
   );
 }
 
-export function Sources({ tenantId, admin, canScan }: { tenantId: string; admin: boolean; canScan: boolean }) {
+export function Sources({ tenantId }: { tenantId: string }) {
   const client = useQueryClient();
+  const can = useCan();
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, refetchInterval: 5000 });
-  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
+  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: can("listAgents") });
   const [mode, setMode] = useState<{ kind: "closed" } | { kind: "new" } | { kind: "edit"; source: Schemas["Source"] }>({ kind: "closed" });
   const remove = useMutation({
     mutationFn: api.deleteSource,
@@ -192,7 +194,7 @@ export function Sources({ tenantId, admin, canScan }: { tenantId: string; admin:
     <section className="card">
       <div className="card-head">
         <h2>Источники</h2>
-        {admin && mode.kind === "closed" && <button onClick={() => setMode({ kind: "new" })}>Добавить источник</button>}
+        {can("createSource") && mode.kind === "closed" && <button onClick={() => setMode({ kind: "new" })}>Добавить источник</button>}
       </div>
       {mode.kind !== "closed" && agents.data && (
         <SourceForm
@@ -230,22 +232,20 @@ export function Sources({ tenantId, admin, canScan }: { tenantId: string; admin:
                       <td className="mono muted">{row.agentId.slice(0, 8)}</td>
                       <td className="mono muted">{row.auditDirectory || "—"}</td>
                       <td className="actions">
-                        {canScan && !row.statusCode && row.probedAt && (
+                        {can("requestScan") && !row.statusCode && row.probedAt && (
                           <button disabled={scan.isPending} onClick={() => scan.mutate(row.id)}>Сканировать</button>
                         )}
-                        {admin && (
-                          <>
-                            <button onClick={() => setMode({ kind: "edit", source: row })}>Изменить</button>
-                            <button
-                              className="danger"
-                              disabled={remove.isPending}
-                              onClick={() => {
-                                if (window.confirm(`Удалить источник ${row.key}? Агент перестанет с ним работать, история останется.`)) remove.mutate(row.id);
-                              }}
-                            >
-                              Удалить
-                            </button>
-                          </>
+                        {can("updateSource") && <button onClick={() => setMode({ kind: "edit", source: row })}>Изменить</button>}
+                        {can("deleteSource") && (
+                          <button
+                            className="danger"
+                            disabled={remove.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Удалить источник ${row.key}? Агент перестанет с ним работать, история останется.`)) remove.mutate(row.id);
+                            }}
+                          >
+                            Удалить
+                          </button>
                         )}
                       </td>
                     </tr>

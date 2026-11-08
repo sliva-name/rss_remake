@@ -331,13 +331,45 @@ components:
         message: {type: string}
     CurrentUser:
       type: object
-      required: [subject, roles]
+      required: [subject, roles, permissions]
       properties:
         subject: {type: string}
         tenantId: {type: string, format: uuid}
         roles:
           type: array
           items: {type: string}
+        permissions:
+          description: Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010).
+          type: array
+          items: {$ref: "#/components/schemas/Permission"}
+    Permission:
+      description: An operationId of this API.
+      type: string
+      enum:
+        - getCurrentUser
+        - listTenants
+        - createTenant
+        - listEnvironments
+        - createEnvironment
+        - createEnrollmentToken
+        - listAgents
+        - revokeAgent
+        - listSources
+        - createSource
+        - updateSource
+        - deleteSource
+        - listScans
+        - requestScan
+        - listCatalogColumns
+        - getCatalogSummary
+        - listCatalogChanges
+        - listAuditEvents
+        - getAuditCoverage
+        - getAccessSummary
+        - listAccessByPrincipal
+        - listAccessByCategory
+        - getPolicy
+        - publishPolicy
     NewTenant:
       type: object
       required: [name]

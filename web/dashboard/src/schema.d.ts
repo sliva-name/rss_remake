@@ -311,7 +311,14 @@ export interface components {
             /** Format: uuid */
             tenantId?: string;
             roles: string[];
+            /** @description Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010). */
+            permissions: components["schemas"]["Permission"][];
         };
+        /**
+         * @description An operationId of this API.
+         * @enum {string}
+         */
+        Permission: "getCurrentUser" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "revokeAgent" | "listSources" | "createSource" | "updateSource" | "deleteSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
         NewTenant: {
             name: string;
         };

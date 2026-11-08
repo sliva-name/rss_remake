@@ -116,7 +116,7 @@ func tenantOf(ctx context.Context) uuid.UUID {
 
 func (s *Server) GetCurrentUser(ctx context.Context, _ restapi.GetCurrentUserRequestObject) (restapi.GetCurrentUserResponseObject, error) {
 	principal, _ := principalFrom(ctx)
-	user := restapi.CurrentUser{Subject: principal.Subject, Roles: principal.Roles}
+	user := restapi.CurrentUser{Subject: principal.Subject, Roles: principal.Roles, Permissions: permissionsOf(principal)}
 	if principal.TenantID != uuid.Nil {
 		id := principal.TenantID
 		user.TenantId = &id
