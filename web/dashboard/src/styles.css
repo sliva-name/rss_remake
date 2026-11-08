@@ -68,6 +68,16 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  /* A theme chosen by hand reaches the browser's own parts too: scrollbars,
+     autofill and date pickers follow it rather than the system setting. */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+
   body {
     margin: 0;
     background: var(--bg);

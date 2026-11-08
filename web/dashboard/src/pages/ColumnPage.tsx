@@ -8,7 +8,7 @@ import { Categories, Confidence, Mono, PeriodPicker } from "../components/domain
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page";
-import { Facts, Panel } from "../components/ui/panel";
+import { Facts, Panel, PanelLink } from "../components/ui/panel";
 import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/state";
 import { ago, category, count, dateTime, eventType, executionStatus, percent, samplingMethod } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod } from "../links";
@@ -82,7 +82,7 @@ function Readers({ columnId }: { columnId: string }) {
 function Recent({ columnId }: { columnId: string }) {
   const events = useQuery({ queryKey: ["events", "column", columnId], queryFn: () => api.events({ columnId, limit: 8 }) });
   return (
-    <Panel title="Последние обращения" actions={<Button size="sm" asChild><Link to={paths.events({ columnId })}>Все</Link></Button>} flush>
+    <Panel title="Последние обращения" actions={<PanelLink to={paths.events({ columnId })}>Все</PanelLink>} flush>
       <Loadable query={events} isEmpty={(page) => page.items.length === 0} empty={<EmptyState title="За 7 дней обращений не было" />}>
         {(page) => (
           <ul className="divide-y divide-border">

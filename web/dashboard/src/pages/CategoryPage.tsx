@@ -7,7 +7,7 @@ import { BarList } from "../components/bar-list";
 import { Confidence, Mono, PeriodPicker, SourceName } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page";
-import { Panel, Stat } from "../components/ui/panel";
+import { Panel, PanelLink, Stat } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
 import { ago, category, count, dateTime, eventType, executionStatus } from "../labels";
 import { ObjectLink, paths, usePeriod } from "../links";
@@ -46,7 +46,7 @@ function Figures({ id }: { id: string }) {
 function Storage({ id }: { id: string }) {
   const columns = useQuery({ queryKey: ["catalog", "category", id], queryFn: () => api.catalog({ category: id, limit: shown }) });
   return (
-    <Panel title="Где хранятся" actions={<Button size="sm" asChild><Link to={paths.findings({ category: id })}>Все колонки</Link></Button>} flush>
+    <Panel title="Где хранятся" actions={<PanelLink to={paths.findings({ category: id })}>Все колонки</PanelLink>} flush>
       <Loadable query={columns} isEmpty={(page) => page.items.length === 0} empty={<EmptyState title="В каталоге таких колонок нет" />}>
         {(page) => (
           <>
@@ -104,7 +104,7 @@ function Readers({ id }: { id: string }) {
 function Recent({ id }: { id: string }) {
   const events = useQuery({ queryKey: ["events", "category", id], queryFn: () => api.events({ category: id, limit: 8 }) });
   return (
-    <Panel title="Последние обращения" actions={<Button size="sm" asChild><Link to={paths.events({ category: id })}>Все</Link></Button>} flush>
+    <Panel title="Последние обращения" actions={<PanelLink to={paths.events({ category: id })}>Все</PanelLink>} flush>
       <Loadable query={events} isEmpty={(page) => page.items.length === 0} empty={<EmptyState title="За 7 дней обращений не было" />}>
         {(page) => (
           <ul className="divide-y divide-border">

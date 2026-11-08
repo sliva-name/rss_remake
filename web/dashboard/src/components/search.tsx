@@ -22,6 +22,10 @@ interface Hit {
   to: string;
 }
 
+function Key({ children }: { children: string }) {
+  return <kbd className="rounded border border-border bg-surface px-1 py-px font-sans text-[11px] font-medium text-fg-2">{children}</kbd>;
+}
+
 function useDebounced(value: string, delay: number): string {
   const [settled, setSettled] = useState(value);
   useEffect(() => {
@@ -93,9 +97,9 @@ export function SearchPalette({ open, onOpenChange, visible }: { open: boolean; 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/45 backdrop-blur-[2px]" />
         <Dialog.Content
-          className="fixed top-[12vh] left-1/2 z-50 flex max-h-[70vh] w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl focus:outline-hidden"
+          className="fixed top-[12vh] left-1/2 z-50 flex max-h-[70vh] w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl focus:outline-hidden"
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") { event.preventDefault(); setActive((index) => Math.min(index + 1, hits.length - 1)); }
             if (event.key === "ArrowUp") { event.preventDefault(); setActive((index) => Math.max(index - 1, 0)); }
@@ -137,9 +141,11 @@ export function SearchPalette({ open, onOpenChange, visible }: { open: boolean; 
                       aria-selected={index === active}
                       onMouseMove={() => setActive(index)}
                       onClick={() => go(hit)}
-                      className={cn("flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2.5 text-sm", index === active && "bg-surface-2")}
+                      className={cn("flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm", index === active && "bg-accent-bg/70")}
                     >
-                      <Icon className="size-4 shrink-0 text-fg-3" />
+                      <span aria-hidden className={cn("grid size-7 shrink-0 place-items-center rounded-md bg-surface-2 text-fg-3 ring-1 ring-border", index === active && "bg-surface text-accent")}>
+                        <Icon className="size-4" />
+                      </span>
                       <span className="truncate font-medium text-fg">{hit.title}</span>
                       {hit.context && <span className="min-w-0 truncate text-xs text-fg-3">{hit.context}</span>}
                       {index === active && <CornerDownLeft aria-hidden className="ml-auto size-3.5 shrink-0 text-fg-3" />}
@@ -149,6 +155,11 @@ export function SearchPalette({ open, onOpenChange, visible }: { open: boolean; 
               })
             )}
             {searchable && found.isError && <p className="px-3 py-2 text-sm text-bad">Поиск недоступен: {found.error.message}</p>}
+          </div>
+          <div aria-hidden className="hidden items-center gap-4 border-t border-border bg-surface-2/60 px-4 py-2 text-[11px] text-fg-3 sm:flex">
+            <span className="flex items-center gap-1.5"><Key>↑</Key><Key>↓</Key> выбор</span>
+            <span className="flex items-center gap-1.5"><Key>Enter</Key> открыть</span>
+            <span className="flex items-center gap-1.5"><Key>Esc</Key> закрыть</span>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

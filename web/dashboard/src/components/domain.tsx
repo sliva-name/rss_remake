@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import type { Schemas } from "../api";
 import { ago, category, categoryIds, count, coverageStatus, engine, explain, failure, scanStatus, sourceStatus } from "../labels";
-import { CategoryLink, ObjectLink, paths, periods, usePeriod, type PeriodId } from "../links";
+import { CategoryLink, linkStyle, ObjectLink, paths, periods, usePeriod, type PeriodId } from "../links";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
 import { Badge, Status, type Tone } from "./ui/badge";
@@ -22,9 +22,9 @@ export function CoverageState({ status, reason }: { status: string; reason: stri
   );
 }
 
-export function SourceState({ statusCode, probedAt }: { statusCode: string; probedAt?: string }) {
+export function SourceState({ statusCode, probedAt, className }: { statusCode: string; probedAt?: string; className?: string }) {
   const state = sourceStatus(statusCode, probedAt);
-  return <Status tone={state.tone as Tone}>{state.label}</Status>;
+  return <Status tone={state.tone as Tone} className={className}>{state.label}</Status>;
 }
 
 // An agent that has not called in for a while is still "active" in the
@@ -64,13 +64,28 @@ export function Confidence({ value }: { value: number }) {
 // A kind of sensitive data. The dot's colour is its group, personal,
 // government, financial and so on, so a row of them reads at a glance without
 // a wall of warning colour.
-export function CategoryBadge({ id, className }: { id: string; className?: string }) {
+export function CategoryDot({ id, className }: { id: string; className?: string }) {
   const group = id.slice(0, Math.max(0, id.indexOf("."))).toLowerCase();
+  return <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", className)} style={{ background: `var(--cat-${group}, var(--cat-custom))` }} />;
+}
+
+export function CategoryBadge({ id, className }: { id: string; className?: string }) {
   return (
     <Badge className={cn("bg-surface text-fg ring-border transition-colors hover:ring-border-strong", className)}>
-      <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: `var(--cat-${group}, var(--cat-custom))` }} />
+      <CategoryDot id={id} />
       {category(id)}
     </Badge>
+  );
+}
+
+// A category's name as a link, with its group's dot, where a badge would be
+// too heavy: a list or a table of categories themselves.
+export function CategoryName({ id }: { id: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <CategoryDot id={id} className="size-2" />
+      <CategoryLink id={id} className={cn(linkStyle, "truncate")}>{category(id)}</CategoryLink>
+    </span>
   );
 }
 

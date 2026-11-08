@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Minus } from "lucide-react";
 import { Select as Primitive } from "radix-ui";
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ComponentProps, type InputHTMLAttributes, type ReactNode } from "react";
 
@@ -114,8 +114,24 @@ export function Select({
   );
 }
 
+// A checkbox drawn in the app's style; the input underneath keeps the keyboard,
+// the form value and the indeterminate state.
 export function Checkbox({ className, ...props }: Omit<ComponentProps<"input">, "type">) {
-  return <input type="checkbox" className={cn("size-4 cursor-pointer rounded accent-[var(--accent)]", className)} {...props} />;
+  return (
+    <span className={cn("relative inline-grid size-4 shrink-0 place-items-center", className)}>
+      <input
+        type="checkbox"
+        className={cn(
+          "peer size-4 cursor-pointer appearance-none rounded-[5px] border border-border-strong bg-surface shadow-xs transition-colors",
+          "hover:border-fg-3 checked:border-accent checked:bg-accent indeterminate:border-accent indeterminate:bg-accent",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default disabled:opacity-50",
+        )}
+        {...props}
+      />
+      <Check aria-hidden strokeWidth={3} className="pointer-events-none absolute size-3 text-accent-fg opacity-0 peer-checked:opacity-100 peer-indeterminate:opacity-0" />
+      <Minus aria-hidden strokeWidth={3} className="pointer-events-none absolute size-3 text-accent-fg opacity-0 peer-indeterminate:opacity-100" />
+    </span>
+  );
 }
 
 // The width of a filter above a list: two to a row on a phone, one fixed

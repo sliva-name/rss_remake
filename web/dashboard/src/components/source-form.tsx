@@ -233,7 +233,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
     <form ref={form} onSubmit={submit} aria-label={editing ? "Изменить источник" : "Новый источник"} className="flex flex-col gap-5">
       <fieldset className="grid gap-3 sm:grid-cols-2">
         <legend className={cn("mb-2", groupLabel)}>Где источник</legend>
-        <Field label="Имя" hint="Строчные латинские буквы, цифры, - и _">
+        <Field label="Имя" hint="Строчные a–z, цифры, «-» и «_»">
           <Input required pattern="[a-z][a-z0-9_\-]{0,63}" value={draft.name} onChange={(event) => set({ name: event.target.value })} placeholder="crm-main" />
         </Field>
         <Field label="Агент" hint={editing || trial ? "Источник привязан к агенту навсегда" : "Агент, который будет подключаться"}>

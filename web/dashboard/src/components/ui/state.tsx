@@ -1,5 +1,5 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { AlertTriangle, Inbox, SearchX } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Inbox, SearchX } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { ApiError } from "../../api";
@@ -19,11 +19,19 @@ export function Loading({ rows = 3, className }: { rows?: number; className?: st
   );
 }
 
-export function EmptyState({ title, children, icon = "empty", action, className }: { title: string; children?: ReactNode; icon?: "empty" | "search"; action?: ReactNode; className?: string }) {
-  const Icon = icon === "search" ? SearchX : Inbox;
+const emptyIcons = {
+  empty: { icon: Inbox, tone: "bg-surface-2 text-fg-3 ring-border" },
+  search: { icon: SearchX, tone: "bg-surface-2 text-fg-3 ring-border" },
+  // Nothing to show because nothing is wrong: said as good news, not as a gap.
+  ok: { icon: CheckCircle2, tone: "bg-ok-bg text-ok ring-ok/20" },
+};
+
+// Centred in its block, also when the block is stretched to its row's height.
+export function EmptyState({ title, children, icon = "empty", action, className }: { title: string; children?: ReactNode; icon?: keyof typeof emptyIcons; action?: ReactNode; className?: string }) {
+  const { icon: Icon, tone } = emptyIcons[icon];
   return (
-    <div className={cn("flex flex-col items-center gap-1.5 px-4 py-10 text-center", className)}>
-      <span aria-hidden className="mb-2 grid size-11 place-items-center rounded-full bg-surface-2 text-fg-3 ring-1 ring-border">
+    <div className={cn("flex flex-1 flex-col items-center justify-center gap-1.5 px-4 py-10 text-center", className)}>
+      <span aria-hidden className={cn("mb-2 grid size-11 place-items-center rounded-full ring-1", tone)}>
         <Icon className="size-5" />
       </span>
       <p className="text-sm font-medium text-fg">{title}</p>

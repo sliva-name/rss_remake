@@ -6,17 +6,17 @@ import { Link, useNavigate } from "react-router";
 import { api, type Schemas } from "../api";
 import { BarList } from "../components/bar-list";
 import { ActivityChart } from "../components/charts";
-import { agentTone, PeriodPicker } from "../components/domain";
+import { agentTone, CategoryName, PeriodPicker } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { cn } from "../components/ui/cn";
 import { Dialog } from "../components/ui/dialog";
 import { CheckField } from "../components/ui/form";
-import { Panel, Stat } from "../components/ui/panel";
+import { Panel, PanelLink, Stat } from "../components/ui/panel";
 import { PageHeader } from "../components/ui/page";
 import { EmptyState, Loadable, Loading } from "../components/ui/state";
 import { ago, category, change, count, coverageStatus, failure, identity, lowerFirst, shortId } from "../labels";
-import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod } from "../links";
+import { ObjectLink, paths, usePeriod } from "../links";
 import { type Permission, useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
 import { defaultLayout, kindNames, type OverviewLayout, pathOf, useFavorites, useOverviewLayout, useRecent } from "../workspace";
@@ -79,7 +79,7 @@ function Attention() {
       {pending ? (
         <Loading />
       ) : issues.length === 0 ? (
-        <EmptyState title="Всё работает">Источники наблюдаются, агенты на связи, последние сканы прошли.</EmptyState>
+        <EmptyState icon="ok" title="Всё работает">Источники наблюдаются, агенты на связи, последние сканы прошли.</EmptyState>
       ) : (
         <ul className="divide-y divide-border">
           {issues.map((issue) => (
@@ -168,7 +168,7 @@ function TopCategories() {
             empty={<EmptyState title="Обращений к чувствительным данным не было" />}
             items={rows.slice(0, 6).map((row) => ({
               key: row.category,
-              label: <CategoryLink id={row.category} className={linkStyle}>{category(row.category)}</CategoryLink>,
+              label: <CategoryName id={row.category} />,
               value: row.events,
               hint: `${count(row.principals)} польз. · ${count(row.sources)} ист.`,
             }))}
@@ -246,20 +246,20 @@ function TopSignals() {
     <Panel
       title="Сигналы риска"
       description="Отклонения за сутки — повод посмотреть, не инцидент"
-      actions={<Button size="sm" variant="ghost" asChild><Link to="/signals">{signals.data && signals.data.length > 5 ? `Все ${signals.data.length}` : "Все"}</Link></Button>}
+      actions={<PanelLink to="/signals">{signals.data && signals.data.length > 5 ? `Все ${signals.data.length}` : "Все"}</PanelLink>}
       flush
     >
-      <Loadable query={signals} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Сигналов нет">Активность за сутки обычная.</EmptyState>}>
+      <Loadable query={signals} isEmpty={(rows) => rows.length === 0} empty={<EmptyState icon="ok" title="Сигналов нет">Активность за сутки обычная.</EmptyState>}>
         {(rows) => (
           <ul className="divide-y divide-border">
             {rows.slice(0, 5).map((signal) => {
               const body = (
                 <>
-                  <span className="flex items-center justify-between gap-3">
-                    <span className="truncate text-sm font-medium text-fg">{signal.applicationPrincipal || signal.databasePrincipal || "Не идентифицирован"}</span>
-                    <Badge tone={signalKinds[signal.kind].tone}>{signalKinds[signal.kind].title}</Badge>
+                  <span className="truncate text-sm font-medium text-fg">{signal.applicationPrincipal || signal.databasePrincipal || "Учётная запись неизвестна"}</span>
+                  <span className="flex items-start gap-2">
+                    <Badge tone={signalKinds[signal.kind].tone} className="shrink-0">{signalKinds[signal.kind].title}</Badge>
+                    <span className="pt-0.5 text-xs text-fg-2">{signal.category ? `${category(signal.category)} · ` : ""}{observed(signal)}</span>
                   </span>
-                  <span className="text-xs text-fg-2">{signal.category ? `${category(signal.category)} · ` : ""}{observed(signal)}</span>
                 </>
               );
               return (

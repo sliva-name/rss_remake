@@ -1,19 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { useMemo } from "react";
-import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
-import { Categories, CategoryBadge, categoryOptions, Confidence, Mono, PeriodPicker, SourceName, sourceOptions } from "../components/domain";
+import { Categories, CategoryBadge, CategoryName, categoryOptions, Confidence, Mono, PeriodPicker, SourceName, sourceOptions } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { Field, filterField, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
-import { Panel } from "../components/ui/panel";
+import { Panel, PanelLink } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { Tabs } from "../components/ui/tabs";
 import { ago, category, categoryIds, count, samplingMethod } from "../labels";
-import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
+import { CategoryLink, ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { downloadCsv, stamp } from "../csv";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
@@ -43,7 +42,7 @@ function CategoriesTab() {
   }, [inventory.data, access.data]);
 
   const columns = useMemo<TableColumn<CategoryRow>[]>(() => [
-    { id: "category", header: "Категория", enableHiding: false, accessorFn: (row) => category(row.id), cell: ({ row }) => <CategoryLink id={row.original.id} className={linkStyle}>{category(row.original.id)}</CategoryLink> },
+    { id: "category", header: "Категория", enableHiding: false, accessorFn: (row) => category(row.id), cell: ({ row }) => <CategoryName id={row.original.id} /> },
     { id: "columns", header: "Колонок", accessorFn: (row) => row.columns ?? 0, meta: { align: "right", needs: "getCatalogSummary" }, cell: ({ row }) => count(row.original.columns ?? 0) },
     { id: "tables", header: "Таблиц", accessorFn: (row) => row.tables ?? 0, meta: { align: "right", needs: "getCatalogSummary" }, cell: ({ row }) => count(row.original.tables ?? 0) },
     { id: "events", header: "Обращений", accessorFn: (row) => row.events ?? 0, meta: { align: "right", needs: "listAccessByCategory" }, cell: ({ row }) => count(row.original.events ?? 0) },
@@ -159,7 +158,7 @@ function DetectorsTab() {
         </ul>
       </Panel>
       {can("getPolicy") && (
-        <Panel title="Собственные детекторы" description="Из опубликованной политики организации" actions={<Button size="sm" asChild><Link to="/policy">Открыть политику</Link></Button>}>
+        <Panel title="Собственные детекторы" description="Из опубликованной политики организации" actions={<PanelLink to="/policy">Политика</PanelLink>}>
           {policy.isError ? (
             <p className="text-sm text-fg-2">Политика ещё не опубликована: работают только встроенные детекторы.</p>
           ) : policy.data ? (

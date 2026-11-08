@@ -1,3 +1,4 @@
+import { ChartSpline, Table2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -18,8 +19,8 @@ const hourMs = 3_600_000;
 // The server returns only hours that had events. Every hour of the window is
 // shown, the missing ones as zero; windows longer than a week are summed by
 // local day, so that a day on the axis is the reader's day, not a UTC one.
-// Lines are straight between points: a smoothed curve would draw growth
-// inside a bucket that the data does not show.
+// Lines are smoothed monotonically: a curve between two points never rises
+// above or dips below them, so it draws no peak or dip the data does not show.
 export function buckets(points: Schemas["TimelinePoint"][], from: string, to: string): Bucket[] {
   const start = Math.floor(new Date(from).getTime() / hourMs) * hourMs;
   const end = new Date(to).getTime();
@@ -110,7 +111,10 @@ export function ActivityChart({ points, from, to, onOpen }: { points: Schemas["T
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Legend totals={totals} />
-        <Button variant="ghost" size="sm" onClick={() => setAsTable(!asTable)}>{asTable ? "График" : "Таблица"}</Button>
+        <Button variant="ghost" size="sm" onClick={() => setAsTable(!asTable)}>
+          {asTable ? <ChartSpline /> : <Table2 />}
+          {asTable ? "График" : "Таблицей"}
+        </Button>
       </div>
       {asTable ? (
         <div className="max-h-72 overflow-y-auto rounded-md border border-border">
@@ -166,9 +170,9 @@ export function ActivityChart({ points, from, to, onOpen }: { points: Schemas["T
               allowDecimals={false}
             />
             <Tooltip content={<Hover daily={daily} />} cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }} />
-            <Area type="linear" dataKey="events" stroke="none" fill="url(#activity-fill)" isAnimationActive={false} />
+            <Area type="monotone" dataKey="events" stroke="none" fill="url(#activity-fill)" isAnimationActive={false} />
             {series.map((item) => (
-              <Line key={item.key} type="linear" dataKey={item.key} name={item.name} stroke={item.color} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }} isAnimationActive={false} />
+              <Line key={item.key} type="monotone" dataKey={item.key} name={item.name} stroke={item.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" dot={false} activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }} isAnimationActive={false} />
             ))}
           </ComposedChart>
         </div>

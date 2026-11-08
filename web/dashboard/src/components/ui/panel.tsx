@@ -1,7 +1,8 @@
-import { ArrowUpRight, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, ChevronRight, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { Button } from "./button";
 import { cn } from "./cn";
 
 // The card every block of a page sits on.
@@ -26,7 +27,7 @@ export function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className={cn("min-w-0 overflow-hidden", card, className)}>
+    <section className={cn("flex min-w-0 flex-col overflow-hidden", card, className)}>
       {(title || actions) && (
         <header className={cn("flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5", flush ? "border-b border-border py-3.5" : "pt-4 pb-1")}>
           <div className="min-w-48 flex-1">
@@ -36,8 +37,20 @@ export function Panel({
           {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={flush ? undefined : title || actions ? "px-5 pt-3 pb-5" : "p-5"}>{children}</div>
+      <div className={cn("flex min-h-0 flex-1 flex-col", !flush && (title || actions ? "px-5 pt-3 pb-5" : "p-5"))}>{children}</div>
     </section>
+  );
+}
+
+// The way from a block to the whole list it previews, the same in every block.
+export function PanelLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <Button size="sm" variant="ghost" asChild className="gap-1 pr-2 text-accent hover:bg-accent-bg hover:text-accent">
+      <Link to={to}>
+        {children}
+        <ChevronRight />
+      </Link>
+    </Button>
   );
 }
 

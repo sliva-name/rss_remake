@@ -211,7 +211,8 @@ export function AppShell({ visible, children }: { visible: readonly Section[]; c
             className="flex h-10 w-full max-w-lg min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-surface px-3 text-sm text-fg-3 shadow-xs transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-card"
           >
             <Search aria-hidden className="size-4 shrink-0" />
-            <span className="truncate">Поиск источников, таблиц, колонок, пользователей</span>
+            <span className="truncate sm:hidden">Поиск</span>
+            <span className="hidden truncate sm:inline">Поиск источников, таблиц, колонок, пользователей</span>
             <kbd className="ml-auto hidden rounded-md border border-border bg-surface-2 px-1.5 py-px font-sans text-[11px] font-medium text-fg-3 sm:inline" title="Или клавиша /">Ctrl K</kbd>
           </button>
           <div className="ml-auto">

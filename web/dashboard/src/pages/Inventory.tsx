@@ -37,7 +37,7 @@ function SourceList({ selected, onSelect }: { selected: string; onSelect: (id: s
                 <span className="truncate text-sm font-medium text-fg">{source.key}</span>
                 <span className="shrink-0 text-xs text-fg-3">{engine(source.engine)}</span>
               </span>
-              <span className="text-xs"><SourceState statusCode={source.statusCode} probedAt={source.probedAt} /></span>
+              <SourceState statusCode={source.statusCode} probedAt={source.probedAt} className="text-xs text-fg-2" />
             </button>
           ))}
         </Loadable>
@@ -69,7 +69,7 @@ export function Inventory() {
   return (
     <>
       <PageHeader title="Инвентаризация" description="Базы, схемы и таблицы всех источников. Чувствительность определяет классификатор, значения в платформу не передаются." actions={<ViewsMenu />} />
-      <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+      <div className="grid items-start gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
         {can("listSources") && <SourceList selected={filters.sourceId} onSelect={(sourceId) => update({ sourceId })} />}
         <Panel flush className={can("listSources") ? undefined : "lg:col-span-2"}>
           <DataTable
