@@ -33,23 +33,38 @@ add_missing() {
 if [ -f "$env_file" ]; then
   add_missing CENTER_BROKER_ADMIN_PASSWORD
   add_missing CENTER_BROKER_APP_PASSWORD
-  exit 0
+else
+  (
+    umask 077
+    {
+      echo "SOURCE_ADMIN_PASSWORD=$(secret)"
+      echo "SOURCE_SCANNER_PASSWORD=$(secret)"
+      echo "SOURCE_APP_PASSWORD=$(secret)"
+      # SQL Server rejects passwords without mixed character classes.
+      echo "SOURCE_MSSQL_SA_PASSWORD=Dg1!$(secret)"
+      echo "SOURCE_MSSQL_SCANNER_PASSWORD=Dg2!$(secret)"
+      echo "SOURCE_MSSQL_APP_PASSWORD=Dg3!$(secret)"
+      echo "CENTER_PG_ADMIN_PASSWORD=$(secret)"
+      echo "CENTER_PG_APP_PASSWORD=$(secret)"
+      echo "CENTER_CH_ADMIN_PASSWORD=$(secret)"
+      echo "CENTER_CH_APP_PASSWORD=$(secret)"
+      echo "KEYCLOAK_ADMIN_PASSWORD=$(secret)"
+      echo "CENTER_BROKER_ADMIN_PASSWORD=$(secret)"
+      echo "CENTER_BROKER_APP_PASSWORD=$(secret)"
+    } > "$env_file"
+  )
 fi
 
-umask 077
-{
-  echo "SOURCE_ADMIN_PASSWORD=$(secret)"
-  echo "SOURCE_SCANNER_PASSWORD=$(secret)"
-  echo "SOURCE_APP_PASSWORD=$(secret)"
-  # SQL Server rejects passwords without mixed character classes.
-  echo "SOURCE_MSSQL_SA_PASSWORD=Dg1!$(secret)"
-  echo "SOURCE_MSSQL_SCANNER_PASSWORD=Dg2!$(secret)"
-  echo "SOURCE_MSSQL_APP_PASSWORD=Dg3!$(secret)"
-  echo "CENTER_PG_ADMIN_PASSWORD=$(secret)"
-  echo "CENTER_PG_APP_PASSWORD=$(secret)"
-  echo "CENTER_CH_ADMIN_PASSWORD=$(secret)"
-  echo "CENTER_CH_APP_PASSWORD=$(secret)"
-  echo "KEYCLOAK_ADMIN_PASSWORD=$(secret)"
-  echo "CENTER_BROKER_ADMIN_PASSWORD=$(secret)"
-  echo "CENTER_BROKER_APP_PASSWORD=$(secret)"
-} > "$env_file"
+# The center reads its passwords from secret files, as an installation does: a
+# file mounted into a container is not shown by the Docker API,
+# a variable is. The tests keep reading .env, so the files repeat its values.
+# Container users differ from the host user, so the files are readable inside
+# the containers and the directory keeps them from other users of the host.
+secrets="$dev_dir/.state/secrets"
+install -d -m 0700 "$secrets"
+for name in CENTER_PG_ADMIN_PASSWORD CENTER_PG_APP_PASSWORD CENTER_CH_ADMIN_PASSWORD CENTER_CH_APP_PASSWORD \
+  CENTER_BROKER_ADMIN_PASSWORD CENTER_BROKER_APP_PASSWORD KEYCLOAK_ADMIN_PASSWORD; do
+  file="$secrets/$(echo "$name" | tr '[:upper:]' '[:lower:]')"
+  grep "^$name=" "$env_file" | cut -d= -f2- | tr -d '\n' > "$file"
+  chmod 0644 "$file"
+done

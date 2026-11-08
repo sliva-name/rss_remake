@@ -461,6 +461,27 @@ func sample(t *testing.T, metrics, series string) float64 {
 	return 0
 }
 
+// centerSecrets reach the containers as secret files (scripts/dev-env.sh).
+var centerSecrets = []string{
+	"CENTER_PG_ADMIN_PASSWORD", "CENTER_PG_APP_PASSWORD", "CENTER_CH_ADMIN_PASSWORD", "CENTER_CH_APP_PASSWORD",
+	"CENTER_BROKER_ADMIN_PASSWORD", "CENTER_BROKER_APP_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD",
+}
+
+// inspectContainers is what anyone with access to the Docker API sees of the
+// stand: variables, commands and mounts of every container, stopped ones too.
+func inspectContainers(t *testing.T) string {
+	t.Helper()
+	containers := strings.Fields(compose(t, nil, nil, "ps", "--all", "--quiet"))
+	if len(containers) == 0 {
+		t.Fatal("no containers to inspect")
+	}
+	output, err := exec.CommandContext(t.Context(), "docker", append([]string{"inspect"}, containers...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("docker inspect: %v\n%s", err, output)
+	}
+	return string(output)
+}
+
 func assertAbsent(t *testing.T, where, haystack string, values []string) {
 	t.Helper()
 	if haystack == "" {
@@ -678,6 +699,21 @@ func TestPlatformEndToEnd(t *testing.T) {
 		assertAbsent(t, "agent metrics", scrape(t, agentMetrics), values)
 		assertAbsent(t, "server metrics", scrape(t, serverMetrics), values)
 		s.assertQueueClean(t, values)
+	})
+
+	t.Run("center passwords stay out of the Docker API", func(t *testing.T) {
+		inspected := inspectContainers(t)
+		env := stand.Env(t)
+		// The stand's source databases stand in for the customer's and still take
+		// variables, which shows that the search finds a password where there is one.
+		if !strings.Contains(inspected, env["SOURCE_ADMIN_PASSWORD"]) {
+			t.Fatal("the search does not find a password passed as a variable")
+		}
+		for _, name := range centerSecrets {
+			if strings.Contains(inspected, env[name]) {
+				t.Errorf("docker inspect shows %s", name)
+			}
+		}
 	})
 
 	t.Run("dashboard works in a browser", func(t *testing.T) {

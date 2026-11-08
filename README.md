@@ -95,16 +95,18 @@ docker build --target agent -t dataguard/agent .
 
 Готовая связка сервисов — `deployments/dev/compose.yml`. Сервер настраивается переменными окружения:
 
-- `DG_PG_DSN` — роль без `BYPASSRLS`;
-- `DG_PG_MIGRATION_DSN` — владелец схемы;
+- `DG_PG_DSN` — роль без `BYPASSRLS`, адрес в форме `postgres://пользователь@хост:порт/база?sslmode=...`, пароль — в `DG_PG_PASSWORD_FILE`;
+- `DG_PG_MIGRATION_DSN` и `DG_PG_MIGRATION_PASSWORD_FILE` — владелец схемы;
 - `DG_PKI_DIR`, `DG_API_ADDR`, `DG_AGENT_ADDR`;
 - `DG_OIDC_ISSUER` и `DG_OIDC_CLIENT_ID`;
 - `DG_OIDC_DISCOVERY_URL` — необязательно: адрес провайдера, если сервер видит его не так, как браузер;
-- `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD`;
-- `DG_CH_MIGRATION_USER` и `DG_CH_MIGRATION_PASSWORD`;
-- `DG_BROKERS`, `DG_BROKER_USER`, `DG_BROKER_PASSWORD` — брокер Redpanda и учётная запись сервера в нём. Необязательно: `DG_BROKER_TOPIC`, `DG_BROKER_GROUP`, `DG_BROKER_CA_FILE` для TLS;
-- для `migrate` ещё `DG_BROKER_ADMIN_USER`, `DG_BROKER_ADMIN_PASSWORD` и `DG_BROKER_REPLICATION`: 1 только для стенда, при установке 3 узла и 3. Необязательно: `DG_BROKER_PARTITIONS` (12) и `DG_BROKER_RETENTION` (`168h`);
+- `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD_FILE`;
+- `DG_CH_MIGRATION_USER` и `DG_CH_MIGRATION_PASSWORD_FILE`;
+- `DG_BROKERS`, `DG_BROKER_USER`, `DG_BROKER_PASSWORD_FILE` — брокер Redpanda и учётная запись сервера в нём. Необязательно: `DG_BROKER_TOPIC`, `DG_BROKER_GROUP`, `DG_BROKER_CA_FILE` для TLS;
+- для `migrate` ещё `DG_BROKER_ADMIN_USER`, `DG_BROKER_ADMIN_PASSWORD_FILE` и `DG_BROKER_REPLICATION`: 1 только для стенда, при установке 3 узла и 3. Необязательно: `DG_BROKER_PARTITIONS` (12) и `DG_BROKER_RETENTION` (`168h`);
 - `DG_METRICS_ADDR` — необязательно: адрес порта метрик Prometheus, например `:9100`. Порт без аутентификации, открывайте его только во внутренней сети.
+
+Пароли передаются файлами: переменная с окончанием `_FILE` называет файл секрета, например `/run/secrets/center_pg_app_password`. Переменную окружения видит любой, у кого есть доступ к Docker API, а смонтированный файл — нет. Пароль можно передать и самой переменной без `_FILE`, например `DG_CH_PASSWORD`, но только вне промышленной установки. Если заданы оба способа, сервер не запустится.
 
 Страницы входа рисует провайдер OIDC, а не Dashboard. Для Keycloak есть тема в стиле Dashboard: `deployments/keycloak/themes/dataguard`. Каталог копируется в `/opt/keycloak/themes/dataguard`, в realm выставляется тема входа `dataguard` и русский язык, как в `deployments/dev/keycloak/dataguard-realm.json`. Цвета темы — копия цветов Dashboard, тест Dashboard следит, чтобы они не разошлись. Другой провайдер OIDC показывает свои страницы.
 

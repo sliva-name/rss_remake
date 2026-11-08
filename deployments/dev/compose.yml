@@ -119,13 +119,16 @@ services:
       timeout: 5s
       retries: 40
 
+  # The center's passwords come as secret files (scripts/dev-env.sh), never as
+  # variables: the Docker API shows variables to anyone who can reach it.
   center-postgres:
     image: postgres:17.11-bookworm
     environment:
       POSTGRES_DB: dataguard
       POSTGRES_USER: dg_owner
-      POSTGRES_PASSWORD: ${CENTER_PG_ADMIN_PASSWORD}
-      CENTER_PG_APP_PASSWORD: ${CENTER_PG_APP_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/center_pg_admin_password
+      CENTER_PG_APP_PASSWORD_FILE: /run/secrets/center_pg_app_password
+    secrets: [center_pg_admin_password, center_pg_app_password]
     ports: ["127.0.0.1:25442:5432"]
     volumes:
       - ./center/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
@@ -142,9 +145,10 @@ services:
     environment:
       CLICKHOUSE_DB: dataguard
       CLICKHOUSE_USER: dg_ch_admin
-      CLICKHOUSE_PASSWORD: ${CENTER_CH_ADMIN_PASSWORD}
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/center_ch_admin_password
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
-      CENTER_CH_APP_PASSWORD: ${CENTER_CH_APP_PASSWORD}
+      CENTER_CH_APP_PASSWORD_FILE: /run/secrets/center_ch_app_password
+    secrets: [center_ch_admin_password, center_ch_app_password]
     ports:
       - "127.0.0.1:25123:8123"
       - "127.0.0.1:25900:9000"
@@ -165,6 +169,14 @@ services:
   # an installation needs three.
   center-redpanda:
     image: redpandadata/redpanda:v26.2.6@sha256:8b1076e0d61bfceb66594dc01536427ce0b529f8ead35fdab9763ab6085891ce
+    # The image takes its first user from a variable only. The variable is set
+    # inside the container from the secret file, so the Docker API never shows it.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - RP_BOOTSTRAP_USER="dg_broker_admin:$$(cat /run/secrets/center_broker_admin_password):SCRAM-SHA-256" exec /entrypoint.sh "$$@"
+      - redpanda-entrypoint
+    secrets: [center_broker_admin_password]
     command:
       - redpanda
       - start
@@ -173,8 +185,6 @@ services:
       - --memory=1G
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr=internal://center-redpanda:9092,external://127.0.0.1:25092
-    environment:
-      RP_BOOTSTRAP_USER: dg_broker_admin:${CENTER_BROKER_ADMIN_PASSWORD}:SCRAM-SHA-256
     ports:
       - "127.0.0.1:25092:19092"
     volumes:
@@ -188,6 +198,13 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
+    # Like the broker, Keycloak reads its first administrator from a variable only.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/keycloak_admin_password)" exec /opt/keycloak/bin/kc.sh "$$@"
+      - keycloak-entrypoint
+    secrets: [keycloak_admin_password]
     # The browser reaches Keycloak through the published port and the server through
     # the network, so the issuer is fixed and back-channel addresses follow the request.
     command:
@@ -199,7 +216,6 @@ services:
       - --hostname-backchannel-dynamic=true
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: dg_admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     ports: ["127.0.0.1:25080:8080"]
     volumes:
       - ./keycloak/dataguard-realm.json:/opt/keycloak/data/import/dataguard-realm.json:ro
@@ -234,19 +250,21 @@ services:
         condition: service_healthy
     command: ["migrate"]
     environment:
-      DG_PG_MIGRATION_DSN: postgres://dg_owner:${CENTER_PG_ADMIN_PASSWORD}@center-postgres:5432/dataguard?sslmode=disable
+      DG_PG_MIGRATION_DSN: postgres://dg_owner@center-postgres:5432/dataguard?sslmode=disable
+      DG_PG_MIGRATION_PASSWORD_FILE: /run/secrets/center_pg_admin_password
       DG_CH_ADDR: center-clickhouse:9000
       DG_CH_DATABASE: dataguard
       DG_CH_USER: dg_ch_app
       DG_CH_MIGRATION_USER: dg_ch_admin
-      DG_CH_MIGRATION_PASSWORD: ${CENTER_CH_ADMIN_PASSWORD}
+      DG_CH_MIGRATION_PASSWORD_FILE: /run/secrets/center_ch_admin_password
       DG_BROKERS: center-redpanda:9092
       DG_BROKER_USER: dg_broker_app
-      DG_BROKER_PASSWORD: ${CENTER_BROKER_APP_PASSWORD}
+      DG_BROKER_PASSWORD_FILE: /run/secrets/center_broker_app_password
       DG_BROKER_ADMIN_USER: dg_broker_admin
-      DG_BROKER_ADMIN_PASSWORD: ${CENTER_BROKER_ADMIN_PASSWORD}
+      DG_BROKER_ADMIN_PASSWORD_FILE: /run/secrets/center_broker_admin_password
       # One copy suits a single-node stand only; an installation uses 3.
       DG_BROKER_REPLICATION: "1"
+    secrets: [center_pg_admin_password, center_ch_admin_password, center_broker_app_password, center_broker_admin_password]
     restart: "no"
 
   server:
@@ -257,18 +275,20 @@ services:
       keycloak:
         condition: service_healthy
     environment:
-      DG_PG_DSN: postgres://dg_runtime:${CENTER_PG_APP_PASSWORD}@center-postgres:5432/dataguard?sslmode=disable
+      DG_PG_DSN: postgres://dg_runtime@center-postgres:5432/dataguard?sslmode=disable
+      DG_PG_PASSWORD_FILE: /run/secrets/center_pg_app_password
       DG_CH_ADDR: center-clickhouse:9000
       DG_CH_DATABASE: dataguard
       DG_CH_USER: dg_ch_app
-      DG_CH_PASSWORD: ${CENTER_CH_APP_PASSWORD}
+      DG_CH_PASSWORD_FILE: /run/secrets/center_ch_app_password
       DG_OIDC_ISSUER: http://127.0.0.1:25080/realms/dataguard
       DG_OIDC_DISCOVERY_URL: http://keycloak:8080/realms/dataguard
       DG_OIDC_CLIENT_ID: dataguard-dashboard
       DG_METRICS_ADDR: ":9100"
       DG_BROKERS: center-redpanda:9092
       DG_BROKER_USER: dg_broker_app
-      DG_BROKER_PASSWORD: ${CENTER_BROKER_APP_PASSWORD}
+      DG_BROKER_PASSWORD_FILE: /run/secrets/center_broker_app_password
+    secrets: [center_pg_app_password, center_ch_app_password, center_broker_app_password]
     ports:
       - "127.0.0.1:25800:8080"
       - "127.0.0.1:25443:8443"
@@ -325,6 +345,15 @@ services:
     volumes:
       - ./.state/browser:/out
     restart: "no"
+
+secrets:
+  center_pg_admin_password: {file: ./.state/secrets/center_pg_admin_password}
+  center_pg_app_password: {file: ./.state/secrets/center_pg_app_password}
+  center_ch_admin_password: {file: ./.state/secrets/center_ch_admin_password}
+  center_ch_app_password: {file: ./.state/secrets/center_ch_app_password}
+  center_broker_admin_password: {file: ./.state/secrets/center_broker_admin_password}
+  center_broker_app_password: {file: ./.state/secrets/center_broker_app_password}
+  keycloak_admin_password: {file: ./.state/secrets/keycloak_admin_password}
 
 volumes:
   center-pki:

@@ -93,12 +93,13 @@ func migrateWhenReachable(ctx context.Context) error {
 }
 
 func migrate(ctx context.Context) error {
-	if err := postgres.Migrate(ctx, mustEnv("DG_PG_MIGRATION_DSN"), migrations.Postgres, "postgres"); err != nil {
+	dsn := mustPostgresDSN("DG_PG_MIGRATION_DSN", "DG_PG_MIGRATION_PASSWORD")
+	if err := postgres.Migrate(ctx, dsn, migrations.Postgres, "postgres"); err != nil {
 		return err
 	}
 	owner := clickhouse.Settings{
 		Address: mustEnv("DG_CH_ADDR"), Database: mustEnv("DG_CH_DATABASE"),
-		Username: mustEnv("DG_CH_MIGRATION_USER"), Password: mustEnv("DG_CH_MIGRATION_PASSWORD"),
+		Username: mustEnv("DG_CH_MIGRATION_USER"), Password: mustSecret("DG_CH_MIGRATION_PASSWORD"),
 	}
 	if err := clickhouse.Migrate(ctx, owner, mustEnv("DG_CH_USER"), migrations.ClickHouse, "clickhouse"); err != nil {
 		return err
@@ -123,7 +124,7 @@ func migrateBroker(ctx context.Context) error {
 	}
 	runtime := brokerSettings()
 	admin := runtime
-	admin.User, admin.Password = mustEnv("DG_BROKER_ADMIN_USER"), mustEnv("DG_BROKER_ADMIN_PASSWORD")
+	admin.User, admin.Password = mustEnv("DG_BROKER_ADMIN_USER"), mustSecret("DG_BROKER_ADMIN_PASSWORD")
 	return broker.Ensure(ctx, admin, broker.Setup{
 		Topic: runtime.Topic, Group: runtime.Group, Partitions: int32(partitions), Replication: int16(replication),
 		Retention: retention, User: runtime.User, Password: runtime.Password,
@@ -134,7 +135,7 @@ func brokerSettings() broker.Settings {
 	return broker.Settings{
 		Brokers: strings.Split(mustEnv("DG_BROKERS"), ","),
 		Topic:   envOr("DG_BROKER_TOPIC", defaultTopic), Group: envOr("DG_BROKER_GROUP", defaultGroup),
-		User: mustEnv("DG_BROKER_USER"), Password: mustEnv("DG_BROKER_PASSWORD"), CAFile: os.Getenv("DG_BROKER_CA_FILE"),
+		User: mustEnv("DG_BROKER_USER"), Password: mustSecret("DG_BROKER_PASSWORD"), CAFile: os.Getenv("DG_BROKER_CA_FILE"),
 	}
 }
 
@@ -202,7 +203,7 @@ func ready(ctx context.Context) error {
 
 func serve(ctx context.Context) error {
 	logger := safelog.New(os.Stdout, slog.LevelInfo)
-	store, err := postgres.Open(ctx, mustEnv("DG_PG_DSN"))
+	store, err := postgres.Open(ctx, mustPostgresDSN("DG_PG_DSN", "DG_PG_PASSWORD"))
 	if err != nil {
 		return err
 	}
@@ -210,7 +211,7 @@ func serve(ctx context.Context) error {
 
 	events, err := clickhouse.Open(ctx, clickhouse.Settings{
 		Address: mustEnv("DG_CH_ADDR"), Database: mustEnv("DG_CH_DATABASE"),
-		Username: mustEnv("DG_CH_USER"), Password: mustEnv("DG_CH_PASSWORD"),
+		Username: mustEnv("DG_CH_USER"), Password: mustSecret("DG_CH_PASSWORD"),
 	})
 	if err != nil {
 		return err
