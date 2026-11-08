@@ -2,6 +2,7 @@ package metrics_test
 
 import (
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func TestLabelValueOutsideItsKindNeverReachesTheEndpoint(t *testing.T) {
 	counter.Inc("ONLY_ONE_VALUE")
 
 	recorder := httptest.NewRecorder()
-	registry.Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	registry.Handler().ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	body, err := io.ReadAll(recorder.Result().Body)
 	if err != nil {
 		t.Fatal(err)

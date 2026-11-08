@@ -3,7 +3,7 @@ import { Info } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
 
-import { api, type Schemas } from "../api";
+import type { Schemas } from "../api";
 import { Mono } from "../components/domain";
 import { Badge, type Tone } from "../components/ui/badge";
 import { PageHeader } from "../components/ui/page";
@@ -13,6 +13,7 @@ import { DataTable, type TableColumn } from "../components/ui/table";
 import { ago, category, count, identity } from "../labels";
 import { CategoryLink, linkStyle, paths } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 
 type Signal = Schemas["RiskSignal"];
 
@@ -38,7 +39,7 @@ export function observed(signal: Signal): string {
 export function Signals() {
   const can = useCan();
   const navigate = useNavigate();
-  const signals = useQuery({ queryKey: ["signals"], queryFn: api.signals, refetchInterval: 60_000 });
+  const signals = useQuery(queries.signals());
 
   const columns = useMemo<TableColumn<Signal>[]>(() => [
     {

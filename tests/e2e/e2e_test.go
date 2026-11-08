@@ -68,19 +68,19 @@ func root(t *testing.T) string {
 // compose runs docker compose on the stand and returns its standard output.
 func compose(t *testing.T, stdin io.Reader, env []string, arguments ...string) string {
 	t.Helper()
-	output, err := composeOutput(root(t), stdin, env, arguments...)
+	output, err := composeOutput(t.Context(), root(t), stdin, env, arguments...)
 	if err != nil {
 		t.Fatalf("docker compose %s: %v", strings.Join(arguments, " "), err)
 	}
 	return output
 }
 
-func composeOutput(directory string, stdin io.Reader, env []string, arguments ...string) (string, error) {
+func composeOutput(ctx context.Context, directory string, stdin io.Reader, env []string, arguments ...string) (string, error) {
 	base := []string{
 		"compose", "--project-name", "dataguard-dev", "--env-file", "deployments/dev/.env",
 		"-f", "deployments/dev/compose.yml", "--profile", "agent", "--profile", "check",
 	}
-	command := exec.Command("docker", append(base, arguments...)...)
+	command := exec.CommandContext(ctx, "docker", append(base, arguments...)...)
 	command.Dir = directory
 	command.Stdin = stdin
 	command.Env = append(os.Environ(), env...)
@@ -108,13 +108,14 @@ func bringUp(t *testing.T) *stack {
 	t.Helper()
 	compose(t, nil, nil, "build", "pki-init", "agent", "browser-check")
 	compose(t, nil, nil, "rm", "--stop", "--force", "agent")
-	if output, err := exec.Command("docker", "volume", "rm", "--force", agentVolume).CombinedOutput(); err != nil {
+	if output, err := exec.CommandContext(t.Context(), "docker", "volume", "rm", "--force", agentVolume).CombinedOutput(); err != nil {
 		t.Fatalf("remove agent state: %v\n%s", err, output)
 	}
 	compose(t, nil, nil, "up", "--detach", "--wait", "server",
 		"source-postgres", "source-mysql", "source-mariadb", "source-mssql")
 	directory := root(t)
-	t.Cleanup(func() { _, _ = composeOutput(directory, nil, nil, "stop", "agent") })
+	// The test's context is already cancelled when cleanups run.
+	t.Cleanup(func() { _, _ = composeOutput(context.Background(), directory, nil, nil, "stop", "agent") })
 	waitReady(t)
 	return &stack{}
 }
@@ -123,7 +124,11 @@ func waitReady(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
-		response, err := http.Get(api + "/readyz")
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, api+"/readyz", http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.DefaultClient.Do(request)
 		if err == nil {
 			_ = response.Body.Close()
 			if response.StatusCode == http.StatusOK {
@@ -200,7 +205,7 @@ func (s *stack) call(t *testing.T, token, method, path string, body any, into an
 		}
 		reader = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequest(method, api+"/api/v1"+path, reader)
+	request, err := http.NewRequestWithContext(t.Context(), method, api+"/api/v1"+path, reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +322,7 @@ func (s *stack) eventTotal(t *testing.T, query string) int64 {
 // values themselves and not only a marker planted in some of them.
 func sensitiveValues(t *testing.T, source *stand.Source) []string {
 	t.Helper()
-	rows, err := source.Admin.Query(`SELECT email, phone, inn, snils, card_number, passport FROM ` + seed.Users)
+	rows, err := source.Admin.QueryContext(t.Context(), `SELECT email, phone, inn, snils, card_number, passport FROM `+seed.Users)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -778,7 +783,7 @@ func (s *stack) assertQueueClean(t *testing.T, values []string) {
 		t.Fatal("agent container not found")
 	}
 	state := filepath.Join(t.TempDir(), "state")
-	if output, err := exec.Command("docker", "cp", container+":/var/lib/dataguard", state).CombinedOutput(); err != nil {
+	if output, err := exec.CommandContext(t.Context(), "docker", "cp", container+":/var/lib/dataguard", state).CombinedOutput(); err != nil {
 		t.Fatalf("copy agent state: %v\n%s", err, output)
 	}
 	stored, err := queue.Open(state, 1<<24)

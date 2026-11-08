@@ -525,6 +525,69 @@ func TestEventTableMigrationKeepsEventsOnceAndStaysIsolated(t *testing.T) {
 	}
 }
 
+// Databases migrated before goose list their files in schema_migrations. Applied
+// again, 0001 would fail on the existing table and 0002 would rebuild it.
+func TestMigrationAdoptsFilesAppliedBeforeGoose(t *testing.T) {
+	ctx := context.Background()
+	owner, runtime := stand.EmptyCenterEvents(t)
+	if err := clickhouse.Migrate(ctx, owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := clickhouse.Open(ctx, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	tenantID := uuid.New()
+	event := audit.Event{
+		ID: uuid.New(), TenantID: tenantID, SourceID: uuid.New(), Type: "EVENT_TYPE_DATA_ACCESS",
+		Time: time.Now().UTC().Truncate(time.Microsecond),
+	}
+	if err := store.Insert(ctx, []audit.Event{event}); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := fs.ReadDir(migrations.ClickHouse, "clickhouse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := make([]string, 0, len(files))
+	for _, file := range files {
+		applied = append(applied, "('"+file.Name()+"')")
+	}
+	for _, statement := range []string{
+		`DROP TABLE goose_db_version`,
+		`CREATE TABLE schema_migrations (name String, applied_at DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY name`,
+		`INSERT INTO schema_migrations (name) VALUES ` + strings.Join(applied, ", "),
+	} {
+		if err := clickhouse.ExecAdmin(ctx, owner, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for range 2 {
+		if err := clickhouse.Migrate(ctx, owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
+			t.Fatalf("migrate a database migrated before goose: %v", err)
+		}
+	}
+	if _, total, err := store.Search(ctx, tenantID, searchWindow()); err != nil || total != 1 {
+		t.Fatalf("stored %d events after migration, want 1: %v", total, err)
+	}
+	connection, err := chdriver.Open(&chdriver.Options{
+		Addr: []string{owner.Address},
+		Auth: chdriver.Auth{Database: owner.Database, Username: owner.Username, Password: owner.Password},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connection.Close() }()
+	var legacy uint64
+	const find = `SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = 'schema_migrations'`
+	if err := connection.QueryRow(ctx, find).Scan(&legacy); err != nil || legacy != 0 {
+		t.Fatalf("schema_migrations left after migration: %d, %v", legacy, err)
+	}
+}
+
 // The reason for the broker (ADR-0009): while ClickHouse cannot be written, agents
 // are still acknowledged, so their queues do not grow; the backlog waits in the
 // broker and is stored once when ClickHouse returns.

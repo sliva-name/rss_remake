@@ -17,6 +17,7 @@ import { useNotify } from "../components/ui/toast";
 import { ago, count, dateTime, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 
 type Agent = Schemas["Agent"];
 
@@ -28,7 +29,7 @@ export function useRevokeAgent() {
     mutationFn: (agent: Agent) => api.revokeAgent(agent.id),
     onSuccess: (_, agent) => {
       notify({ tone: "ok", title: `Агент ${shortId(agent.id)} отозван`, description: "Его сертификат больше не принимается." });
-      return Promise.all([client.invalidateQueries({ queryKey: ["agents"] }), client.invalidateQueries({ queryKey: ["agent", agent.id] })]);
+      return client.invalidateQueries({ queryKey: queries.agents().queryKey });
     },
     onError: (error) => notify({ tone: "bad", title: "Агент не отозван", description: error.message }),
   });
@@ -52,7 +53,7 @@ export const environmentKinds: Record<Schemas["EnvironmentKind"], string> = {
 function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const can = useCan();
   const notify = useNotify();
-  const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments, enabled: open && can("listEnvironments") });
+  const environments = useQuery({ ...queries.environments(), enabled: open && can("listEnvironments") });
   const [environmentId, setEnvironmentId] = useState("");
   const token = useMutation({ mutationFn: api.createToken });
   const selected = environmentId || environments.data?.[0]?.id || "";
@@ -114,9 +115,9 @@ export function AgentsList() {
   const can = useCan();
   const revoke = useRevokeAgent();
   const [enrolling, setEnrolling] = useState(false);
-  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: can("listAgents") });
-  const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments, enabled: can("listEnvironments") });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
+  const environments = useQuery({ ...queries.environments(), enabled: can("listEnvironments") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
 
   const columns = useMemo<TableColumn<Agent>[]>(() => [
     { id: "agent", header: "Агент", enableHiding: false, accessorFn: (row) => row.id, cell: ({ row }) => <ObjectLink to={paths.agent(row.original.id)} needs="getAgent" className="font-mono text-[13px]">{row.original.id}</ObjectLink> },

@@ -12,6 +12,7 @@ import { EmptyState, Loadable } from "../components/ui/state";
 import { ago, category, count, dateTime, eventType, executionStatus } from "../labels";
 import { ObjectLink, paths, usePeriod } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 
 const shown = 15;
@@ -19,8 +20,8 @@ const shown = 15;
 function Figures({ id }: { id: string }) {
   const can = useCan();
   const [period] = usePeriod("7d");
-  const inventory = useQuery({ queryKey: ["inventory"], queryFn: api.inventory, enabled: can("getCatalogSummary") });
-  const access = useQuery({ queryKey: ["categories", period.from, period.to], queryFn: () => api.categories(period), enabled: can("listAccessByCategory") });
+  const inventory = useQuery({ ...queries.inventory(), enabled: can("getCatalogSummary") });
+  const access = useQuery({ ...queries.categories(period), enabled: can("listAccessByCategory") });
   const stored = inventory.data?.find((row) => row.category === id);
   const read = access.data?.find((row) => row.category === id);
   return (
@@ -45,7 +46,7 @@ function Figures({ id }: { id: string }) {
 function Storage({ id }: { id: string }) {
   const can = useCan();
   const columns = useQuery({ queryKey: ["catalog", "category", id], queryFn: () => api.catalog({ category: id, limit: shown }) });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
   return (
     <Panel title="Где хранятся" actions={<Button size="sm" asChild><Link to={paths.findings({ category: id })}>Все колонки</Link></Button>} flush>
       <Loadable query={columns} isEmpty={(page) => page.items.length === 0} empty={<EmptyState title="В каталоге таких колонок нет" />}>

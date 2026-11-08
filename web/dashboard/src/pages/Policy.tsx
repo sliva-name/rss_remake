@@ -14,6 +14,7 @@ import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/stat
 import { useNotify } from "../components/ui/toast";
 import { count, dateTime } from "../labels";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 
 type Detector = Schemas["CustomDetector"];
 type Budget = NonNullable<Schemas["PolicyDraft"]["scanBudget"]>;
@@ -84,7 +85,7 @@ function Editor({ policy, onDone }: { policy: Schemas["Policy"] | null; onDone: 
     },
     onSuccess: async (published) => {
       notify({ tone: "ok", title: `Опубликована версия ${published.version}`, description: "Агенты получат подписанную политику со следующим сигналом." });
-      await Promise.all([client.invalidateQueries({ queryKey: ["policy"] }), client.invalidateQueries({ queryKey: ["policy-versions"] })]);
+      await client.invalidateQueries({ queryKey: queries.policy().queryKey });
       onDone();
     },
   });
@@ -144,7 +145,7 @@ function Editor({ policy, onDone }: { policy: Schemas["Policy"] | null; onDone: 
 export function Policy() {
   const can = useCan();
   const [editing, setEditing] = useState(false);
-  const policy = useQuery({ queryKey: ["policy"], queryFn: api.policy, retry: false });
+  const policy = useQuery(queries.policy());
   const missing = policy.error instanceof ApiError && policy.error.status === 404;
   const current = policy.data ?? null;
 
@@ -175,9 +176,9 @@ export function Policy() {
 // auditor asks what the rules were on a given day.
 function History({ current }: { current: number }) {
   const can = useCan();
-  const versions = useQuery({ queryKey: ["policy-versions", current], queryFn: api.policyVersions });
+  const versions = useQuery(queries.policyVersions(current));
   const [opened, setOpened] = useState<number | null>(null);
-  const version = useQuery({ queryKey: ["policy-version", opened], queryFn: () => api.policyVersion(opened ?? 0), enabled: opened !== null && can("getPolicyVersion") });
+  const version = useQuery({ ...queries.policyVersion(opened), enabled: can("getPolicyVersion") });
   return (
     <Panel title="История версий" description="Каждая публикация подписана и хранится; агенты принимают только версию новее своей" flush>
       <Loadable query={versions} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Версий нет" />}>

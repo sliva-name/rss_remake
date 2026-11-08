@@ -276,7 +276,7 @@ func mustUUID(t *testing.T, value string) uuid.UUID {
 // sourceValues reads the sensitive values actually stored in the seeded table.
 func sourceValues(t *testing.T, source stand.Source) []string {
 	t.Helper()
-	rows, err := source.Admin.Query(`SELECT email, phone, inn, snils, card_number, passport FROM ` + seed.Users)
+	rows, err := source.Admin.QueryContext(t.Context(), `SELECT email, phone, inn, snils, card_number, passport FROM `+seed.Users)
 	if err != nil {
 		t.Fatal(err)
 	}

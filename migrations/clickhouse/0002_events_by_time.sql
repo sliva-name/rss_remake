@@ -1,3 +1,5 @@
+-- +goose NO TRANSACTION
+-- +goose Up
 -- ADR-0007. Duplicates are refused at ingest, so the table no longer folds them
 -- and nothing reads it with FINAL. The key follows time, so a search stops at the
 -- first page; the projection answers reports for whole hours.

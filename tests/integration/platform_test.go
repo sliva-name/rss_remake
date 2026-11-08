@@ -559,7 +559,7 @@ func TestOutboundGuardBlocksBeforeTheWire(t *testing.T) {
 
 func restCall(t *testing.T, platform *platform, method, path, token, body string) (int, []byte) {
 	t.Helper()
-	request, err := http.NewRequest(method, platform.rest.URL+path, strings.NewReader(body))
+	request, err := http.NewRequestWithContext(t.Context(), method, platform.rest.URL+path, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

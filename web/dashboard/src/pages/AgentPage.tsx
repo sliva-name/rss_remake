@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Ban } from "lucide-react";
 import { Link, useParams } from "react-router";
 
-import { api } from "../api";
 import { AgentState, Mono, SourceState } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page";
@@ -11,6 +10,7 @@ import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/stat
 import { ago, dateTime, engine, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { useRevokeAgent } from "./AgentsList";
 
@@ -18,9 +18,9 @@ export function AgentPage() {
   const { id = "" } = useParams();
   const can = useCan();
   const revoke = useRevokeAgent();
-  const agent = useQuery({ queryKey: ["agent", id], queryFn: () => api.agent(id), refetchInterval: 10_000 });
-  const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments, enabled: can("listEnvironments") });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+  const agent = useQuery({ ...queries.agent(id), refetchInterval: 10_000 });
+  const environments = useQuery({ ...queries.environments(), enabled: can("listEnvironments") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
   const item: ObjectRef | undefined = agent.data && { kind: "agent", id, label: `Агент ${shortId(id)}`, context: agent.data.version };
   useRememberVisit(item);
 

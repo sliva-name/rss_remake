@@ -13,6 +13,7 @@ linters:
     - misspell
     # Keeps the code on current language and library idioms as Go moves on.
     - modernize
+    - noctx
     - nolintlint
     - revive
     - rowserrcheck

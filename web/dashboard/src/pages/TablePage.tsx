@@ -3,7 +3,7 @@ import { ScrollText } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 
-import { api, type Schemas } from "../api";
+import type { Schemas } from "../api";
 import { Categories, Mono } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -14,13 +14,14 @@ import { DataTable, type TableColumn } from "../components/ui/table";
 import { dateTime, tableKind } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 
 // The source's name in a trail. Without permission to read the source, its
 // identifier is all the page can honestly show.
 export function SourceCrumb({ id }: { id: string }) {
   const can = useCan();
-  const source = useQuery({ queryKey: ["source", id], queryFn: () => api.source(id), enabled: can("getSource") });
+  const source = useQuery({ ...queries.source(id), enabled: can("getSource") });
   return <ObjectLink to={paths.source(id)} needs="getSource">{source.data?.key ?? "Источник"}</ObjectLink>;
 }
 
@@ -56,7 +57,7 @@ type Column = Schemas["TableColumn"];
 export function TablePage() {
   const { id = "" } = useParams();
   const can = useCan();
-  const table = useQuery({ queryKey: ["table", id], queryFn: () => api.table(id) });
+  const table = useQuery(queries.table(id));
   const columns = useMemo<TableColumn<Column>[]>(() => [
     { id: "ordinal", header: "№", accessorFn: (row) => row.ordinal, meta: { align: "right", className: "w-12" }, cell: ({ row }) => <span className="text-fg-3">{row.original.ordinal}</span> },
     { id: "name", header: "Колонка", enableHiding: false, accessorFn: (row) => row.name, cell: ({ row }) => <ObjectLink to={paths.column(row.original.id)} needs="getCatalogColumn" className="font-mono text-[13px]">{row.original.name}</ObjectLink> },

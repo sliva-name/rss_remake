@@ -15,6 +15,7 @@ import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
 import { count, dateTime } from "../labels";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 
 const kinds: { id: Schemas["EnvironmentKind"]; label: string }[] = [
   { id: "production", label: "Производственная" },
@@ -58,15 +59,15 @@ export function Environments() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Schemas["EnvironmentKind"]>("production");
-  const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments });
-  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: can("listAgents") });
+  const environments = useQuery(queries.environments());
+  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
   const create = useMutation({
     mutationFn: () => api.createEnvironment({ name: name.trim(), kind }),
     onSuccess: async (created) => {
       notify({ tone: "ok", title: `Среда «${created.name}» создана`, description: "В неё можно регистрировать агентов." });
       setOpen(false);
       setName("");
-      await client.invalidateQueries({ queryKey: ["environments"] });
+      await client.invalidateQueries({ queryKey: queries.environments().queryKey });
     },
   });
   const columns = useMemo<TableColumn<Schemas["Environment"]>[]>(() => [
@@ -102,14 +103,14 @@ export function Tenants() {
   const notify = useNotify();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const tenants = useQuery({ queryKey: ["tenants"], queryFn: api.tenants });
+  const tenants = useQuery(queries.tenants());
   const create = useMutation({
     mutationFn: () => api.createTenant(name.trim()),
     onSuccess: async (created) => {
       notify({ tone: "ok", title: `Организация «${created.name}» создана` });
       setOpen(false);
       setName("");
-      await client.invalidateQueries({ queryKey: ["tenants"] });
+      await client.invalidateQueries({ queryKey: queries.tenants().queryKey });
     },
   });
   const columns = useMemo<TableColumn<Schemas["Tenant"]>[]>(() => [

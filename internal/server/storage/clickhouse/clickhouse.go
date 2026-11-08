@@ -5,6 +5,7 @@ package clickhouse
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,6 +17,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/ext"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
+	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/database"
 
 	"dataguard/internal/core/audit"
 	"dataguard/internal/platform/safeerr"
@@ -41,12 +44,16 @@ type Settings struct {
 	Password string
 }
 
-func open(settings Settings) (driver.Conn, error) {
-	return clickhouse.Open(&clickhouse.Options{
+func options(settings Settings) *clickhouse.Options {
+	return &clickhouse.Options{
 		Addr:        []string{settings.Address},
 		Auth:        clickhouse.Auth{Database: settings.Database, Username: settings.Username, Password: settings.Password},
 		DialTimeout: dialTimeout, ReadTimeout: readTimeout,
-	})
+	}
+}
+
+func open(settings Settings) (driver.Conn, error) {
+	return clickhouse.Open(options(settings))
 }
 
 // Store reads and writes audit events.
@@ -628,76 +635,98 @@ func ExecAdmin(ctx context.Context, settings Settings, statement string) error {
 	return conn.Exec(ctx, statement)
 }
 
-const migrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations
-	(name String, applied_at DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY name`
-
-// Migrate applies embedded files in name order, as the schema owner, and grants the
-// runtime user access to the database. ClickHouse DDL is not transactional, so a
-// failed file must be fixed by hand before migrating again.
+// Migrate applies the embedded files with goose, as the schema owner, and grants
+// the runtime user access to the database. ClickHouse DDL is not transactional:
+// every file runs without a transaction, and a failed one must be fixed by hand
+// before migrating again.
 func Migrate(ctx context.Context, settings Settings, runtimeUser string, migrations fs.FS, directory string) error {
-	conn, err := open(settings)
+	files, err := fs.Sub(migrations, directory)
 	if err != nil {
-		return fmt.Errorf("open migration connection: %w", err)
+		return fmt.Errorf("open migrations: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
-	if err := conn.Exec(ctx, migrationsTable); err != nil {
+	db := clickhouse.OpenDB(options(settings))
+	defer func() { _ = db.Close() }()
+	store, err := database.NewStore(database.DialectClickHouse, goose.DefaultTablename)
+	if err != nil {
 		return fmt.Errorf("prepare migrations: %w", err)
 	}
-	entries, err := fs.ReadDir(migrations, directory)
+	if err := adoptAppliedFiles(ctx, db, store); err != nil {
+		return err
+	}
+	provider, err := goose.NewProvider(goose.DialectClickHouse, db, files, goose.WithIsolateDDL(true))
 	if err != nil {
-		return fmt.Errorf("list migrations: %w", err)
+		return fmt.Errorf("prepare migrations: %w", err)
 	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.Name())
+	if _, err := provider.Up(ctx); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
 	}
-	slices.Sort(names)
-	for _, name := range names {
-		if err := applyMigration(ctx, conn, migrations, directory, name); err != nil {
-			return err
-		}
-	}
+	//nolint:gosec // GRANT takes no bind parameters; both names come from the server's configuration.
 	grant := fmt.Sprintf("GRANT SELECT, INSERT ON %s.* TO %s", settings.Database, runtimeUser)
-	if err := conn.Exec(ctx, grant); err != nil {
+	if _, err := db.ExecContext(ctx, grant); err != nil {
 		return fmt.Errorf("grant runtime user: %w", err)
 	}
 	return nil
 }
 
-func applyMigration(ctx context.Context, conn driver.Conn, migrations fs.FS, directory, name string) error {
-	var applied uint64
-	if err := conn.QueryRow(ctx, `SELECT count() FROM schema_migrations WHERE name = ?`, name).Scan(&applied); err != nil {
-		return fmt.Errorf("check migration %s: %w", name, err)
+// adoptAppliedFiles records in goose's table the files listed in
+// schema_migrations, where databases migrated before goose keep them, and drops
+// that table. Without it goose would apply them again: 0001 fails on the existing
+// table, and 0002 rebuilds the event table.
+func adoptAppliedFiles(ctx context.Context, db *sql.DB, store database.Store) error {
+	var legacy uint64
+	const find = `SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = 'schema_migrations'`
+	if err := db.QueryRowContext(ctx, find).Scan(&legacy); err != nil {
+		return fmt.Errorf("look for applied migrations: %w", err)
 	}
-	if applied > 0 {
+	if legacy == 0 {
 		return nil
 	}
-	content, err := fs.ReadFile(migrations, directory+"/"+name)
+	versions, err := appliedVersions(ctx, db)
 	if err != nil {
-		return fmt.Errorf("read migration %s: %w", name, err)
+		return err
 	}
-	for statement := range strings.SplitSeq(withoutComments(string(content)), ";") {
-		if strings.TrimSpace(statement) == "" {
+	if err := store.CreateVersionTable(ctx, db); err != nil {
+		return fmt.Errorf("create migration table: %w", err)
+	}
+	// Version 0 is the row goose itself writes first; it marks the table as ready.
+	for _, version := range append([]int64{0}, versions...) {
+		_, err := store.GetMigration(ctx, db, version)
+		if err == nil {
 			continue
 		}
-		if err := conn.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("apply migration %s: %w", name, err)
+		if !errors.Is(err, database.ErrVersionNotFound) {
+			return fmt.Errorf("check migration %d: %w", version, err)
+		}
+		if err := store.Insert(ctx, db, database.InsertRequest{Version: version}); err != nil {
+			return fmt.Errorf("record migration %d: %w", version, err)
 		}
 	}
-	if err := conn.Exec(ctx, `INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
-		return fmt.Errorf("record migration %s: %w", name, err)
+	if _, err := db.ExecContext(ctx, `DROP TABLE schema_migrations`); err != nil {
+		return fmt.Errorf("drop applied migrations: %w", err)
 	}
 	return nil
 }
 
-// withoutComments drops comment lines first, so a semicolon in a comment does not
-// split a statement. Migrations must not use semicolons inside string literals.
-func withoutComments(content string) string {
-	var kept []string
-	for line := range strings.SplitSeq(content, "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(line), "--") {
-			kept = append(kept, line)
-		}
+func appliedVersions(ctx context.Context, db *sql.DB) ([]int64, error) {
+	rows, err := db.QueryContext(ctx, `SELECT name FROM schema_migrations`)
+	if err != nil {
+		return nil, fmt.Errorf("read applied migrations: %w", err)
 	}
-	return strings.Join(kept, "\n")
+	defer func() { _ = rows.Close() }()
+	var versions []int64
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("read applied migration: %w", err)
+		}
+		version, err := goose.NumericComponent(name)
+		if err != nil {
+			return nil, fmt.Errorf("applied migration %s: %w", name, err)
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read applied migrations: %w", err)
+	}
+	return versions, nil
 }

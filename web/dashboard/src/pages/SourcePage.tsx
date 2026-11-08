@@ -17,6 +17,7 @@ import { ago, capability, count, dateTime, engine, percent, support, tableKind }
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useMe } from "../me";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { useSourceActions } from "./SourcesList";
 
@@ -24,7 +25,7 @@ const supportTone: Record<string, Tone> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT
 
 function Overview({ source }: { source: Schemas["Source"] }) {
   const can = useCan();
-  const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24), enabled: can("getAuditCoverage") });
+  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
   const row = coverage.data?.find((item) => item.sourceId === source.id);
   return (
     <div className="grid gap-6 xl:grid-cols-2">
@@ -112,7 +113,7 @@ function Tables({ sourceId }: { sourceId: string }) {
 }
 
 function Scans({ sourceId }: { sourceId: string }) {
-  const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
+  const scans = useQuery(queries.scans());
   return (
     <Panel flush>
       <Loadable query={scans} isEmpty={(rows) => !rows.some((row) => row.sourceId === sourceId)} empty={<EmptyState title="Среди последних 20 сканирований этого источника нет" />}>
@@ -143,7 +144,7 @@ export function SourcePage() {
   const navigate = useNavigate();
   const me = useMe();
   const actions = useSourceActions(me.data?.tenantId ?? "");
-  const source = useQuery({ queryKey: ["source", id], queryFn: () => api.source(id), refetchInterval: 10_000 });
+  const source = useQuery({ ...queries.source(id), refetchInterval: 10_000 });
   const item: ObjectRef | undefined = source.data && { kind: "source", id, label: source.data.key, context: engine(source.data.engine) };
   useRememberVisit(item);
 

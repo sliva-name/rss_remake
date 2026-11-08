@@ -26,7 +26,7 @@ import (
 // rawCall returns the status, headers and body of a response that is not JSON.
 func rawCall(t *testing.T, platform *platform, path, token string) (int, http.Header, []byte) {
 	t.Helper()
-	request, err := http.NewRequest(http.MethodGet, platform.rest.URL+path, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, platform.rest.URL+path, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestInvestigationOnCollectedEvents(t *testing.T) {
 	platform, tenantID, sourceID, _ := scanAndAudit(t, source)
 	platform.authn["reader"] = api.Principal{Subject: "r", TenantID: tenantID, Roles: []string{api.RoleAuditor}}
 
-	if _, err := source.Admin.Exec(`SELECT email, inn FROM ` + seed.Users); err != nil {
+	if _, err := source.Admin.ExecContext(t.Context(), `SELECT email, inn FROM `+seed.Users); err != nil {
 		t.Fatal(err)
 	}
 	page := awaitEventPage(t, platform, "principal=dg_app&category="+classifier.CategoryEmail, func(page restapi.AuditEventPage) bool { return len(page.Items) > 0 })

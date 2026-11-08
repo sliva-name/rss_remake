@@ -43,7 +43,7 @@ func TestOutOfRangeParametersAreRejected(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			request := httptest.NewRequest(tc.method, tc.target, strings.NewReader(tc.body))
+			request := httptest.NewRequestWithContext(t.Context(), tc.method, tc.target, strings.NewReader(tc.body))
 			request.Header.Set("Authorization", "Bearer token")
 			if tc.body != "" {
 				request.Header.Set("Content-Type", "application/json")

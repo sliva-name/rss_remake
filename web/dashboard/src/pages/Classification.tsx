@@ -17,6 +17,7 @@ import { ago, category, categoryIds, count, samplingMethod } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { downloadCsv, stamp } from "../csv";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 interface CategoryRow {
@@ -33,8 +34,8 @@ interface CategoryRow {
 function CategoriesTab() {
   const can = useCan();
   const [period] = usePeriod("7d");
-  const inventory = useQuery({ queryKey: ["inventory"], queryFn: api.inventory, enabled: can("getCatalogSummary") });
-  const access = useQuery({ queryKey: ["categories", period.from, period.to], queryFn: () => api.categories(period), enabled: can("listAccessByCategory") });
+  const inventory = useQuery({ ...queries.inventory(), enabled: can("getCatalogSummary") });
+  const access = useQuery({ ...queries.categories(period), enabled: can("listAccessByCategory") });
   const rows = useMemo<CategoryRow[]>(() => {
     const byId = new Map<string, CategoryRow>();
     for (const row of inventory.data ?? []) byId.set(row.category, { id: row.category, columns: row.columns, tables: row.tables });
@@ -92,7 +93,7 @@ function FindingsTab() {
   const can = useCan();
   const [filters, update] = useUrlFilters(["sourceId", "category"] as const);
   const offset = Number(filters.offset) || 0;
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
   const findings = useQuery({
     queryKey: ["catalog", filters],
     placeholderData: (previous) => previous,
@@ -151,7 +152,7 @@ function FindingsTab() {
 
 function DetectorsTab() {
   const can = useCan();
-  const policy = useQuery({ queryKey: ["policy"], queryFn: api.policy, enabled: can("getPolicy"), retry: false });
+  const policy = useQuery({ ...queries.policy(), enabled: can("getPolicy") });
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Panel title="Встроенные категории" description="Детекторы агента: имя колонки, формат значений, контрольные суммы">

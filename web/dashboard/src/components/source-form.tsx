@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { api, type Schemas } from "../api";
 import { engine as engineLabel, failure, shortId } from "../labels";
 import { paths } from "../links";
+import { queries } from "../queries";
 import { fromBase64, sealPassword, toBase64 } from "../sealing";
 import { Button } from "./ui/button";
 import { Drawer } from "./ui/dialog";
@@ -64,7 +65,7 @@ const bindingChanged = (draft: Draft, source: Schemas["Source"]) =>
 // ProbeStatus follows that attempt, so a wrong address or a missing permission
 // is seen at once, with what to do about it.
 function ProbeStatus({ sourceId, connected }: { sourceId: string; connected: string }) {
-  const source = useQuery({ queryKey: ["source", sourceId], queryFn: () => api.source(sourceId), refetchInterval: (query) => (query.state.data?.probedAt ? false : 2000) });
+  const source = useQuery({ ...queries.source(sourceId), refetchInterval: (query) => (query.state.data?.probedAt ? false : 2000) });
   const data = source.data;
   if (!data?.probedAt) {
     return (
@@ -112,7 +113,7 @@ function Outcome({ sourceId, onClose }: { sourceId: string; onClose: () => void 
 }
 
 export function SourceDrawer({ open, onOpenChange, tenantId, editing }: { open: boolean; onOpenChange: (open: boolean) => void; tenantId: string; editing?: Schemas["Source"] }) {
-  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: open });
+  const agents = useQuery({ ...queries.agents(), enabled: open });
   const [saved, setSaved] = useState<string | null>(null);
   const close = (next: boolean) => {
     onOpenChange(next);
@@ -189,7 +190,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
     onSuccess: async (source) => {
       pending.current = source.id;
       setTrial({ id: source.id, of: snapshot });
-      await client.invalidateQueries({ queryKey: ["source", source.id] });
+      await client.invalidateQueries({ queryKey: queries.source(source.id).queryKey });
     },
   });
 
@@ -206,7 +207,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
       return source;
     },
     onSuccess: async (source) => {
-      await Promise.all([client.invalidateQueries({ queryKey: ["sources"] }), client.invalidateQueries({ queryKey: ["source", source.id] })]);
+      await client.invalidateQueries({ queryKey: queries.sources().queryKey });
       onSaved(source.id);
     },
   });

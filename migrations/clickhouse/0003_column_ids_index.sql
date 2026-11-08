@@ -1,3 +1,5 @@
+-- +goose NO TRANSACTION
+-- +goose Up
 -- Object pages filter events by a column or a table. Without an index such a
 -- filter reads every row of the window; the bloom filter lets ClickHouse skip
 -- the parts that cannot hold the column. About 2 % of the table's size.

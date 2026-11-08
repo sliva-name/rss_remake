@@ -13,6 +13,7 @@ import { DataTable, type TableColumn } from "../components/ui/table";
 import { ago, count, engine, tableKind } from "../labels";
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
@@ -20,7 +21,7 @@ const pageSize = 50;
 type Table = Schemas["CatalogTable"];
 
 function SourceList({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  const sources = useQuery(queries.sources());
   const item = (active: boolean) => cn("flex w-full cursor-pointer flex-col items-start gap-1 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-surface-2", active && "bg-accent-bg hover:bg-accent-bg");
   return (
     <Panel title="Источники" flush className="lg:sticky lg:top-24">
@@ -53,7 +54,7 @@ export function Inventory() {
     placeholderData: (previous) => previous,
     queryFn: () => api.tables({ sourceId: filters.sourceId, q: filters.q.trim(), sensitive: filters.sensitive ? "true" : undefined, category: filters.category, limit: pageSize, offset }),
   });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
   const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
 
   const columns = useMemo<TableColumn<Table>[]>(() => [

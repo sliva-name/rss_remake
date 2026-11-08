@@ -69,7 +69,7 @@ func TestWorkspaceQueries(t *testing.T) {
 		}
 	})
 
-	if _, err := source.Admin.Exec(`SELECT email FROM ` + seed.Users); err != nil {
+	if _, err := source.Admin.ExecContext(t.Context(), `SELECT email FROM `+seed.Users); err != nil {
 		t.Fatal(err)
 	}
 	table := restGet[restapi.CatalogTablePage](t, platform, "/api/v1/catalog/tables?q="+seed.Users).Items[0]

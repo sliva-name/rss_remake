@@ -18,6 +18,7 @@ import { EmptyState, Loadable, Loading } from "../components/ui/state";
 import { ago, category, change, count, coverageStatus, failure, shortId } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod } from "../links";
 import { type Permission, useCan } from "../permissions";
+import { queries } from "../queries";
 import { defaultLayout, kindNames, type OverviewLayout, pathOf, useFavorites, useOverviewLayout, useRecent } from "../workspace";
 import { observed, signalKinds } from "./Signals";
 
@@ -68,10 +69,10 @@ function issuesOf(sources: Schemas["Source"][], coverage: Schemas["CoverageRow"]
 
 function Attention() {
   const can = useCan();
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
-  const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24), enabled: can("getAuditCoverage") });
-  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: can("listAgents") });
-  const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans, enabled: can("listScans") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
+  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
+  const scans = useQuery({ ...queries.scans(), enabled: can("listScans") });
   const pending = [sources, coverage, agents, scans].some((query) => query.isPending && query.fetchStatus !== "idle");
   const issues = issuesOf(sources.data ?? [], coverage.data ?? [], agents.data ?? [], scans.data ?? []);
   return (
@@ -103,10 +104,10 @@ function Headline() {
   const can = useCan();
   const [period] = usePeriod("7d");
   const summary = useQuery({ queryKey: ["summary", period.from, period.to], queryFn: () => api.summary(period), enabled: can("getAccessSummary") });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
-  const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24), enabled: can("getAuditCoverage") });
-  const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: can("listAgents") });
-  const inventory = useQuery({ queryKey: ["inventory"], queryFn: api.inventory, enabled: can("getCatalogSummary") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
+  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
+  const inventory = useQuery({ ...queries.inventory(), enabled: can("getCatalogSummary") });
   const sensitiveTables = useQuery({ queryKey: ["tables", "sensitive-count"], queryFn: () => api.tables({ sensitive: "true", limit: 1 }), enabled: can("listCatalogTables") });
 
   const observing = coverage.data?.filter((row) => row.status === "OBSERVING").length ?? 0;
@@ -152,7 +153,7 @@ function Activity() {
 
 function TopCategories() {
   const [period] = usePeriod("7d");
-  const categories = useQuery({ queryKey: ["categories", period.from, period.to], queryFn: () => api.categories(period) });
+  const categories = useQuery(queries.categories(period));
   return (
     <Panel title="Что читают" description="Категории данных по числу обращений">
       <Loadable query={categories}>
@@ -227,7 +228,7 @@ function Changes() {
 }
 
 function TopSignals() {
-  const signals = useQuery({ queryKey: ["signals"], queryFn: api.signals, refetchInterval: 60_000 });
+  const signals = useQuery(queries.signals());
   return (
     <Panel title="Сигналы риска" description="Отклонения за сутки — повод посмотреть, не инцидент" actions={<Button size="sm" variant="ghost" asChild><Link to="/signals">Все</Link></Button>} flush>
       <Loadable query={signals} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Сигналов нет">Активность за сутки обычная.</EmptyState>}>

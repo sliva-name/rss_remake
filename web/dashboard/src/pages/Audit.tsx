@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Link2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
@@ -17,6 +17,7 @@ import { stamp } from "../csv";
 import { count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
 import { ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
@@ -51,6 +52,7 @@ function Chip({ label, value, onClear }: { label: string; value: string | undefi
 // know stays text.
 function useCatalogLinks(event: Event | null) {
   const can = useCan();
+  const client = useQueryClient();
   const names = event ? [...new Set(event.tables)] : [];
   return useQuery({
     queryKey: ["event-objects", event?.id],
@@ -66,7 +68,7 @@ function useCatalogLinks(event: Event | null) {
         const match = page.items.find((item) => item.table === table && item.schema === schema);
         if (!match) continue;
         tables.set(name, match.id);
-        const detail = await api.table(match.id);
+        const detail = await client.fetchQuery(queries.table(match.id));
         for (const column of detail.columns) columns.set(`${name}.${column.name}`, column.id);
       }
       return { tables, columns };
@@ -187,9 +189,9 @@ export function Audit() {
     placeholderData: (previous) => previous,
     queryFn: () => api.events({ ...selection, limit: pageSize, offset }),
   });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
-  const table = useQuery({ queryKey: ["table", filters.tableId], queryFn: () => api.table(filters.tableId), enabled: filters.tableId !== "" && can("getCatalogTable") });
-  const column = useQuery({ queryKey: ["column", filters.columnId], queryFn: () => api.column(filters.columnId), enabled: filters.columnId !== "" && can("getCatalogColumn") });
+  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const table = useQuery({ ...queries.table(filters.tableId), enabled: filters.tableId !== "" && can("getCatalogTable") });
+  const column = useQuery({ ...queries.column(filters.columnId), enabled: filters.columnId !== "" && can("getCatalogColumn") });
   const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
   // The scanner is the login the agent was given for that source.
   const isScanner = (event: Event) => sources.data?.some((source) => source.id === event.sourceId && source.username === event.databasePrincipal) ?? false;

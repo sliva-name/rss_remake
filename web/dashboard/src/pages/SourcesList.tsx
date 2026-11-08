@@ -18,6 +18,7 @@ import { useNotify } from "../components/ui/toast";
 import { ago, capability, count, dateTime, engine, failure, percent, shortId, support } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
+import { queries } from "../queries";
 
 type Source = Schemas["Source"];
 
@@ -33,7 +34,7 @@ export function useSourceActions(tenantId: string) {
     mutationFn: async (sources: Source[]) => Promise.all(sources.map((source) => api.requestScan(source.id))),
     onSuccess: (jobs) => {
       notify({ tone: "ok", title: jobs.length === 1 ? "Сканирование поставлено в очередь" : `Поставлено в очередь сканирований: ${jobs.length}`, description: "Агент заберёт задание со следующим сигналом." });
-      return client.invalidateQueries({ queryKey: ["scans"] });
+      return client.invalidateQueries({ queryKey: queries.scans().queryKey });
     },
     onError: (error) => notify({ tone: "bad", title: "Сканирование не запущено", description: error.message }),
   });
@@ -41,7 +42,7 @@ export function useSourceActions(tenantId: string) {
     mutationFn: (source: Source) => api.deleteSource(source.id),
     onSuccess: () => {
       notify({ tone: "ok", title: "Источник удалён", description: "История инвентаря и обращений сохранена." });
-      return client.invalidateQueries({ queryKey: ["sources"] });
+      return client.invalidateQueries({ queryKey: queries.sources().queryKey });
     },
     onError: (error) => notify({ tone: "bad", title: "Источник не удалён", description: error.message }),
   });
@@ -73,8 +74,8 @@ const connected = (source: Source) => Boolean(source.probedAt) && !source.status
 function SourcesTab({ tenantId }: { tenantId: string }) {
   const can = useCan();
   const actions = useSourceActions(tenantId);
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, refetchInterval: 5000 });
-  const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24), enabled: can("getAuditCoverage") });
+  const sources = useQuery({ ...queries.sources(), refetchInterval: 5000 });
+  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
   const coverageOf = (id: string) => coverage.data?.find((row) => row.sourceId === id);
 
   const columns = useMemo<TableColumn<Source>[]>(() => [
@@ -156,7 +157,7 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
 }
 
 function CoverageTab() {
-  const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24) });
+  const coverage = useQuery(queries.coverage(24));
   const columns = useMemo<TableColumn<Schemas["CoverageRow"]>[]>(() => [
     { id: "source", header: "Источник", enableHiding: false, accessorFn: (row) => row.sourceKey, cell: ({ row }) => <div><ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{row.original.sourceKey}</ObjectLink><div className="text-xs text-fg-2">{engine(row.original.engine)}</div></div> },
     { id: "status", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <div className="flex flex-col gap-0.5"><CoverageState status={row.original.status} reason={row.original.reason} />{row.original.reason && <FailureNote code={row.original.reason} className="max-w-xs" />}</div> },
@@ -188,7 +189,7 @@ function CoverageTab() {
 const supportTone: Record<string, Tone> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT_CONFIGURED: "warn", SUPPORT_UNKNOWN: "warn", SUPPORT_UNAVAILABLE: "neutral" };
 
 function CapabilitiesTab() {
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  const sources = useQuery(queries.sources());
   return (
     <Panel flush>
       <Loadable query={sources} isEmpty={(rows) => rows.every((row) => row.capabilities.length === 0)} empty={<EmptyState title="Возможности появятся, когда агент подключится к источникам" />}>
@@ -229,8 +230,8 @@ function CapabilitiesTab() {
 }
 
 function ScansTab() {
-  const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  const scans = useQuery(queries.scans());
+  const sources = useQuery(queries.sources());
   const keyOf = (id: string) => sources.data?.find((source) => source.id === id)?.key ?? shortId(id);
   const columns = useMemo<TableColumn<Schemas["Scan"]>[]>(() => [
     { id: "source", header: "Источник", enableHiding: false, cell: ({ row }) => <ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{keyOf(row.original.sourceId)}</ObjectLink> },
