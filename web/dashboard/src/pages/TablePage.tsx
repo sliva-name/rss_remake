@@ -3,7 +3,7 @@ import { ScrollText } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 
-import type { Schemas } from "../api";
+import { ApiError, type Schemas } from "../api";
 import { Categories, Mono } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -18,9 +18,11 @@ import { queries, usePermittedQuery } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 
 // The source's name in a trail. Without permission to read the source, its
-// identifier is all the page can honestly show.
+// identifier is all the page can honestly show. A deleted source has no page
+// to link to, and the trail says it is deleted.
 export function SourceCrumb({ id }: { id: string }) {
-  const source = usePermittedQuery(queries.source(id));
+  const source = usePermittedQuery({ ...queries.source(id), retry: false });
+  if (source.error instanceof ApiError && source.error.status === 404) return <span className="text-fg-3" title={`Источник ${id} удалён`}>удалённый источник</span>;
   return <ObjectLink to={paths.source(id)} needs="getSource">{source.data?.key ?? "Источник"}</ObjectLink>;
 }
 
@@ -92,9 +94,17 @@ export function TablePage() {
         }
       />
       <RemovedNote status={data.status} lastSeenAt={data.lastSeenAt} />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
-        <Panel title="Колонки" flush>
-          <DataTable id="table-columns" columns={columns} data={data.columns} getRowId={(column) => column.id} sortable empty={<EmptyState title="Колонок нет" />} />
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
+        <Panel flush>
+          <DataTable
+            id="table-columns"
+            columns={columns}
+            data={data.columns}
+            getRowId={(column) => column.id}
+            sortable
+            caption={<span className="text-base font-semibold text-fg">Колонки <span className="font-normal text-fg-2">{data.columns.length}</span></span>}
+            empty={<EmptyState title="Колонок нет" />}
+          />
         </Panel>
         <div className="flex flex-col gap-6">
           <Panel title="Таблица">

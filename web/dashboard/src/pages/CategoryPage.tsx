@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router";
 
 import { api } from "../api";
 import { BarList } from "../components/bar-list";
-import { Confidence, Mono, PeriodPicker } from "../components/domain";
+import { Confidence, Mono, PeriodPicker, SourceName } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page";
 import { Panel, Stat } from "../components/ui/panel";
@@ -45,7 +45,6 @@ function Figures({ id }: { id: string }) {
 
 function Storage({ id }: { id: string }) {
   const columns = useQuery({ queryKey: ["catalog", "category", id], queryFn: () => api.catalog({ category: id, limit: shown }) });
-  const sources = usePermittedQuery(queries.sources());
   return (
     <Panel title="Где хранятся" actions={<Button size="sm" asChild><Link to={paths.findings({ category: id })}>Все колонки</Link></Button>} flush>
       <Loadable query={columns} isEmpty={(page) => page.items.length === 0} empty={<EmptyState title="В каталоге таких колонок нет" />}>
@@ -61,7 +60,7 @@ function Storage({ id }: { id: string }) {
                       <ObjectLink to={paths.column(item.columnId)} needs="getCatalogColumn" className="font-mono text-[13px]">{item.column}</ObjectLink>
                     </div>
                     <div className="text-xs text-fg-2">
-                      <ObjectLink to={paths.source(item.sourceId)} needs="getSource" className="text-fg-2">{sources.data?.find((source) => source.id === item.sourceId)?.key ?? "Источник"}</ObjectLink> · <Mono>{item.nativeType}</Mono>
+                      <SourceName id={item.sourceId} className="text-fg-2" /> · <Mono className="text-xs">{item.nativeType}</Mono>
                     </div>
                   </div>
                   <Confidence value={item.confidence} />
@@ -149,7 +148,7 @@ export function CategoryPage() {
       />
       <div className="flex flex-col gap-6">
         <Figures id={id} />
-        <div className="grid gap-6 xl:grid-cols-2">
+        <div className="grid items-start gap-6 xl:grid-cols-2">
           {can("listCatalogColumns") && <Storage id={id} />}
           {can("listAccessByPrincipal") && <Readers id={id} />}
         </div>

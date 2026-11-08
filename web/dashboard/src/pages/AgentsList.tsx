@@ -1,13 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ban, Copy, MoreHorizontal, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { AgentState, Mono, NoValue } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { Dialog, useConfirm } from "../components/ui/dialog";
-import { Field, Select } from "../components/ui/form";
+import { CheckField, Field, Select } from "../components/ui/form";
 import { Menu, MenuItem } from "../components/ui/menu";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
@@ -15,7 +15,7 @@ import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
 import { ago, count, dateTime, environmentKind, shortId } from "../labels";
-import { ObjectLink, paths } from "../links";
+import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
 
@@ -33,15 +33,17 @@ export function useRevokeAgent() {
     },
     onError: (error) => notify({ tone: "bad", title: "Агент не отозван", description: error.message }),
   });
-  return async (agent: Agent) => {
+  // Stable, so the table columns that offer it are not rebuilt on every render.
+  const { mutate } = revoke;
+  return useCallback(async (agent: Agent) => {
     const yes = await confirm({
       title: `Отозвать агента ${shortId(agent.id)}?`,
       description: "Агент сразу потеряет доступ к центру, его источники перестанут сканироваться и присылать события. Вернуть агента можно только новой регистрацией.",
       confirm: "Отозвать",
       danger: true,
     });
-    if (yes) revoke.mutate(agent);
-  };
+    if (yes) mutate(agent);
+  }, [confirm, mutate]);
 }
 
 function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -112,9 +114,16 @@ export function AgentsList() {
   const agents = usePermittedQuery(queries.agents());
   const environments = usePermittedQuery(queries.environments());
   const sources = usePermittedQuery(queries.sources());
+  // A revoked agent never comes back, so the list opens on the working ones.
+  const [filters, update] = useUrlFilters(["revoked"] as const);
+  const revoked = agents.data?.filter((agent) => agent.status !== "active").length ?? 0;
+  const shown = useMemo(() => (filters.revoked ? agents.data : agents.data?.filter((agent) => agent.status === "active")), [agents.data, filters.revoked]);
 
   const columns = useMemo<TableColumn<Agent>[]>(() => [
-    { id: "agent", header: "Агент", enableHiding: false, accessorFn: (row) => row.id, cell: ({ row }) => <ObjectLink to={paths.agent(row.original.id)} needs="getAgent" className="font-mono text-[13px]">{row.original.id}</ObjectLink> },
+    {
+      id: "agent", header: "Агент", enableHiding: false, accessorFn: (row) => row.id,
+      cell: ({ row }) => <span title={row.original.id}><ObjectLink to={paths.agent(row.original.id)} needs="getAgent" className="font-mono text-[13px]">{shortId(row.original.id)}</ObjectLink></span>,
+    },
     { id: "state", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <AgentState agent={row.original} /> },
     { id: "environment", header: "Среда", accessorFn: (row) => environments.data?.find((item) => item.id === row.environmentId)?.name ?? "", cell: ({ getValue }) => (getValue() as string) || <NoValue /> },
     { id: "version", header: "Версия", accessorFn: (row) => row.version, cell: ({ row }) => <Mono>{row.original.version}</Mono> },
@@ -149,12 +158,21 @@ export function AgentsList() {
           <DataTable
             id="agents"
             columns={columns}
-            data={agents.data}
+            data={shown}
             getRowId={(agent) => agent.id}
             loading={agents.isPending}
             error={agents.error}
             sortable
-            empty={<EmptyState title="Агентов пока нет" action={can("createEnrollmentToken") ? <Button variant="primary" onClick={() => setEnrolling(true)}><Plus /> Подключить агента</Button> : undefined}>Агент нужен, чтобы сканировать базы и собирать аудит.</EmptyState>}
+            toolbar={revoked > 0 ? <CheckField label={`Показывать отозванных (${revoked})`} checked={filters.revoked !== ""} onChange={(event) => update({ revoked: event.target.checked ? "1" : "" })} /> : undefined}
+            empty={
+              revoked > 0 && !filters.revoked ? (
+                <EmptyState title="Работающих агентов нет" action={can("createEnrollmentToken") ? <Button variant="primary" onClick={() => setEnrolling(true)}><Plus /> Подключить агента</Button> : undefined}>
+                  Все агенты организации отозваны. Подключите новый, чтобы сканировать базы и собирать аудит.
+                </EmptyState>
+              ) : (
+                <EmptyState title="Агентов пока нет" action={can("createEnrollmentToken") ? <Button variant="primary" onClick={() => setEnrolling(true)}><Plus /> Подключить агента</Button> : undefined}>Агент нужен, чтобы сканировать базы и собирать аудит.</EmptyState>
+              )
+            }
           />
         </Panel>
       )}

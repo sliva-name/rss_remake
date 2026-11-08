@@ -38,7 +38,12 @@ function problemOf(detector: Detector): string | undefined {
 function View({ policy, onEdit }: { policy: Schemas["Policy"] | null; onEdit?: () => void }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-      <Panel title="Собственные детекторы" description="Дополняют встроенные категории. Совпадение ищется агентом, значения не покидают контур." actions={onEdit && <Button size="sm" onClick={onEdit}><Pencil /> Изменить</Button>} flush>
+      <Panel
+        title="Собственные детекторы"
+        description="Дополняют встроенные категории. Совпадение ищется агентом, значения не покидают контур."
+        actions={onEdit && (policy ? <Button size="sm" onClick={onEdit}><Pencil /> Изменить</Button> : <Button size="sm" variant="primary" onClick={onEdit}><Plus /> Настроить политику</Button>)}
+        flush
+      >
         {!policy || policy.customDetectors.length === 0 ? (
           <EmptyState title="Собственных детекторов нет">Работают только встроенные категории классификатора.</EmptyState>
         ) : (

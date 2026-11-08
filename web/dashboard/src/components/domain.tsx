@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 
 import type { Schemas } from "../api";
-import { ago, category, categoryIds, coverageStatus, engine, explain, failure, scanStatus, sourceStatus } from "../labels";
-import { CategoryLink, periods, usePeriod, type PeriodId } from "../links";
+import { ago, category, categoryIds, count, coverageStatus, engine, explain, failure, scanStatus, sourceStatus } from "../labels";
+import { CategoryLink, ObjectLink, paths, periods, usePeriod, type PeriodId } from "../links";
+import { useCan } from "../permissions";
+import { queries, usePermittedQuery } from "../queries";
 import { Badge, Status, type Tone } from "./ui/badge";
 import { cn } from "./ui/cn";
 import type { Option } from "./ui/form";
@@ -59,17 +61,63 @@ export function Confidence({ value }: { value: number }) {
   );
 }
 
-export function Categories({ ids, empty = "—" }: { ids: string[]; empty?: ReactNode }) {
+// Categories as links. In a table row the list is cut to a few, with the rest
+// counted and named on hover, so a row stays one line high.
+export function Categories({ ids, empty = "—", limit }: { ids: string[]; empty?: ReactNode; limit?: number }) {
   if (ids.length === 0) return <span className="text-fg-3">{empty}</span>;
+  const shown = limit !== undefined && ids.length > limit + 1 ? ids.slice(0, limit) : ids;
+  const rest = ids.slice(shown.length);
   return (
-    <span className="inline-flex flex-wrap gap-1">
-      {ids.map((id) => (
+    <span className={cn("inline-flex gap-1", limit === undefined ? "flex-wrap" : "flex-nowrap")}>
+      {shown.map((id) => (
         <CategoryLink key={id} id={id} className="rounded focus-visible:outline-2">
           <Badge tone="warn" className="hover:brightness-95">{category(id)}</Badge>
         </CategoryLink>
       ))}
+      {rest.length > 0 && (
+        <Tooltip content={rest.map(category).join(", ")}>
+          <span tabIndex={0} className="cursor-help rounded">
+            <Badge aria-label={`Ещё: ${rest.map(category).join(", ")}`}>+{rest.length}</Badge>
+          </span>
+        </Tooltip>
+      )}
     </span>
   );
+}
+
+// A table's name with where it lives under it: the two read as one address.
+export function TableName({ table }: { table: Pick<Schemas["CatalogTable"], "id" | "table" | "database" | "schema"> }) {
+  return (
+    <div className="min-w-0">
+      <ObjectLink to={paths.table(table.id)} needs="getCatalogTable" className="font-mono text-[13px]">{table.table}</ObjectLink>
+      <div className="font-mono text-xs whitespace-nowrap text-fg-3">{table.database} › {table.schema}</div>
+    </div>
+  );
+}
+
+export const sensitiveShareHint = "Чувствительных колонок из всех колонок таблицы";
+
+export function SensitiveShare({ table }: { table: Pick<Schemas["CatalogTable"], "columns" | "sensitiveColumns"> }) {
+  return (
+    <span className="whitespace-nowrap">
+      <span className={table.sensitiveColumns > 0 ? "font-medium text-fg" : "text-fg-3"}>{count(table.sensitiveColumns)}</span>
+      <span className="text-fg-3"> из {count(table.columns)}</span>
+    </span>
+  );
+}
+
+// A source by its name. Sources are deleted softly: tables, findings and events
+// of a deleted one stay, and they name it as deleted rather than as nothing.
+// Without permission to list sources only the link is left to show.
+export function SourceName({ id, className }: { id: string; className?: string }) {
+  const can = useCan();
+  const sources = usePermittedQuery(queries.sources());
+  const link = (label: ReactNode) => <ObjectLink to={paths.source(id)} needs="getSource" className={cn("whitespace-nowrap", className)}>{label}</ObjectLink>;
+  if (!can("listSources") || sources.isError) return link("Источник");
+  if (!sources.data) return <span className={cn("text-fg-3", className)}>…</span>;
+  const source = sources.data.find((item) => item.id === id);
+  if (!source) return <span className={cn("whitespace-nowrap text-fg-3", className)} title={`Источник ${id} удалён`}>удалённый источник</span>;
+  return link(source.key);
 }
 
 // What went wrong and what to do about it, from the shared dictionary of codes.

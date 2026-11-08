@@ -164,8 +164,10 @@ export function AppShell({ visible, children }: { visible: readonly Section[]; c
 
   useEffect(() => setNavOpen(false), [pathname]);
   useEffect(() => {
+    // Ctrl K anywhere; a slash when it would not be typed into a field.
     const open = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      const typing = event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]") !== null;
+      if (((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") || (event.key === "/" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey)) {
         event.preventDefault();
         setSearchOpen(true);
       }
@@ -176,7 +178,7 @@ export function AppShell({ visible, children }: { visible: readonly Section[]; c
 
   return (
     <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface px-3 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface px-3 lg:flex">
         <Brand />
         <div className="mt-2 min-h-0 flex-1 overflow-y-auto pb-4">
           <Navigation visible={visible} />
@@ -210,13 +212,13 @@ export function AppShell({ visible, children }: { visible: readonly Section[]; c
           >
             <Search aria-hidden className="size-4 shrink-0" />
             <span className="truncate">Поиск источников, таблиц, колонок, пользователей</span>
-            <kbd className="ml-auto hidden rounded border border-border bg-surface px-1.5 font-sans text-xs text-fg-3 sm:inline">Ctrl K</kbd>
+            <kbd className="ml-auto hidden rounded border border-border bg-surface px-1.5 font-sans text-xs text-fg-3 sm:inline" title="Или клавиша /">Ctrl K</kbd>
           </button>
           <div className="ml-auto">
             <Account />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1480px] min-w-0 flex-1 px-4 py-8 sm:px-8 lg:px-10">{children}</main>
+        <main className="mx-auto w-full max-w-[1480px] min-w-0 flex-1 px-4 py-8 sm:px-8">{children}</main>
       </div>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} visible={visible} />

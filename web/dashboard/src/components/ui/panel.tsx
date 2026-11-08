@@ -24,11 +24,11 @@ export function Panel({
     <section className={cn("min-w-0 rounded-lg border border-border bg-surface", className)}>
       {(title || actions) && (
         <header className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-5 py-3">
-          <div className="min-w-0">
+          <div className="min-w-48 flex-1">
             {title && <h2 className="text-base font-semibold text-fg">{title}</h2>}
             {description && <p className="mt-0.5 text-xs text-fg-2">{description}</p>}
           </div>
-          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+          {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       <div className={flush ? undefined : "p-5"}>{children}</div>
@@ -58,15 +58,20 @@ export function Stat({ label, value, hint, to, tone }: { label: string; value: R
   );
 }
 
+// Terms and their values. Where the block is wide, terms form a column of one
+// width on every block, so values line up from one block to the next; in a
+// narrow block, a side panel or a phone, each term stands over its value.
 export function Facts({ items, className }: { items: [string, ReactNode][]; className?: string }) {
   return (
-    <dl className={cn("grid grid-cols-[minmax(9rem,max-content)_minmax(0,1fr)] gap-x-8 gap-y-3 text-sm", className)}>
-      {items.map(([term, value]) => (
-        <div key={term} className="contents">
-          <dt className="text-fg-2">{term}</dt>
-          <dd className="min-w-0 break-words text-fg">{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className={cn("@container", className)}>
+      <dl className="grid gap-y-3 text-sm @sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] @sm:gap-x-6">
+        {items.map(([term, value]) => (
+          <div key={term} className="flex min-w-0 flex-col gap-0.5 @sm:contents">
+            <dt className="text-fg-2">{term}</dt>
+            <dd className="min-w-0 break-words text-fg">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }

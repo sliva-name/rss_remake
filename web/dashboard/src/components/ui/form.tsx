@@ -1,6 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { Select as Primitive } from "radix-ui";
-import { cloneElement, isValidElement, useId, type ComponentProps, type InputHTMLAttributes, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ComponentProps, type InputHTMLAttributes, type ReactNode } from "react";
 
 import { cn } from "./cn";
 
@@ -11,6 +11,36 @@ const control =
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(control, className)} {...props} />;
+}
+
+// A filter typed into a list kept in the address: the value leaves the field
+// once typing pauses, so the list asks the server once per pause instead of
+// once per key. A value changed from outside (back button, a saved view) shows
+// up in the field.
+export function FilterInput({
+  value,
+  onValueChange,
+  delay = 300,
+  ...props
+}: { value: string; onValueChange: (value: string) => void; delay?: number } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
+  const [text, setText] = useState(value);
+  // The value this field sent last: its echo from the address must not
+  // overwrite what was typed since.
+  const sent = useRef(value);
+  useEffect(() => {
+    if (value === sent.current) return;
+    sent.current = value;
+    setText(value);
+  }, [value]);
+  useEffect(() => {
+    if (text === sent.current) return;
+    const timer = setTimeout(() => {
+      sent.current = text;
+      onValueChange(text);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [text, delay, onValueChange]);
+  return <Input {...props} value={text} onChange={(event) => setText(event.target.value)} />;
 }
 
 export interface Option {
@@ -87,6 +117,10 @@ export function Select({
 export function Checkbox({ className, ...props }: Omit<ComponentProps<"input">, "type">) {
   return <input type="checkbox" className={cn("size-4 cursor-pointer rounded accent-[var(--accent)]", className)} {...props} />;
 }
+
+// The width of a filter above a list: two to a row on a phone, one fixed
+// width on a wider screen.
+export const filterField = "min-w-36 flex-1 sm:w-48 sm:flex-none";
 
 // A labelled control. The label wraps the control, so clicking it focuses the
 // control; the hint sits outside the label so the control's name stays just

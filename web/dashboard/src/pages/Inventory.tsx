@@ -3,17 +3,18 @@ import { Database } from "lucide-react";
 import { useMemo } from "react";
 
 import { api, type Schemas } from "../api";
-import { Categories, categoryOptions, SourceState } from "../components/domain";
+import { Categories, categoryOptions, SensitiveShare, sensitiveShareHint, SourceName, SourceState, TableName } from "../components/domain";
+import { Button } from "../components/ui/button";
 import { cn } from "../components/ui/cn";
-import { CheckField, Field, Input, Select } from "../components/ui/form";
+import { CheckField, Field, filterField, FilterInput, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
-import { ago, count, engine, tableKind } from "../labels";
-import { ObjectLink, paths, useUrlFilters } from "../links";
+import { ago, engine, tableKind } from "../labels";
+import { useUrlFilters } from "../links";
 import { useCan } from "../permissions";
-import { queries, usePermittedQuery } from "../queries";
+import { queries } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
@@ -54,44 +55,40 @@ export function Inventory() {
     placeholderData: (previous) => previous,
     queryFn: () => api.tables({ sourceId: filters.sourceId, q: filters.q.trim(), sensitive: filters.sensitive ? "true" : undefined, category: filters.category, limit: pageSize, offset }),
   });
-  const sources = usePermittedQuery(queries.sources());
-  const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
 
   const columns = useMemo<TableColumn<Table>[]>(() => [
-    {
-      id: "table", header: "Таблица", enableHiding: false, cell: ({ row }) => (
-        <ObjectLink to={paths.table(row.original.id)} needs="getCatalogTable" className="font-mono text-[13px]">{row.original.table}</ObjectLink>
-      ),
-    },
-    { id: "place", header: "База › схема", cell: ({ row }) => <span className="font-mono text-[13px] text-fg-2">{row.original.database} › {row.original.schema}</span> },
-    {
-      id: "source", header: "Источник", cell: ({ row }) => (
-        <ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{sourceKey(row.original.sourceId) ?? "Источник"}</ObjectLink>
-      ),
-    },
+    { id: "table", header: "Таблица", enableHiding: false, cell: ({ row }) => <TableName table={row.original} /> },
+    { id: "source", header: "Источник", cell: ({ row }) => <SourceName id={row.original.sourceId} /> },
     { id: "kind", header: "Вид", cell: ({ row }) => <span className="text-fg-2">{tableKind(row.original.kind)}</span> },
-    { id: "columns", header: "Колонок", meta: { align: "right" }, cell: ({ row }) => count(row.original.columns) },
-    { id: "sensitive", header: "Чувствительных", meta: { align: "right" }, cell: ({ row }) => <span className={row.original.sensitiveColumns > 0 ? "font-medium" : "text-fg-3"}>{count(row.original.sensitiveColumns)}</span> },
-    { id: "categories", header: "Категории", cell: ({ row }) => <Categories ids={row.original.categories} /> },
+    { id: "sensitive", header: "Чувствительных", meta: { align: "right", hint: sensitiveShareHint }, cell: ({ row }) => <SensitiveShare table={row.original} /> },
+    { id: "categories", header: "Категории", cell: ({ row }) => <Categories ids={row.original.categories} limit={1} /> },
     { id: "seen", header: "Последний скан", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{ago(row.original.lastSeenAt)}</span> },
-  ], [sources.data]);
+  ], []);
+  const filtered = filters.q !== "" || filters.sensitive !== "" || filters.category !== "";
 
   return (
     <>
       <PageHeader title="Инвентаризация" description="Базы, схемы и таблицы всех источников. Чувствительность определяет классификатор, значения в платформу не передаются." actions={<ViewsMenu />} />
-      <div className="grid gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
         {can("listSources") && <SourceList selected={filters.sourceId} onSelect={(sourceId) => update({ sourceId })} />}
         <Panel flush className={can("listSources") ? undefined : "lg:col-span-2"}>
           <DataTable
             id="inventory"
             columns={columns}
+            defaultHidden={["kind"]}
             data={tables.data?.items}
             getRowId={(table) => table.id}
             loading={tables.isPending}
             error={tables.error}
             empty={
-              filters.q || filters.sensitive || filters.category ? (
-                <EmptyState icon="search" title="Таблиц не найдено">Измените поиск или фильтры.</EmptyState>
+              filtered ? (
+                <EmptyState
+                  icon="search"
+                  title="Таблиц не найдено"
+                  action={<Button size="sm" onClick={() => update({ q: "", sensitive: "", category: "" })}>Сбросить фильтры</Button>}
+                >
+                  Измените поиск или фильтры.
+                </EmptyState>
               ) : (
                 <EmptyState title="Таблиц пока нет">Таблицы появятся после первого сканирования источника.</EmptyState>
               )
@@ -99,10 +96,10 @@ export function Inventory() {
             page={tables.data ? { offset, size: pageSize, total: tables.data.total, onChange: (next) => update({ offset: String(next) }) } : undefined}
             toolbar={
               <>
-                <Field label="Поиск" className="w-72">
-                  <Input type="search" value={filters.q} onChange={(event) => update({ q: event.target.value })} placeholder="Имя или база.схема.таблица" />
+                <Field label="Поиск" className="w-full sm:w-72">
+                  <FilterInput type="search" value={filters.q} onValueChange={(q) => update({ q })} placeholder="Имя или база.схема.таблица" />
                 </Field>
-                <Field label="Категория" className="w-52">
+                <Field label="Категория" className={filterField}>
                   <Select value={filters.category} onValueChange={(value) => update({ category: value })} options={categoryOptions("Любая категория")} />
                 </Field>
                 <CheckField label="Только с чувствительными данными" checked={filters.sensitive !== ""} onChange={(event) => update({ sensitive: event.target.checked ? "1" : "" })} />

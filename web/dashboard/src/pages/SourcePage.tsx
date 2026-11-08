@@ -4,10 +4,10 @@ import { useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, type Schemas } from "../api";
-import { Categories, CoverageState, FailureNote, Mono, ScanState, SourceState } from "../components/domain";
+import { Categories, CoverageState, FailureNote, Mono, ScanState, SensitiveShare, sensitiveShareHint, SourceState, TableName } from "../components/domain";
 import { Badge, type Tone } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/form";
+import { FilterInput } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Facts, Panel } from "../components/ui/panel";
 import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/state";
@@ -88,12 +88,10 @@ function Tables({ sourceId }: { sourceId: string }) {
     queryFn: () => api.tables({ sourceId, q: filters.q.trim(), limit: pageSize, offset }),
   });
   const columns = useMemo<TableColumn<Schemas["CatalogTable"]>[]>(() => [
-    { id: "table", header: "Таблица", enableHiding: false, cell: ({ row }) => <ObjectLink to={paths.table(row.original.id)} needs="getCatalogTable" className="font-mono text-[13px]">{row.original.table}</ObjectLink> },
-    { id: "place", header: "База › схема", cell: ({ row }) => <Mono className="text-fg-2">{row.original.database} › {row.original.schema}</Mono> },
+    { id: "table", header: "Таблица", enableHiding: false, cell: ({ row }) => <TableName table={row.original} /> },
     { id: "kind", header: "Вид", cell: ({ row }) => <span className="text-fg-2">{tableKind(row.original.kind)}</span> },
-    { id: "columns", header: "Колонок", meta: { align: "right" }, cell: ({ row }) => count(row.original.columns) },
-    { id: "sensitive", header: "Чувствительных", meta: { align: "right" }, cell: ({ row }) => count(row.original.sensitiveColumns) },
-    { id: "categories", header: "Категории", cell: ({ row }) => <Categories ids={row.original.categories} /> },
+    { id: "sensitive", header: "Чувствительных", meta: { align: "right", hint: sensitiveShareHint }, cell: ({ row }) => <SensitiveShare table={row.original} /> },
+    { id: "categories", header: "Категории", cell: ({ row }) => <Categories ids={row.original.categories} limit={3} /> },
   ], []);
   return (
     <Panel flush>
@@ -106,7 +104,7 @@ function Tables({ sourceId }: { sourceId: string }) {
         error={tables.error}
         empty={filters.q ? <EmptyState icon="search" title="Таблиц не найдено" /> : <EmptyState title="Таблиц нет">Источник ещё не сканировали.</EmptyState>}
         page={tables.data ? { offset, size: pageSize, total: tables.data.total, onChange: (next) => update({ offset: String(next) }) } : undefined}
-        toolbar={<Input type="search" aria-label="Поиск таблицы" className="w-64" value={filters.q} onChange={(event) => update({ q: event.target.value })} placeholder="Имя или база.схема.таблица" />}
+        toolbar={<FilterInput type="search" aria-label="Поиск таблицы" className="w-full sm:w-72" value={filters.q} onValueChange={(q) => update({ q })} placeholder="Имя или база.схема.таблица" />}
       />
     </Panel>
   );

@@ -314,7 +314,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
       )}
 
       {save.isError && <p role="alert" className="text-sm text-bad">{save.error.message}</p>}
-      <div className="flex gap-2 border-t border-border pt-4">
+      <div className="sticky -bottom-4 -mx-5 -mb-4 flex gap-2 border-t border-border bg-surface px-5 py-3">
         <Button type="submit" variant="primary" disabled={save.isPending || check.isPending}>{save.isPending ? "Сохранение…" : "Сохранить"}</Button>
         <Button onClick={onCancel}>Отмена</Button>
       </div>

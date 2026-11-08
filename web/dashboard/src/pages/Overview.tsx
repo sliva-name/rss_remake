@@ -15,12 +15,12 @@ import { CheckField } from "../components/ui/form";
 import { Panel, Stat } from "../components/ui/panel";
 import { PageHeader } from "../components/ui/page";
 import { EmptyState, Loadable, Loading } from "../components/ui/state";
-import { ago, category, change, count, coverageStatus, failure, shortId } from "../labels";
+import { ago, category, change, count, coverageStatus, failure, identity, lowerFirst, shortId } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod } from "../links";
 import { type Permission, useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
 import { defaultLayout, kindNames, type OverviewLayout, pathOf, useFavorites, useOverviewLayout, useRecent } from "../workspace";
-import { observed, signalKinds } from "./Signals";
+import { observed, signalEvents, signalKinds } from "./Signals";
 
 interface Issue {
   key: string;
@@ -117,7 +117,13 @@ function Headline() {
   return (
     <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
       {can("listSources") && (
-        <Stat label="Источники" to="/sources" value={sources.data ? count(sources.data.length) : "…"} hint={coverage.data ? `${observing} наблюдаются · ${(coverage.data.length - observing)} с проблемами` : undefined} tone={coverage.data && coverage.data.length > observing ? "warn" : undefined} />
+        <Stat
+          label="Источники"
+          to="/sources"
+          value={sources.data ? count(sources.data.length) : "…"}
+          hint={coverage.data && (coverage.data.length === observing ? "все наблюдаются" : `наблюдаются ${observing} · с проблемами ${coverage.data.length - observing}`)}
+          tone={coverage.data && coverage.data.length > observing ? "warn" : undefined}
+        />
       )}
       {can("listAgents") && (
         <Stat label="Агенты на связи" to="/agents" value={agents.data ? `${active.length - silent} из ${active.length}` : "…"} hint={silent > 0 ? `${silent} молчат` : "все отвечают"} tone={silent > 0 ? "warn" : undefined} />
@@ -187,7 +193,11 @@ function TopReaders() {
                 key: `${row.databasePrincipal}-${row.applicationPrincipal}-${index}`,
                 label: <ObjectLink to={paths.events({ principal: row.applicationPrincipal || row.databasePrincipal })} needs="listAuditEvents">{name}</ObjectLink>,
                 value: row.sensitiveEvents,
-                hint: row.applicationPrincipal ? `через ${row.databasePrincipal}` : undefined,
+                // One login can appear twice: once on its own and once with a
+                // claim the application failed to sign. The note tells them apart.
+                hint: row.applicationPrincipal
+                  ? `через ${row.databasePrincipal}`
+                  : row.identityConfidence === "IDENTITY_CONFIDENCE_UNVERIFIED_CLAIM" ? lowerFirst(identity(row.identityConfidence)) : undefined,
               };
             })}
           />
@@ -199,26 +209,28 @@ function TopReaders() {
 
 function Changes() {
   const [period] = usePeriod("7d");
-  const changes = useQuery({ queryKey: ["changes", period.from, period.to], queryFn: () => api.changes({ from: period.from, to: period.to, limit: 8 }) });
+  const changes = useQuery({ queryKey: ["changes", period.from, period.to], queryFn: () => api.changes({ from: period.from, to: period.to, limit: 6 }) });
   return (
     <Panel title="Изменения в инвентаре" description={`За ${period.label}`} flush>
       <Loadable query={changes} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Изменений не было" />}>
         {(rows) => (
           <ul className="divide-y divide-border">
-            {rows.map((row, index) => (
-              <li key={index} className="flex flex-col gap-0.5 px-5 py-3 text-sm">
-                <span className="flex items-baseline justify-between gap-3">
-                  <span className="text-fg">{change(row.kind)}</span>
-                  <span className="shrink-0 text-xs text-fg-3">{ago(row.occurredAt)}</span>
-                </span>
-                <span className="min-w-0 truncate text-[13px] text-fg-2">
-                  {row.sourceKey} ·{" "}
-                  <ObjectLink to={paths.table(row.tableId)} needs="getCatalogTable" className="font-mono">{row.tableName}</ObjectLink>
-                  {row.columnId && row.columnName && <>.<ObjectLink to={paths.column(row.columnId)} needs="getCatalogColumn" className="font-mono">{row.columnName}</ObjectLink></>}
-                  {row.categoryId && <> · {category(row.categoryId)}</>}
-                </span>
-              </li>
-            ))}
+            {rows.map((row, index) => {
+              const what = row.categoryId ? `${change(row.kind)} · ${category(row.categoryId)}` : change(row.kind);
+              return (
+                <li key={index} className="flex flex-col gap-0.5 px-5 py-3">
+                  <span className="truncate text-sm text-fg" title={what}>{what}</span>
+                  <span className="flex items-baseline justify-between gap-3 text-[13px] text-fg-2">
+                    <span className="min-w-0 truncate">
+                      {row.sourceKey} ·{" "}
+                      <ObjectLink to={paths.table(row.tableId)} needs="getCatalogTable" className="font-mono">{row.tableName}</ObjectLink>
+                      {row.columnId && row.columnName && <>.<ObjectLink to={paths.column(row.columnId)} needs="getCatalogColumn" className="font-mono">{row.columnName}</ObjectLink></>}
+                    </span>
+                    <span className="shrink-0 text-xs text-fg-3">{ago(row.occurredAt)}</span>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Loadable>
@@ -227,21 +239,38 @@ function Changes() {
 }
 
 function TopSignals() {
+  const can = useCan();
   const signals = useQuery(queries.signals());
   return (
-    <Panel title="Сигналы риска" description="Отклонения за сутки — повод посмотреть, не инцидент" actions={<Button size="sm" variant="ghost" asChild><Link to="/signals">Все</Link></Button>} flush>
+    <Panel
+      title="Сигналы риска"
+      description="Отклонения за сутки — повод посмотреть, не инцидент"
+      actions={<Button size="sm" variant="ghost" asChild><Link to="/signals">{signals.data && signals.data.length > 5 ? `Все ${signals.data.length}` : "Все"}</Link></Button>}
+      flush
+    >
       <Loadable query={signals} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Сигналов нет">Активность за сутки обычная.</EmptyState>}>
         {(rows) => (
           <ul className="divide-y divide-border">
-            {rows.slice(0, 5).map((signal) => (
-              <li key={`${signal.kind}-${signal.databasePrincipal}-${signal.applicationPrincipal}-${signal.category}`} className="flex flex-col gap-1 px-5 py-3">
-                <span className="flex items-center justify-between gap-3">
-                  <span className="truncate text-sm font-medium text-fg">{signal.applicationPrincipal || signal.databasePrincipal}</span>
-                  <Badge tone={signalKinds[signal.kind].tone}>{signalKinds[signal.kind].title}</Badge>
-                </span>
-                <span className="text-xs text-fg-2">{signal.category ? `${category(signal.category)} · ` : ""}{observed(signal)}</span>
-              </li>
-            ))}
+            {rows.slice(0, 5).map((signal) => {
+              const body = (
+                <>
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="truncate text-sm font-medium text-fg">{signal.applicationPrincipal || signal.databasePrincipal}</span>
+                    <Badge tone={signalKinds[signal.kind].tone}>{signalKinds[signal.kind].title}</Badge>
+                  </span>
+                  <span className="text-xs text-fg-2">{signal.category ? `${category(signal.category)} · ` : ""}{observed(signal)}</span>
+                </>
+              );
+              return (
+                <li key={`${signal.kind}-${signal.databasePrincipal}-${signal.applicationPrincipal}-${signal.category}`}>
+                  {can("listAuditEvents") ? (
+                    <Link to={signalEvents(signal)} className="flex flex-col gap-1 px-5 py-3 transition-colors hover:bg-surface-2/60">{body}</Link>
+                  ) : (
+                    <div className="flex flex-col gap-1 px-5 py-3">{body}</div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </Loadable>

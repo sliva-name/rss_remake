@@ -36,6 +36,16 @@ export function observed(signal: Signal): string {
   }
 }
 
+// The events a signal was raised on: the same person, category and day.
+export function signalEvents(signal: Signal): string {
+  return paths.events({
+    principal: signal.applicationPrincipal || signal.databasePrincipal,
+    category: signal.category || undefined,
+    eventType: signal.kind === "FAILED_ACCESS" ? "EVENT_TYPE_FAILED_ACCESS" : undefined,
+    period: "24h",
+  });
+}
+
 export function Signals() {
   const can = useCan();
   const navigate = useNavigate();
@@ -79,12 +89,8 @@ export function Signals() {
             loading={signals.isPending}
             error={signals.error}
             sortable
-            onRowClick={can("listAuditEvents") ? (row) => navigate(paths.events({
-              principal: row.applicationPrincipal || row.databasePrincipal,
-              category: row.category || undefined,
-              eventType: row.kind === "FAILED_ACCESS" ? "EVENT_TYPE_FAILED_ACCESS" : undefined,
-              period: "24h",
-            })) : undefined}
+            caption={signals.data && `За последние сутки: ${count(signals.data.length)}.${can("listAuditEvents") ? " Строка открывает события, на которых сработало правило." : ""}`}
+            onRowClick={can("listAuditEvents") ? (row) => navigate(signalEvents(row)) : undefined}
             empty={<EmptyState title="Сигналов нет">За последние сутки активность не отличалась от обычной по правилам ниже.</EmptyState>}
           />
         </Panel>

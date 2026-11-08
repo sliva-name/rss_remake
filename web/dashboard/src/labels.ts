@@ -202,6 +202,10 @@ export const ago = (value: string | undefined, now = Date.now()): string => {
 
 export const shortId = (id: string): string => id.slice(0, 8);
 
+// A label in the middle of a phrase. Only the first letter changes, so an
+// abbreviation such as СУБД stays as it is.
+export const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
+
 const tableKinds: Record<string, string> = {
   TABLE_KIND_TABLE: "Таблица",
   TABLE_KIND_VIEW: "Представление",

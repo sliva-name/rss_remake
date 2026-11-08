@@ -4,10 +4,10 @@ import { useMemo } from "react";
 import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
-import { categoryOptions, Confidence, Mono, PeriodPicker, sourceOptions } from "../components/domain";
+import { categoryOptions, Confidence, Mono, PeriodPicker, SourceName, sourceOptions } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Field, Select } from "../components/ui/form";
+import { Field, filterField, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
@@ -95,34 +95,37 @@ function FindingsTab() {
     placeholderData: (previous) => previous,
     queryFn: () => api.catalog({ sourceId: filters.sourceId, category: filters.category, limit: pageSize, offset }),
   });
-  const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
 
   const columns = useMemo<TableColumn<Finding>[]>(() => [
     {
       id: "column", header: "Колонка", enableHiding: false, cell: ({ row }) => (
-        <ObjectLink to={paths.column(row.original.columnId)} needs="getCatalogColumn" className="font-mono text-[13px]">{row.original.column}</ObjectLink>
+        <div className="min-w-0">
+          <ObjectLink to={paths.column(row.original.columnId)} needs="getCatalogColumn" className="font-mono text-[13px]">{row.original.column}</ObjectLink>
+          <div className="whitespace-nowrap">
+            <ObjectLink to={paths.table(row.original.tableId)} needs="getCatalogTable" className="font-mono text-xs text-fg-2">{row.original.schema}.{row.original.table}</ObjectLink>
+          </div>
+        </div>
       ),
     },
-    {
-      id: "table", header: "Таблица", cell: ({ row }) => (
-        <ObjectLink to={paths.table(row.original.tableId)} needs="getCatalogTable" className="font-mono text-[13px]">{row.original.schema}.{row.original.table}</ObjectLink>
-      ),
-    },
-    { id: "source", header: "Источник", cell: ({ row }) => <ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{sourceKey(row.original.sourceId) ?? "Источник"}</ObjectLink> },
-    { id: "type", header: "Тип", cell: ({ row }) => <Mono className="text-fg-2">{row.original.nativeType}</Mono> },
+    { id: "source", header: "Источник", cell: ({ row }) => <SourceName id={row.original.sourceId} /> },
+    { id: "type", header: "Тип", cell: ({ row }) => <Mono className="whitespace-nowrap text-fg-2">{row.original.nativeType}</Mono> },
     { id: "category", header: "Категория", cell: ({ row }) => <CategoryLink id={row.original.categoryId}><Badge tone="warn">{category(row.original.categoryId)}</Badge></CategoryLink> },
     { id: "confidence", header: "Уверенность", cell: ({ row }) => <Confidence value={row.original.confidence} /> },
-    { id: "sampling", header: "Основание", cell: ({ row }) => <span className="text-fg-2">{samplingMethod(row.original.samplingMethod)}</span> },
-    { id: "matched", header: "Совпало строк", meta: { align: "right" }, cell: ({ row }) => <>{count(row.original.rowsMatched)}<span className="text-fg-3"> из {count(row.original.rowsInspected)}</span></> },
-    { id: "unique", header: "Уникальных ≈", meta: { align: "right" }, cell: ({ row }) => count(row.original.uniqueEstimate) },
+    {
+      id: "sampling", header: "Основание", meta: { hint: "Что прочитал классификатор: только имя колонки, выборку СУБД, первые строки или всю таблицу" },
+      cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{samplingMethod(row.original.samplingMethod)}</span>,
+    },
+    { id: "matched", header: "Совпало строк", meta: { align: "right" }, cell: ({ row }) => <span className="whitespace-nowrap">{count(row.original.rowsMatched)}<span className="text-fg-3"> из {count(row.original.rowsInspected)}</span></span> },
+    { id: "unique", header: "Уникальных ≈", meta: { align: "right", hint: "Оценка числа разных значений в выборке" }, cell: ({ row }) => count(row.original.uniqueEstimate) },
     { id: "updated", header: "Решение от", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{ago(row.original.updatedAt)}</span> },
-  ], [sources.data]);
+  ], []);
 
   return (
     <Panel flush>
       <DataTable
         id="classification-findings"
         columns={columns}
+        defaultHidden={["type", "unique"]}
         data={findings.data?.items}
         getRowId={(item) => `${item.columnId}-${item.categoryId}`}
         loading={findings.isPending}
@@ -132,11 +135,11 @@ function FindingsTab() {
         toolbar={
           <>
             {can("listSources") && (
-              <Field label="Источник" className="w-52">
+              <Field label="Источник" className={filterField}>
                 <Select value={filters.sourceId} onValueChange={(sourceId) => update({ sourceId })} options={sourceOptions(sources.data)} />
               </Field>
             )}
-            <Field label="Категория" className="w-52">
+            <Field label="Категория" className={filterField}>
               <Select value={filters.category} onValueChange={(value) => update({ category: value })} options={categoryOptions("Все категории")} />
             </Field>
           </>
