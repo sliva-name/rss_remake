@@ -107,7 +107,7 @@ func newZoneCollector(t *testing.T, reader Reader, catalog connector.Catalog) *C
 }
 
 func TestZonedReaderWaitsForTheServerZone(t *testing.T) {
-	blind := &zonedScriptedReader{scriptedReader: scriptedReader{batches: []Batch{{Records: []Record{statementRecord(1)}, Cursor: []byte("after")}}}}
+	blind := &zonedScriptedReader{batches: []Batch{{Records: []Record{statementRecord(1)}, Cursor: []byte("after")}}}
 	item := newZoneCollector(t, blind, catalogWithoutClock{})
 	item.tick(context.Background())
 	if health := item.Health(); health.GetState() != agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED ||

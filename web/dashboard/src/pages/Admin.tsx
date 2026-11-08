@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, type SubmitEvent, useMemo, useState } from "react";
 
 import { api, type Schemas } from "../api";
 import { Mono } from "../components/domain";
@@ -33,7 +33,7 @@ function CreateDialog({ open, onOpenChange, title, description, label, children,
   pending: boolean;
   error: Error | null;
 }) {
-  const submit = (event: FormEvent) => {
+  const submit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     onSubmit();
   };

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Pencil, Play, ScrollText, Trash2 } from "lucide-react";
 import { useMemo } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { Categories, CoverageState, FailureNote, Mono, ScanState, SourceState } from "../components/domain";

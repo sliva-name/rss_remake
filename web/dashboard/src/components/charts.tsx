@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, CartesianGrid, ComposedChart, Line, Tooltip, XAxis, YAxis } from "recharts";
 
 import type { Schemas } from "../api";
 import { count } from "../labels";
@@ -131,40 +131,40 @@ export function ActivityChart({ points, from, to, onOpen }: { points: Schemas["T
         </div>
       ) : (
         <div className="h-56" role="img" aria-label={`Обращения за период: всего ${count(totals.events)}, к чувствительным данным ${count(totals.sensitive)}`}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              data={data}
-              margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-              onClick={(state) => {
-                const index = typeof state?.activeTooltipIndex === "number" ? state.activeTooltipIndex : Number(state?.activeTooltipIndex);
-                if (Number.isInteger(index)) open(data[index]);
-              }}
-              className="cursor-pointer"
-            >
-              <CartesianGrid vertical={false} stroke="var(--border)" />
-              <XAxis
-                dataKey="start"
-                tickFormatter={(value: number) => label({ start: value, end: value, events: 0, sensitive: 0, failed: 0 }, daily)}
-                tick={{ fill: "var(--text-2)", fontSize: 12 }}
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={false}
-                minTickGap={40}
-              />
-              <YAxis
-                tickFormatter={(value: number) => (value >= 10_000 ? compact.format(value) : count(value))}
-                tick={{ fill: "var(--text-2)", fontSize: 12 }}
-                axisLine={false}
-                tickLine={false}
-                width={48}
-                allowDecimals={false}
-              />
-              <Tooltip content={<Hover daily={daily} />} cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }} />
-              <Area type="linear" dataKey="events" stroke="none" fill="var(--chart-1)" fillOpacity={0.1} isAnimationActive={false} />
-              {series.map((item) => (
-                <Line key={item.key} type="linear" dataKey={item.key} name={item.name} stroke={item.color} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }} isAnimationActive={false} />
-              ))}
-            </ComposedChart>
-          </ResponsiveContainer>
+          <ComposedChart
+            responsive
+            style={{ width: "100%", height: "100%" }}
+            data={data}
+            margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+            onClick={(state) => {
+              const index = typeof state?.activeTooltipIndex === "number" ? state.activeTooltipIndex : Number(state?.activeTooltipIndex);
+              if (Number.isInteger(index)) open(data[index]);
+            }}
+            className="cursor-pointer"
+          >
+            <CartesianGrid vertical={false} stroke="var(--border)" />
+            <XAxis
+              dataKey="start"
+              tickFormatter={(value: number) => label({ start: value, end: value, events: 0, sensitive: 0, failed: 0 }, daily)}
+              tick={{ fill: "var(--text-2)", fontSize: 12 }}
+              axisLine={{ stroke: "var(--border)" }}
+              tickLine={false}
+              minTickGap={40}
+            />
+            <YAxis
+              tickFormatter={(value: number) => (value >= 10_000 ? compact.format(value) : count(value))}
+              tick={{ fill: "var(--text-2)", fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+              width={48}
+              allowDecimals={false}
+            />
+            <Tooltip content={<Hover daily={daily} />} cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }} />
+            <Area type="linear" dataKey="events" stroke="none" fill="var(--chart-1)" fillOpacity={0.1} isAnimationActive={false} />
+            {series.map((item) => (
+              <Line key={item.key} type="linear" dataKey={item.key} name={item.name} stroke={item.color} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }} isAnimationActive={false} />
+            ))}
+          </ComposedChart>
         </div>
       )}
     </div>

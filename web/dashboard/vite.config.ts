@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -14,4 +15,4 @@ export default defineConfig({
   },
   // CSS is read only by the login theme test, which compares the raw files.
   test: { environment: "jsdom", css: { include: [/\.css/] } },
-} as never);
+});

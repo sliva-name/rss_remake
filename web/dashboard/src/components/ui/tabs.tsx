@@ -1,6 +1,6 @@
 import { Tabs as Primitive } from "radix-ui";
 import type { ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { cn } from "./cn";
 
@@ -37,7 +37,7 @@ export function Tabs({ items, param = "tab", className }: { items: TabItem[]; pa
         ))}
       </Primitive.List>
       {items.map((item) => (
-        <Primitive.Content key={item.id} value={item.id} className="focus-visible:outline-none">
+        <Primitive.Content key={item.id} value={item.id} className="focus-visible:outline-hidden">
           {item.content}
         </Primitive.Content>
       ))}

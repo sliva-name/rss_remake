@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { cn } from "./cn";
 
 const content = "z-50 min-w-48 rounded-md border border-border bg-surface p-1 text-sm text-fg shadow-lg";
-const item = "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 outline-none select-none data-[highlighted]:bg-surface-2 data-[disabled]:opacity-50";
+const item = "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 outline-hidden select-none data-[highlighted]:bg-surface-2 data-[disabled]:opacity-50";
 
 export function Menu({ trigger, label, children, align = "end" }: { trigger: ReactNode; label?: string; children: ReactNode; align?: "start" | "end" }) {
   return (

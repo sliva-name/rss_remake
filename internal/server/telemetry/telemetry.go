@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"path"
+	"slices"
 	"strconv"
 	"time"
 
@@ -175,10 +176,8 @@ func (s *Server) API(router *http.ServeMux, next http.Handler) http.Handler {
 
 func statusLabel(status int) string {
 	label := strconv.Itoa(status)
-	for _, known := range statuses {
-		if known == label {
-			return label
-		}
+	if slices.Contains(statuses, label) {
+		return label
 	}
 	return strconv.Itoa(status/100) + "xx"
 }

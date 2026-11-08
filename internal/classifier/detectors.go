@@ -3,6 +3,7 @@ package classifier
 import (
 	"bytes"
 	"regexp"
+	"slices"
 )
 
 const (
@@ -206,8 +207,7 @@ func countAll(text []byte) int {
 func validLuhn(digits []int) bool {
 	sum := 0
 	double := false
-	for i := len(digits) - 1; i >= 0; i-- {
-		digit := digits[i]
+	for _, digit := range slices.Backward(digits) {
 		if double {
 			digit *= 2
 			if digit > luhnDoubleLimit {

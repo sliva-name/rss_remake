@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { type SubmitEvent, useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { engine as engineLabel, failure, shortId } from "../labels";
@@ -210,7 +210,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
       onSaved(source.id);
     },
   });
-  const submit = (event: FormEvent) => {
+  const submit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     save.mutate();
   };

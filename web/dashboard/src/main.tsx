@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, StrictMode, Suspense, useEffect, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 
 import { completeSignIn, SignInRefused, signIn } from "./auth";
 import { AppShell } from "./components/shell";

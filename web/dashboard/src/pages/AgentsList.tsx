@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Copy, MoreHorizontal, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { AgentState, Mono } from "../components/domain";

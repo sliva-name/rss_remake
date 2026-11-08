@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { Mono } from "../components/domain";

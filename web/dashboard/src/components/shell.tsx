@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bookmark, LogOut, Menu as MenuIcon, Monitor, Moon, Search, Shield, Star, Sun, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router";
 
 import { displayName, signOut } from "../auth";
 import { groupSections, type Section, sectionOf } from "../sections";

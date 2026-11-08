@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowDown, ArrowUp, CircleSlash, ServerCrash, ShieldAlert, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { BarList } from "../components/bar-list";

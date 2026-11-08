@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Ban } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 
 import { api } from "../api";
 import { AgentState, Mono, SourceState } from "../components/domain";

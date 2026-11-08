@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ScrollText } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { Categories, Mono } from "../components/domain";

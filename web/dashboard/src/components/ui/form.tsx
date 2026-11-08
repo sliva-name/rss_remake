@@ -6,7 +6,7 @@ import { cn } from "./cn";
 
 const control =
   "h-9 w-full min-w-0 rounded-md border border-border bg-surface px-3 text-sm text-fg placeholder:text-fg-3 " +
-  "transition-colors hover:border-border-strong focus:border-accent focus:outline-none focus-visible:outline-none " +
+  "transition-colors hover:border-border-strong focus:border-accent focus:outline-hidden " +
   "focus:ring-2 focus:ring-accent/20 disabled:opacity-60 aria-[invalid=true]:border-bad";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
@@ -68,7 +68,7 @@ export function Select({
               <Primitive.Item
                 key={encode(option.value)}
                 value={encode(option.value)}
-                className="relative flex cursor-pointer flex-col rounded-md py-2 pr-3 pl-8 text-sm text-fg outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-surface-2"
+                className="relative flex cursor-pointer flex-col rounded-md py-2 pr-3 pl-8 text-sm text-fg outline-hidden select-none data-[disabled]:opacity-50 data-[highlighted]:bg-surface-2"
               >
                 <Primitive.ItemIndicator className="absolute top-2.5 left-2.5">
                   <Check className="size-4 text-accent" />

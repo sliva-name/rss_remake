@@ -14,8 +14,8 @@ import (
 func TestEveryOperationHasAnAccessRuleAndAPermission(t *testing.T) {
 	operations := reflect.TypeFor[restapi.StrictServerInterface]()
 	names := make([]string, 0, operations.NumMethod())
-	for i := range operations.NumMethod() {
-		name := operations.Method(i).Name
+	for method := range operations.Methods() {
+		name := method.Name
 		names = append(names, name)
 		if _, ok := accessRules[name]; !ok {
 			t.Errorf("operation %s has no access rule", name)

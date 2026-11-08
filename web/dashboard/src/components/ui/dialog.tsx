@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { Dialog as Primitive } from "radix-ui";
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, use, useCallback, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "./button";
 import { cn } from "./cn";
@@ -31,7 +31,7 @@ export function Dialog({
         <Primitive.Content
           className={cn(
             "fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col",
-            "rounded-lg border border-border bg-surface shadow-xl focus:outline-none",
+            "rounded-lg border border-border bg-surface shadow-xl focus:outline-hidden",
             className,
           )}
         >
@@ -77,7 +77,7 @@ export function Drawer({
       <Primitive.Portal>
         <Primitive.Overlay className="fixed inset-0 z-40 bg-black/20" />
         <Primitive.Content
-          className="fixed inset-y-0 right-0 z-50 flex w-[min(36rem,100vw)] flex-col border-l border-border bg-surface shadow-xl focus:outline-none"
+          className="fixed inset-y-0 right-0 z-50 flex w-[min(36rem,100vw)] flex-col border-l border-border bg-surface shadow-xl focus:outline-hidden"
         >
           <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">
             <div className="min-w-0">
@@ -127,7 +127,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     setRequest(null);
   };
   return (
-    <ConfirmContext.Provider value={ask}>
+    <ConfirmContext value={ask}>
       {children}
       <Dialog
         open={request !== null}
@@ -141,10 +141,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           </>
         }
       />
-    </ConfirmContext.Provider>
+    </ConfirmContext>
   );
 }
 
 export function useConfirm(): (request: ConfirmRequest) => Promise<boolean> {
-  return useContext(ConfirmContext);
+  return use(ConfirmContext);
 }

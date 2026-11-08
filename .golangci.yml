@@ -11,6 +11,8 @@ linters:
     - gocritic
     - gosec
     - misspell
+    # Keeps the code on current language and library idioms as Go moves on.
+    - modernize
     - nolintlint
     - revive
     - rowserrcheck

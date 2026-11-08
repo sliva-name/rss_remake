@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, BookmarkPlus, Settings2, Star, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { api, type Schemas } from "./api";
 import { Button } from "./components/ui/button";
@@ -156,7 +156,7 @@ function ViewsDialog({ open, onOpenChange, mode }: { open: boolean; onOpenChange
   const notify = useNotify();
   const location = useLocation();
   const [name, setName] = useState("");
-  const save = (event: FormEvent) => {
+  const save = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     const view: SavedView = { id: crypto.randomUUID(), name: name.trim(), path: location.pathname, query: location.search.replace(/^\?/, "") };
     views.save([view, ...views.value].slice(0, 100));

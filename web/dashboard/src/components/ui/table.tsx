@@ -3,19 +3,19 @@ import {
   type ColumnVisibilityState,
   columnVisibilityFeature,
   createSortedRowModel,
-  flexRender,
   metaHelper,
   type RowData,
   rowSelectionFeature,
   type RowSelectionState,
   rowSortingFeature,
-  sortFns,
+  sortFn_alphanumeric,
+  sortFn_text,
   type SortingState,
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Rows3 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { count } from "../../labels";
 import { Button } from "./button";
@@ -36,7 +36,9 @@ const features = tableFeatures({
   columnVisibilityFeature,
   rowSelectionFeature,
   sortedRowModel: createSortedRowModel(),
-  sortFns,
+  // Cells hold strings and numbers. Automatic sorting picks one of these for
+  // text and compares anything else as it is.
+  sortFns: { alphanumeric: sortFn_alphanumeric, text: sortFn_text },
   columnMeta: metaHelper<ColumnMeta>(),
 });
 
@@ -123,10 +125,11 @@ export function DataTable<T extends RowData>({
   useEffect(() => setSelection({}), [data]);
 
   const selectable = bulkActions !== undefined;
+  const allColumns = useMemo(() => (selectable ? [selectColumn<T>(), ...columns] : columns), [selectable, columns]);
   const table = useTable({
     features,
     data: data ?? noRows,
-    columns: selectable ? [selectColumn<T>(), ...columns] : columns,
+    columns: allColumns,
     getRowId,
     state: { sorting, columnVisibility: visibility, rowSelection: selection },
     onSortingChange: setSorting,
@@ -206,11 +209,11 @@ export function DataTable<T extends RowData>({
                             onClick={header.column.getToggleSortingHandler()}
                             className={cn("inline-flex cursor-pointer items-center gap-1 hover:text-fg", meta?.align === "right" && "flex-row-reverse")}
                           >
-                            {flexRender(header.column.columnDef.header, header.getContext())}
+                            <table.FlexRender header={header} />
                             {sorted === "asc" ? <ArrowUp className="size-3" /> : sorted === "desc" ? <ArrowDown className="size-3" /> : null}
                           </button>
                         ) : (
-                          flexRender(header.column.columnDef.header, header.getContext())
+                          <table.FlexRender header={header} />
                         )}
                       </th>
                     );
@@ -237,7 +240,7 @@ export function DataTable<T extends RowData>({
                     const meta = item.column.columnDef.meta;
                     return (
                       <td key={item.id} className={cn(cell, "align-top text-fg", meta?.align === "right" && "text-right", meta?.className)}>
-                        {flexRender(item.column.columnDef.cell, item.getContext())}
+                        <table.FlexRender cell={item} />
                       </td>
                     );
                   })}

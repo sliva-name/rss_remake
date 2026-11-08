@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Columns3, CornerDownLeft, History, Plug, Search, Star, Table2, UserRound } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { api } from "../api";
 import { category, count } from "../labels";
@@ -94,7 +94,7 @@ export function SearchPalette({ open, onOpenChange, visible }: { open: boolean; 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
         <Dialog.Content
-          className="fixed top-[12vh] left-1/2 z-50 flex max-h-[70vh] w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl focus:outline-none"
+          className="fixed top-[12vh] left-1/2 z-50 flex max-h-[70vh] w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl focus:outline-hidden"
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") { event.preventDefault(); setActive((index) => Math.min(index + 1, hits.length - 1)); }
             if (event.key === "ArrowUp") { event.preventDefault(); setActive((index) => Math.max(index - 1, 0)); }
@@ -115,7 +115,7 @@ export function SearchPalette({ open, onOpenChange, visible }: { open: boolean; 
               aria-expanded
               aria-controls="search-results"
               aria-activedescendant={hits[active] ? `hit-${active}` : undefined}
-              className="h-14 w-full bg-transparent text-base text-fg placeholder:text-fg-3 focus:outline-none"
+              className="h-14 w-full bg-transparent text-base text-fg placeholder:text-fg-3 focus:outline-hidden"
             />
           </div>
           <div id="search-results" role="listbox" className="min-h-0 overflow-y-auto p-1.5">

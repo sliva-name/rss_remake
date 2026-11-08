@@ -1,6 +1,6 @@
 import { CheckCircle2, X, XCircle } from "lucide-react";
 import { Toast } from "radix-ui";
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, use, useCallback, useState, type ReactNode } from "react";
 
 import { cn } from "./cn";
 
@@ -21,7 +21,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, []);
   const dismiss = (id: number) => setNotices((current) => current.filter((notice) => notice.id !== id));
   return (
-    <NotifyContext.Provider value={notify}>
+    <NotifyContext value={notify}>
       <Toast.Provider swipeDirection="right" duration={6000} label="Уведомление">
         {children}
         {notices.map((notice) => (
@@ -40,12 +40,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
             </Toast.Close>
           </Toast.Root>
         ))}
-        <Toast.Viewport className="fixed right-4 bottom-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 outline-none" />
+        <Toast.Viewport className="fixed right-4 bottom-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 outline-hidden" />
       </Toast.Provider>
-    </NotifyContext.Provider>
+    </NotifyContext>
   );
 }
 
 export function useNotify(): (notice: Omit<Notice, "id">) => void {
-  return useContext(NotifyContext);
+  return use(NotifyContext);
 }
