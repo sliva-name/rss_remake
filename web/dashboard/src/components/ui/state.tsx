@@ -6,7 +6,7 @@ import { ApiError } from "../../api";
 import { cn } from "./cn";
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div aria-hidden className={cn("animate-pulse rounded bg-surface-2", className)} />;
+  return <div aria-hidden className={cn("animate-pulse rounded-md bg-neutral-bg", className)} />;
 }
 
 export function Loading({ rows = 3, className }: { rows?: number; className?: string }) {
@@ -23,7 +23,9 @@ export function EmptyState({ title, children, icon = "empty", action, className 
   const Icon = icon === "search" ? SearchX : Inbox;
   return (
     <div className={cn("flex flex-col items-center gap-1.5 px-4 py-10 text-center", className)}>
-      <Icon aria-hidden className="mb-1 size-5 text-fg-3" />
+      <span aria-hidden className="mb-2 grid size-11 place-items-center rounded-full bg-surface-2 text-fg-3 ring-1 ring-border">
+        <Icon className="size-5" />
+      </span>
       <p className="text-sm font-medium text-fg">{title}</p>
       {children && <div className="max-w-md text-sm text-fg-2">{children}</div>}
       {action && <div className="mt-2">{action}</div>}

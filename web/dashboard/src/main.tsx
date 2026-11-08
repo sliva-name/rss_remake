@@ -1,3 +1,7 @@
+// The typefaces ship with the dashboard: it may run where nothing outside the
+// customer's network is reachable.
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, StrictMode, Suspense, useEffect, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";

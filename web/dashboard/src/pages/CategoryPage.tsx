@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Database, ScrollText } from "lucide-react";
+import { Activity, Columns3, Database, Plug, ScrollText, Table2, Users } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { api } from "../api";
@@ -28,15 +28,15 @@ function Figures({ id }: { id: string }) {
     <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
       {can("getCatalogSummary") && (
         <>
-          <Stat label="Колонок" value={inventory.data ? count(stored?.columns ?? 0) : "…"} to={paths.findings({ category: id })} />
-          <Stat label="Таблиц" value={inventory.data ? count(stored?.tables ?? 0) : "…"} to={paths.inventory({ category: id })} />
+          <Stat label="Колонок" icon={Columns3} value={inventory.data ? count(stored?.columns ?? 0) : "…"} to={paths.findings({ category: id })} />
+          <Stat label="Таблиц" icon={Table2} value={inventory.data ? count(stored?.tables ?? 0) : "…"} to={paths.inventory({ category: id })} />
         </>
       )}
       {can("listAccessByCategory") && (
         <>
-          <Stat label={`Обращений за ${period.label}`} value={access.data ? count(read?.events ?? 0) : "…"} to={paths.events({ category: id, period: period.id === "7d" ? undefined : period.id })} />
-          <Stat label="Пользователей" value={access.data ? count(read?.principals ?? 0) : "…"} />
-          <Stat label="Источников" value={access.data ? count(read?.sources ?? 0) : "…"} hint={read ? `последнее обращение ${ago(read.lastAccess)}` : undefined} />
+          <Stat label={`Обращений за ${period.label}`} icon={Activity} value={access.data ? count(read?.events ?? 0) : "…"} to={paths.events({ category: id, period: period.id === "7d" ? undefined : period.id })} />
+          <Stat label="Пользователей" icon={Users} value={access.data ? count(read?.principals ?? 0) : "…"} />
+          <Stat label="Источников" icon={Plug} value={access.data ? count(read?.sources ?? 0) : "…"} hint={read ? `последнее обращение ${ago(read.lastAccess)}` : undefined} />
         </>
       )}
     </div>

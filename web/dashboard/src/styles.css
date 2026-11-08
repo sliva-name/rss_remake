@@ -13,6 +13,7 @@
   --color-fg-2: var(--text-2);
   --color-fg-3: var(--text-3);
   --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-text);
   --color-accent-bg: var(--accent-bg);
   --color-ok: var(--ok);
@@ -24,6 +25,15 @@
   --color-neutral-bg: var(--neutral-bg);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
+  --color-nav: var(--nav-bg);
+  --color-nav-fg: var(--nav-fg);
+  --color-nav-fg-2: var(--nav-fg-2);
+  --color-nav-fg-3: var(--nav-fg-3);
+  --color-nav-hover: var(--nav-hover);
+  --color-nav-active: var(--nav-active);
+  --color-nav-border: var(--nav-border);
+  --color-nav-accent: var(--nav-accent);
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--mono);
 
   /* A reading scale for daily work: body text at 15px, secondary at 13px. */
@@ -37,8 +47,14 @@
   --text-xl: 1.375rem;
   --text-2xl: 1.625rem;
   --text-2xl--line-height: 2rem;
-  --radius-md: 0.4375rem;
-  --radius-lg: 0.625rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  /* Depth is a hairline and a soft shadow, not a heavy frame. */
+  --shadow-xs: 0 1px 2px 0 rgb(16 24 40 / 0.05);
+  --shadow-card: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.03);
+  --shadow-raised: 0 4px 12px -2px rgb(16 24 40 / 0.08), 0 2px 4px -2px rgb(16 24 40 / 0.04);
 }
 
 @layer base {
@@ -56,8 +72,11 @@
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-variant-numeric: tabular-nums;
+    /* Tabular figures are set where numbers line up, not here: in Inter they
+       widen the hyphen too, and names such as crm-main would fall apart. */
+    font: 15px/1.5 var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   :focus-visible {

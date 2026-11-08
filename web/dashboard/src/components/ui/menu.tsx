@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 
 import { cn } from "./cn";
 
-const content = "z-50 min-w-48 rounded-md border border-border bg-surface p-1 text-sm text-fg shadow-lg";
-const item = "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 outline-hidden select-none data-[highlighted]:bg-surface-2 data-[disabled]:opacity-50";
+const content = "z-50 min-w-48 rounded-lg border border-border bg-surface p-1 text-sm text-fg shadow-raised";
+const item = "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 outline-hidden select-none data-[highlighted]:bg-surface-2 data-[disabled]:opacity-50";
 
 export function Menu({ trigger, label, children, align = "end" }: { trigger: ReactNode; label?: string; children: ReactNode; align?: "start" | "end" }) {
   return (
@@ -59,7 +59,7 @@ export function Tooltip({ content: text, children }: { content: ReactNode; child
     <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content sideOffset={4} className="z-50 max-w-xs rounded-md bg-fg px-2 py-1 text-xs text-bg shadow-md">
+        <TooltipPrimitive.Content sideOffset={6} className="z-50 max-w-xs rounded-md bg-fg px-2.5 py-1.5 text-xs leading-snug text-bg shadow-raised">
           {text}
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>

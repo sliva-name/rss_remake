@@ -5,9 +5,9 @@ import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type 
 import { cn } from "./cn";
 
 const control =
-  "h-9 w-full min-w-0 rounded-md border border-border bg-surface px-3 text-sm text-fg placeholder:text-fg-3 " +
-  "transition-colors hover:border-border-strong focus:border-accent focus:outline-hidden " +
-  "focus:ring-2 focus:ring-accent/20 disabled:opacity-60 aria-[invalid=true]:border-bad";
+  "h-9 w-full min-w-0 rounded-md border border-border bg-surface px-3 text-sm text-fg shadow-xs placeholder:text-fg-3 " +
+  "transition-[border-color,box-shadow] hover:border-border-strong focus:border-accent focus:outline-hidden " +
+  "focus:ring-3 focus:ring-accent/15 disabled:opacity-60 aria-[invalid=true]:border-bad";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(control, className)} {...props} />;
@@ -91,7 +91,7 @@ export function Select({
         <Primitive.Content
           position="popper"
           sideOffset={4}
-          className="z-[70] max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-xl"
+          className="z-[70] max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-raised"
         >
           <Primitive.Viewport>
             {options.map((option) => (

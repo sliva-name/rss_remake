@@ -217,7 +217,7 @@ export function DataTable<T extends RowData>({
           <table className="w-full border-collapse text-sm">
             <thead>
               {table.getHeaderGroups().map((group) => (
-                <tr key={group.id} className="border-b border-border bg-surface-2/60">
+                <tr key={group.id} className="border-b border-border bg-surface-2">
                   {group.headers.map((header) => {
                     const meta = header.column.columnDef.meta;
                     const sorted = header.column.getIsSorted();
@@ -226,7 +226,7 @@ export function DataTable<T extends RowData>({
                         key={header.id}
                         scope="col"
                         aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}
-                        className={cn(edges, "py-2.5 text-left text-xs font-medium whitespace-nowrap text-fg-2", meta?.align === "right" && "text-right", meta?.className)}
+                        className={cn(edges, "py-2.5 text-left text-xs font-medium whitespace-nowrap text-fg-3", meta?.align === "right" && "text-right", meta?.className)}
                       >
                         <span className={cn("inline-flex items-center gap-1", meta?.align === "right" && "flex-row-reverse")}>
                           {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -269,16 +269,16 @@ export function DataTable<T extends RowData>({
                     }
                   } : undefined}
                   className={cn(
-                    "border-b border-border last:border-b-0",
-                    onRowClick && "cursor-pointer outline-offset-[-2px] hover:bg-surface-2/60",
-                    row.getIsSelected() && "bg-accent-bg/60",
-                    selectedId === row.id && "bg-accent-bg",
+                    "border-b border-border transition-colors last:border-b-0 hover:bg-surface-2/70",
+                    onRowClick && "cursor-pointer outline-offset-[-2px]",
+                    row.getIsSelected() && "bg-accent-bg/50 hover:bg-accent-bg/60",
+                    selectedId === row.id && "bg-accent-bg shadow-[inset_3px_0_0_var(--accent)] hover:bg-accent-bg",
                   )}
                 >
                   {row.getVisibleCells().map((item) => {
                     const meta = item.column.columnDef.meta;
                     return (
-                      <td key={item.id} className={cn(cell, "align-top text-fg", meta?.align === "right" && "text-right", meta?.className)}>
+                      <td key={item.id} className={cn(cell, "align-top text-fg", meta?.align === "right" && "text-right tabular-nums", meta?.className)}>
                         <table.FlexRender cell={item} />
                       </td>
                     );
@@ -318,7 +318,7 @@ function selectColumn<T extends RowData>(): TableColumn<T> {
 export function Pager({ page }: { page: Page }) {
   const last = Math.min(page.offset + page.size, page.total);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3 text-xs text-fg-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface-2/50 px-4 py-2.5 text-xs text-fg-2 tabular-nums">
       <span>
         {count(page.offset + 1)}–{count(last)} из {page.exact === false ? `более ${count(page.total)}` : count(page.total)}
         {page.exact === false && <span className="text-fg-3"> · уточните фильтр, чтобы увидеть точное число</span>}

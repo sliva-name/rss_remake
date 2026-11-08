@@ -4,8 +4,7 @@ import { useMemo } from "react";
 import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
-import { categoryOptions, Confidence, Mono, PeriodPicker, SourceName, sourceOptions } from "../components/domain";
-import { Badge } from "../components/ui/badge";
+import { Categories, CategoryBadge, categoryOptions, Confidence, Mono, PeriodPicker, SourceName, sourceOptions } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { Field, filterField, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
@@ -109,7 +108,7 @@ function FindingsTab() {
     },
     { id: "source", header: "Источник", cell: ({ row }) => <SourceName id={row.original.sourceId} /> },
     { id: "type", header: "Тип", cell: ({ row }) => <Mono className="whitespace-nowrap text-fg-2">{row.original.nativeType}</Mono> },
-    { id: "category", header: "Категория", cell: ({ row }) => <CategoryLink id={row.original.categoryId}><Badge tone="warn">{category(row.original.categoryId)}</Badge></CategoryLink> },
+    { id: "category", header: "Категория", cell: ({ row }) => <Categories ids={[row.original.categoryId]} /> },
     { id: "confidence", header: "Уверенность", cell: ({ row }) => <Confidence value={row.original.confidence} /> },
     {
       id: "sampling", header: "Основание", meta: { hint: "Что прочитал классификатор: только имя колонки, выборку СУБД, первые строки или всю таблицу" },
@@ -156,7 +155,7 @@ function DetectorsTab() {
     <div className="grid gap-6 lg:grid-cols-2">
       <Panel title="Встроенные категории" description="Детекторы агента: имя колонки, формат значений, контрольные суммы">
         <ul className="flex flex-wrap gap-1.5">
-          {categoryIds.map((id) => <li key={id}><CategoryLink id={id}><Badge>{category(id)}</Badge></CategoryLink></li>)}
+          {categoryIds.map((id) => <li key={id}><CategoryLink id={id} className="rounded-md"><CategoryBadge id={id} /></CategoryLink></li>)}
         </ul>
       </Panel>
       {can("getPolicy") && (

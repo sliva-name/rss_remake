@@ -203,7 +203,7 @@ export function Audit() {
       cell: ({ row }) => {
         const at = new Date(row.original.time);
         return (
-          <div title={dateTime(row.original.time)}>
+          <div title={dateTime(row.original.time)} className="tabular-nums">
             <div>{at.toLocaleTimeString("ru-RU")}</div>
             <div className="text-xs text-fg-2">{at.toLocaleDateString("ru-RU")}</div>
           </div>

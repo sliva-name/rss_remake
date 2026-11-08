@@ -61,6 +61,19 @@ export function Confidence({ value }: { value: number }) {
   );
 }
 
+// A kind of sensitive data. The dot's colour is its group, personal,
+// government, financial and so on, so a row of them reads at a glance without
+// a wall of warning colour.
+export function CategoryBadge({ id, className }: { id: string; className?: string }) {
+  const group = id.slice(0, Math.max(0, id.indexOf("."))).toLowerCase();
+  return (
+    <Badge className={cn("bg-surface text-fg ring-border transition-colors hover:ring-border-strong", className)}>
+      <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: `var(--cat-${group}, var(--cat-custom))` }} />
+      {category(id)}
+    </Badge>
+  );
+}
+
 // Categories as links. In a table row the list is cut to a few, with the rest
 // counted and named on hover, so a row stays one line high.
 export function Categories({ ids, empty = "—", limit }: { ids: string[]; empty?: ReactNode; limit?: number }) {
@@ -70,8 +83,8 @@ export function Categories({ ids, empty = "—", limit }: { ids: string[]; empty
   return (
     <span className={cn("inline-flex gap-1", limit === undefined ? "flex-wrap" : "flex-nowrap")}>
       {shown.map((id) => (
-        <CategoryLink key={id} id={id} className="rounded focus-visible:outline-2">
-          <Badge tone="warn" className="hover:brightness-95">{category(id)}</Badge>
+        <CategoryLink key={id} id={id} className="rounded-md focus-visible:outline-2">
+          <CategoryBadge id={id} />
         </CategoryLink>
       ))}
       {rest.length > 0 && (
@@ -136,7 +149,7 @@ export function PeriodPicker({ fallback = "7d", allowed }: { fallback?: PeriodId
   const [period, choose] = usePeriod(fallback);
   const shown = periods.filter((item) => !allowed || allowed.includes(item.id));
   return (
-    <div role="radiogroup" aria-label="Период" className="inline-flex h-9 items-center rounded-md border border-border bg-surface p-0.5">
+    <div role="radiogroup" aria-label="Период" className="inline-flex h-9 items-center gap-0.5 rounded-lg bg-neutral-bg p-[3px]">
       {shown.map((item) => (
         <button
           key={item.id}
@@ -145,8 +158,8 @@ export function PeriodPicker({ fallback = "7d", allowed }: { fallback?: PeriodId
           aria-checked={period.id === item.id}
           onClick={() => choose(item.id)}
           className={cn(
-            "h-full cursor-pointer rounded px-3 text-xs font-medium text-fg-2 transition-colors hover:text-fg",
-            period.id === item.id && "bg-surface-2 text-fg shadow-[inset_0_0_0_1px_var(--border)]",
+            "h-full cursor-pointer rounded-md px-3 text-xs font-medium text-fg-2 transition-[background-color,color,box-shadow] hover:text-fg",
+            period.id === item.id && "bg-surface text-fg shadow-xs ring-1 ring-border",
           )}
         >
           {item.label}

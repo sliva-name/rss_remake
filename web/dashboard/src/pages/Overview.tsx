@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, CircleSlash, ServerCrash, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { Activity as ActivityIcon, AlertTriangle, ArrowDown, ArrowUp, CircleSlash, EyeOff, Plug, ServerCog, ServerCrash, ShieldAlert, SlidersHorizontal, Tags } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
@@ -120,21 +120,22 @@ function Headline() {
         <Stat
           label="Источники"
           to="/sources"
+          icon={Plug}
           value={sources.data ? count(sources.data.length) : "…"}
           hint={coverage.data && (coverage.data.length === observing ? "все наблюдаются" : `наблюдаются ${observing} · с проблемами ${coverage.data.length - observing}`)}
           tone={coverage.data && coverage.data.length > observing ? "warn" : undefined}
         />
       )}
       {can("listAgents") && (
-        <Stat label="Агенты на связи" to="/agents" value={agents.data ? `${active.length - silent} из ${active.length}` : "…"} hint={silent > 0 ? `${silent} молчат` : "все отвечают"} tone={silent > 0 ? "warn" : undefined} />
+        <Stat label="Агенты на связи" to="/agents" icon={ServerCog} value={agents.data ? `${active.length - silent} из ${active.length}` : "…"} hint={silent > 0 ? `${silent} молчат` : "все отвечают"} tone={silent > 0 ? "warn" : undefined} />
       )}
       {can("getCatalogSummary") && (
-        <Stat label="Чувствительные колонки" to="/classification" value={sensitiveColumns === undefined ? "…" : count(sensitiveColumns)} hint={sensitiveTables.data ? `в ${count(sensitiveTables.data.total)} таблицах` : undefined} />
+        <Stat label="Чувствительные колонки" to="/classification" icon={Tags} value={sensitiveColumns === undefined ? "…" : count(sensitiveColumns)} hint={sensitiveTables.data ? `в ${count(sensitiveTables.data.total)} таблицах` : undefined} />
       )}
       {can("getAccessSummary") && (
         <>
-          <Stat label={`Обращения за ${period.label}`} to={paths.events({ period: period.id === "7d" ? undefined : period.id })} value={summary.data ? count(summary.data.events) : "…"} hint={summary.data ? `к чувствительным: ${count(summary.data.sensitiveEvents)} · пользователей: ${count(summary.data.principals)}` : undefined} />
-          <Stat label="Потери аудита" to={paths.events({ eventType: "EVENT_TYPE_AUDIT_GAP", period: period.id === "7d" ? undefined : period.id })} value={summary.data ? count(summary.data.gaps) : "…"} hint={summary.data ? (summary.data.gaps > 0 ? "периоды без наблюдения" : "пропусков не было") : undefined} tone={summary.data && summary.data.gaps > 0 ? "bad" : undefined} />
+          <Stat label={`Обращения за ${period.label}`} to={paths.events({ period: period.id === "7d" ? undefined : period.id })} icon={ActivityIcon} value={summary.data ? count(summary.data.events) : "…"} hint={summary.data ? `к чувствительным: ${count(summary.data.sensitiveEvents)} · пользователей: ${count(summary.data.principals)}` : undefined} />
+          <Stat label="Потери аудита" to={paths.events({ eventType: "EVENT_TYPE_AUDIT_GAP", period: period.id === "7d" ? undefined : period.id })} icon={EyeOff} value={summary.data ? count(summary.data.gaps) : "…"} hint={summary.data ? (summary.data.gaps > 0 ? "периоды без наблюдения" : "пропусков не было") : undefined} tone={summary.data && summary.data.gaps > 0 ? "bad" : undefined} />
         </>
       )}
     </div>
@@ -255,7 +256,7 @@ function TopSignals() {
               const body = (
                 <>
                   <span className="flex items-center justify-between gap-3">
-                    <span className="truncate text-sm font-medium text-fg">{signal.applicationPrincipal || signal.databasePrincipal}</span>
+                    <span className="truncate text-sm font-medium text-fg">{signal.applicationPrincipal || signal.databasePrincipal || "Не идентифицирован"}</span>
                     <Badge tone={signalKinds[signal.kind].tone}>{signalKinds[signal.kind].title}</Badge>
                   </span>
                   <span className="text-xs text-fg-2">{signal.category ? `${category(signal.category)} · ` : ""}{observed(signal)}</span>

@@ -13,7 +13,7 @@ export function BarList({ items, empty }: { items: { key: string; label: ReactNo
         <li key={item.key} className="flex flex-col gap-1">
           <div className="flex items-baseline justify-between gap-3 text-sm">
             <span className="min-w-0 truncate">{item.label}</span>
-            <span className="shrink-0 font-medium text-fg">{count(item.value)}</span>
+            <span className="shrink-0 font-medium text-fg tabular-nums">{count(item.value)}</span>
           </div>
           <div aria-hidden className="h-1.5 overflow-hidden rounded-full bg-neutral-bg">
             <div className="h-full rounded-full bg-chart-1" style={{ width: `${Math.max(2, (item.value / max) * 100)}%` }} />

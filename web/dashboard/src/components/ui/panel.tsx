@@ -1,10 +1,15 @@
+import { ArrowUpRight, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { cn } from "./cn";
 
+// The card every block of a page sits on.
+export const card = "rounded-xl border border-border bg-surface shadow-card";
+
 // A titled block of a page. The body has no padding of its own when it holds a
-// table, so rows run edge to edge like in a list.
+// table, so rows run edge to edge like in a list; only then a rule separates
+// the title from the rows.
 export function Panel({
   title,
   description,
@@ -21,38 +26,53 @@ export function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className={cn("min-w-0 rounded-lg border border-border bg-surface", className)}>
+    <section className={cn("min-w-0 overflow-hidden", card, className)}>
       {(title || actions) && (
-        <header className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-5 py-3">
+        <header className={cn("flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5", flush ? "border-b border-border py-3.5" : "pt-4 pb-1")}>
           <div className="min-w-48 flex-1">
-            {title && <h2 className="text-base font-semibold text-fg">{title}</h2>}
+            {title && <h2 className="text-[15px] font-semibold tracking-tight text-fg">{title}</h2>}
             {description && <p className="mt-0.5 text-xs text-fg-2">{description}</p>}
           </div>
           {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={flush ? undefined : "p-5"}>{children}</div>
+      <div className={flush ? undefined : title || actions ? "px-5 pt-3 pb-5" : "p-5"}>{children}</div>
     </section>
   );
 }
 
 // The small capitals over a group: a drawer section, a fieldset, a menu group.
-export const groupLabel = "text-xs font-semibold tracking-wide text-fg-3 uppercase";
+export const groupLabel = "text-[11px] font-semibold tracking-[0.08em] text-fg-3 uppercase";
+
+const statTones = {
+  plain: { icon: "bg-accent-bg text-accent", value: "text-fg" },
+  warn: { icon: "bg-warn-bg text-warn", value: "text-warn" },
+  bad: { icon: "bg-bad-bg text-bad", value: "text-bad" },
+};
 
 // A headline number. It links to the list it summarises when there is one, so a
 // figure is always a way into its detail.
-export function Stat({ label, value, hint, to, tone }: { label: string; value: ReactNode; hint?: ReactNode; to?: string; tone?: "bad" | "warn" }) {
+export function Stat({ label, value, hint, to, tone, icon: Icon }: { label: string; value: ReactNode; hint?: ReactNode; to?: string; tone?: "bad" | "warn"; icon?: LucideIcon }) {
+  const colors = statTones[tone ?? "plain"];
   const body = (
     <>
-      <span className="text-xs font-medium text-fg-2">{label}</span>
-      <span className={cn("mt-1 text-[1.75rem] leading-9 font-semibold tracking-tight text-fg", tone === "bad" && "text-bad", tone === "warn" && "text-warn")}>{value}</span>
-      {hint && <span className="mt-0.5 text-xs text-fg-2">{hint}</span>}
+      <span className="text-[13px] font-medium text-fg-2">{label}</span>
+      <span className="mt-1.5 flex items-center justify-between gap-3">
+        <span className={cn("min-w-0 text-[1.875rem] leading-9 font-semibold tracking-tight", colors.value)}>{value}</span>
+        {Icon && (
+          <span aria-hidden className={cn("grid size-9 shrink-0 place-items-center rounded-lg", colors.icon)}>
+            <Icon className="size-[18px]" />
+          </span>
+        )}
+      </span>
+      {hint && <span className="mt-1.5 text-xs text-fg-2">{hint}</span>}
+      {to && <ArrowUpRight aria-hidden className="absolute top-3 right-3 size-4 text-fg-3 opacity-0 transition-opacity group-hover:opacity-100" />}
     </>
   );
-  const frame = "flex min-w-0 flex-col rounded-lg border border-border bg-surface px-5 py-4";
+  const frame = cn("group relative flex min-w-0 flex-col px-5 py-4", card);
   if (!to) return <div className={frame}>{body}</div>;
   return (
-    <Link to={to} className={cn(frame, "transition-colors hover:border-border-strong hover:bg-surface-2/50")}>
+    <Link to={to} className={cn(frame, "transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-raised")}>
       {body}
     </Link>
   );

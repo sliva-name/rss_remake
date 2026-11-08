@@ -63,9 +63,9 @@ function Legend({ totals }: { totals: Record<string, number> }) {
     <ul className="flex flex-wrap gap-x-5 gap-y-1 text-[13px]">
       {series.map((item) => (
         <li key={item.key} className="flex items-center gap-2">
-          <span aria-hidden className="h-0.5 w-4 rounded-full" style={{ background: item.color }} />
+          <span aria-hidden className="size-2.5 rounded-[3px]" style={{ background: item.color }} />
           <span className="text-fg-2">{item.name}</span>
-          <span className="font-medium text-fg">{count(totals[item.key] ?? 0)}</span>
+          <span className="font-semibold text-fg">{count(totals[item.key] ?? 0)}</span>
         </li>
       ))}
     </ul>
@@ -76,7 +76,7 @@ function Hover({ active, payload, daily }: { active?: boolean; payload?: { paylo
   const bucket = payload?.[0]?.payload;
   if (!active || !bucket) return null;
   return (
-    <div className="rounded-md border border-border bg-surface px-3 py-2 text-[13px] shadow-lg">
+    <div className="rounded-lg border border-border bg-surface px-3 py-2.5 text-[13px] shadow-raised">
       <div className="mb-1 font-medium text-fg">{daily ? new Date(bucket.start).toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "long" }) : label(bucket, false)}</div>
       {series.map((item) => (
         <div key={item.key} className="flex items-center justify-between gap-6">
@@ -142,7 +142,13 @@ export function ActivityChart({ points, from, to, onOpen }: { points: Schemas["T
             }}
             className="cursor-pointer"
           >
-            <CartesianGrid vertical={false} stroke="var(--border)" />
+            <defs>
+              <linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" style={{ stopColor: "var(--chart-1)", stopOpacity: 0.22 }} />
+                <stop offset="100%" style={{ stopColor: "var(--chart-1)", stopOpacity: 0 }} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" />
             <XAxis
               dataKey="start"
               tickFormatter={(value: number) => label({ start: value, end: value, events: 0, sensitive: 0, failed: 0 }, daily)}
@@ -160,7 +166,7 @@ export function ActivityChart({ points, from, to, onOpen }: { points: Schemas["T
               allowDecimals={false}
             />
             <Tooltip content={<Hover daily={daily} />} cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }} />
-            <Area type="linear" dataKey="events" stroke="none" fill="var(--chart-1)" fillOpacity={0.1} isAnimationActive={false} />
+            <Area type="linear" dataKey="events" stroke="none" fill="url(#activity-fill)" isAnimationActive={false} />
             {series.map((item) => (
               <Line key={item.key} type="linear" dataKey={item.key} name={item.name} stroke={item.color} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }} isAnimationActive={false} />
             ))}
