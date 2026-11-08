@@ -14,6 +14,7 @@ import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { useRevokeAgent } from "./AgentsList";
+import { ObjectJournal } from "./Journal";
 
 export function AgentPage() {
   const { id = "" } = useParams();
@@ -79,6 +80,7 @@ export function AgentPage() {
           </Panel>
         )}
       </div>
+      {can("listOperatorActions") && <div className="mt-6"><ObjectJournal objectId={data.id} /></div>}
     </>
   );
 }

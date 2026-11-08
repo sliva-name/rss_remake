@@ -6,14 +6,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/core/oplog"
 	"dataguard/internal/core/tenant"
 )
 
-func (s *Store) CreateTenant(ctx context.Context, created tenant.Tenant) error {
+func (s *Store) CreateTenant(ctx context.Context, created tenant.Tenant, entry oplog.Entry) error {
 	err := s.inTenant(ctx, created.ID, func(tx pgx.Tx) error {
 		const insert = `INSERT INTO tenants (id, name, created_at) VALUES ($1, $2, $3)`
-		_, err := tx.Exec(ctx, insert, created.ID, created.Name, created.CreatedAt)
-		return err
+		if _, err := tx.Exec(ctx, insert, created.ID, created.Name, created.CreatedAt); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, created.ID, entry)
 	})
 	return translateConflict("create tenant", err)
 }
@@ -28,11 +31,13 @@ func (s *Store) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 	return tenants, nil
 }
 
-func (s *Store) CreateEnvironment(ctx context.Context, created tenant.Environment) error {
+func (s *Store) CreateEnvironment(ctx context.Context, created tenant.Environment, entry oplog.Entry) error {
 	err := s.inTenant(ctx, created.TenantID, func(tx pgx.Tx) error {
 		const insert = `INSERT INTO environments (id, tenant_id, name, kind, created_at) VALUES ($1, $2, $3, $4, $5)`
-		_, err := tx.Exec(ctx, insert, created.ID, created.TenantID, created.Name, created.Kind, created.CreatedAt)
-		return err
+		if _, err := tx.Exec(ctx, insert, created.ID, created.TenantID, created.Name, created.Kind, created.CreatedAt); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, created.TenantID, entry)
 	})
 	return translateConflict("create environment", err)
 }

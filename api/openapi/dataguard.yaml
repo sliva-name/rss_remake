@@ -535,6 +535,32 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Policy"}
+  /operator-actions:
+    get:
+      operationId: listOperatorActions
+      description: >-
+        The journal of what operators did in the organization, newest first. It
+        names fields and versions, never data values or passwords.
+      parameters:
+        - name: before
+          in: query
+          description: Continue after the entry with this id
+          schema: {type: string, format: uuid}
+        - name: objectId
+          in: query
+          description: Only actions on this object
+          schema: {type: string, format: uuid}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 500, default: 50}
+      responses:
+        "200":
+          description: Entries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/OperatorAction"}
   /analytics/signals:
     get:
       operationId: listRiskSignals
@@ -594,6 +620,41 @@ components:
         createdAt: {type: string, format: date-time}
         customDetectors: {type: integer}
         hasScanBudget: {type: boolean}
+    OperatorAction:
+      type: object
+      required: [id, at, actorSubject, actorName, action, objectKind, objectId, objectLabel, details]
+      properties:
+        id: {type: string, format: uuid}
+        at: {type: string, format: date-time}
+        actorSubject:
+          description: Subject of the account at the identity provider; empty for the platform itself
+          type: string
+        actorName: {type: string}
+        action:
+          type: string
+          enum: [tenant.create, environment.create, enrollment_token.issue, agent.enroll, agent.revoke,
+                 source.create, source.update, source.delete, scan.request, policy.publish]
+        objectKind:
+          description: What objectId refers to
+          type: string
+          enum: [tenant, environment, agent, source]
+        objectId:
+          description: >-
+            The object acted on. A token is issued for an environment, a scan is
+            requested for a source and a policy belongs to the organization, so
+            those carry the environment, the source and the organization.
+          type: string
+          format: uuid
+        objectLabel:
+          description: The object's name when it happened; empty when the object has none
+          type: string
+        details:
+          description: >-
+            Value-free facts: changes lists the settings an update touched,
+            version is a published policy version, environment the environment
+            of an enrolled agent.
+          type: object
+          additionalProperties: {type: string}
     RiskSignal:
       type: object
       required: [kind, databasePrincipal, applicationPrincipal, identityConfidence, category, observed, baseline, lastSeen]
@@ -637,6 +698,7 @@ components:
         - listPolicyVersions
         - getPolicyVersion
         - listRiskSignals
+        - listOperatorActions
         - listTenants
         - createTenant
         - listEnvironments

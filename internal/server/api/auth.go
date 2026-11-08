@@ -10,6 +10,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/uuid"
+
+	"dataguard/internal/core/oplog"
 )
 
 // Roles carried in the identity token.
@@ -29,9 +31,18 @@ var (
 // Principal is the authenticated caller. TenantID is uuid.Nil for platform
 // administrators, who manage organizations but see no tenant data.
 type Principal struct {
-	Subject  string
+	Subject string
+	// Name is the login the provider shows people; it may be empty.
+	Name     string
 	TenantID uuid.UUID
 	Roles    []string
+}
+
+func (p Principal) displayName() string {
+	if p.Name != "" {
+		return p.Name
+	}
+	return p.Subject
 }
 
 func (p Principal) hasAnyRole(roles []string) bool {
@@ -73,11 +84,12 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context, bearerToken string
 	var claims struct {
 		TenantID string   `json:"tenant_id"`
 		Roles    []string `json:"roles"`
+		Username string   `json:"preferred_username"`
 	}
 	if err := token.Claims(&claims); err != nil {
 		return Principal{}, errUnauthenticated
 	}
-	principal := Principal{Subject: token.Subject, Roles: claims.Roles}
+	principal := Principal{Subject: token.Subject, Name: claims.Username, Roles: claims.Roles}
 	if claims.TenantID == "" {
 		return principal, nil
 	}
@@ -110,6 +122,8 @@ func authenticate(authenticator Authenticator, next http.Handler) http.Handler {
 			writeProblem(w, http.StatusUnauthorized, "unauthenticated", errUnauthenticated.Error())
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(withPrincipal(r.Context(), principal)))
+		// Every change made through this request is journaled as the principal's.
+		ctx := oplog.WithActor(withPrincipal(r.Context(), principal), oplog.Actor{Subject: principal.Subject, Name: principal.displayName()})
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

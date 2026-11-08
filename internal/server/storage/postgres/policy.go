@@ -6,10 +6,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/core/oplog"
 	"dataguard/internal/core/policy"
 )
 
-func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (policy.Signed, error)) (uint64, error) {
+func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (policy.Signed, oplog.Entry, error)) (uint64, error) {
 	var version uint64
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		// The advisory lock serializes publishers of one tenant, so two concurrent
@@ -22,13 +23,15 @@ func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy strin
 		if err := tx.QueryRow(ctx, next).Scan(&version); err != nil {
 			return err
 		}
-		signed, err := encode(version)
+		signed, entry, err := encode(version)
 		if err != nil {
 			return err
 		}
 		const insert = `INSERT INTO policies (tenant_id, version, payload, signature, created_by) VALUES ($1, $2, $3, $4, $5)`
-		_, err = tx.Exec(ctx, insert, tenantID, version, signed.Payload, signed.Signature, createdBy)
-		return err
+		if _, err := tx.Exec(ctx, insert, tenantID, version, signed.Payload, signed.Signature, createdBy); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, tenantID, entry)
 	})
 	if err != nil {
 		return 0, storageError("publish policy", err)

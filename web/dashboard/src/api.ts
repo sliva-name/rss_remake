@@ -91,6 +91,7 @@ export const api = {
   policyVersions: () => request<Schemas["PolicyVersion"][]>("GET", "/policy/versions"),
   policyVersion: (version: number) => request<Schemas["Policy"]>("GET", `/policy/versions/${version}`),
   signals: () => request<Schemas["RiskSignal"][]>("GET", "/analytics/signals"),
+  operatorActions: (objectId?: string) => request<Schemas["OperatorAction"][]>("GET", "/operator-actions", { objectId, limit: 500 }),
 };
 
 // The export goes through fetch rather than a plain link: the request carries

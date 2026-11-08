@@ -16,6 +16,7 @@ import (
 	"dataguard/internal/core/audit"
 	"dataguard/internal/core/coverage"
 	"dataguard/internal/core/fleet"
+	"dataguard/internal/core/oplog"
 	"dataguard/internal/core/policy"
 	"dataguard/internal/core/preference"
 	"dataguard/internal/core/scan"
@@ -37,6 +38,7 @@ type Services struct {
 	Events      audit.Reader
 	Coverage    *coverage.Service
 	Preferences *preference.Service
+	Journal     *oplog.Service
 }
 
 // Server implements the generated strict interface.
@@ -49,6 +51,7 @@ type Server struct {
 	events      audit.Reader
 	coverage    *coverage.Service
 	preferences *preference.Service
+	journal     *oplog.Service
 	signals     *signalCache
 }
 
@@ -78,7 +81,7 @@ func New(services Services) *Server {
 	return &Server{
 		tenants: services.Tenants, fleet: services.Fleet, policies: services.Policies,
 		scans: services.Scans, catalog: services.Catalog, events: services.Events, coverage: services.Coverage,
-		preferences: services.Preferences, signals: &signalCache{},
+		preferences: services.Preferences, journal: services.Journal, signals: &signalCache{},
 	}
 }
 

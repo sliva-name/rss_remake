@@ -37,6 +37,7 @@ const AgentsList = lazy(() => import("./pages/AgentsList").then((module) => ({ d
 const Policy = lazy(() => import("./pages/Policy").then((module) => ({ default: module.Policy })));
 const Environments = lazy(() => import("./pages/Admin").then((module) => ({ default: module.Environments })));
 const Tenants = lazy(() => import("./pages/Admin").then((module) => ({ default: module.Tenants })));
+const Journal = lazy(() => import("./pages/Journal").then((module) => ({ default: module.Journal })));
 const SourcePage = lazy(() => import("./pages/SourcePage").then((module) => ({ default: module.SourcePage })));
 const AgentPage = lazy(() => import("./pages/AgentPage").then((module) => ({ default: module.AgentPage })));
 const TablePage = lazy(() => import("./pages/TablePage").then((module) => ({ default: module.TablePage })));
@@ -55,6 +56,7 @@ const pages: Record<string, (tenantId: string) => ReactElement> = {
   "/policy": () => <Policy />,
   "/environments": () => <Environments />,
   "/tenants": () => <Tenants />,
+  "/journal": () => <Journal />,
 };
 
 // Every object has an address, so any list can link to it (ADR-0010).

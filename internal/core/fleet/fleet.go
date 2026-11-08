@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"dataguard/internal/core/oplog"
 )
 
 const (
@@ -96,26 +98,29 @@ type Probe struct {
 	Capabilities  []Capability
 }
 
-// Repository persists agents and sources within one tenant.
+// Repository persists agents and sources within one tenant. A method that takes
+// a journal entry writes it in the transaction of the change; a nil entry is a
+// change the journal does not record, such as a draft.
 type Repository interface {
-	CreateEnrollmentToken(ctx context.Context, tenantID, environmentID uuid.UUID, hash []byte, expiresAt time.Time) error
-	// ConsumeEnrollmentToken atomically spends a token and returns its environment.
-	ConsumeEnrollmentToken(ctx context.Context, tenantID uuid.UUID, hash []byte) (uuid.UUID, error)
-	CreateAgent(ctx context.Context, agent Agent) error
+	CreateEnrollmentToken(ctx context.Context, tenantID, environmentID uuid.UUID, hash []byte, expiresAt time.Time, entry oplog.Entry) error
+	// ConsumeEnrollmentToken atomically spends a token and returns its
+	// environment and who issued it.
+	ConsumeEnrollmentToken(ctx context.Context, tenantID uuid.UUID, hash []byte) (uuid.UUID, oplog.Actor, error)
+	CreateAgent(ctx context.Context, agent Agent, entry oplog.Entry) error
 	GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (Agent, error)
 	ListAgents(ctx context.Context, tenantID uuid.UUID) ([]Agent, error)
 	// TouchAgent records a heartbeat, which clears a contract refusal, and
 	// returns the agent's source list version.
 	TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, version string, contract uint32) (uint64, error)
 	RefuseContract(ctx context.Context, tenantID, agentID uuid.UUID, offered uint32) error
-	RevokeAgent(ctx context.Context, tenantID, agentID uuid.UUID) error
+	RevokeAgent(ctx context.Context, tenantID, agentID uuid.UUID, entry oplog.Entry) error
 	UpdateCertificateExpiry(ctx context.Context, tenantID, agentID uuid.UUID, expires time.Time) error
 	// CreateSource, UpdateSource and DeleteSource also advance the serving
 	// agent's source list version, in the same transaction.
-	CreateSource(ctx context.Context, source Source) error
-	UpdateSource(ctx context.Context, source Source) error
-	DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) error
-	ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID) error
+	CreateSource(ctx context.Context, source Source, entry *oplog.Entry) error
+	UpdateSource(ctx context.Context, source Source, entry *oplog.Entry) error
+	DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID, entry *oplog.Entry) error
+	ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID, entry oplog.Entry) error
 	GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (Source, error)
 	// ListSources returns live sources; deleted ones keep only their history.
 	ListSources(ctx context.Context, tenantID uuid.UUID) ([]Source, error)
@@ -154,7 +159,8 @@ func (s *Service) CreateEnrollmentToken(ctx context.Context, tenantID, environme
 	}
 	token := hex.EncodeToString(tenantID[:]) + tokenSeparator + base64.RawURLEncoding.EncodeToString(secret)
 	expiresAt := time.Now().UTC().Add(enrollmentTokenLifetime)
-	if err := s.repository.CreateEnrollmentToken(ctx, tenantID, environmentID, hashToken(token), expiresAt); err != nil {
+	entry := oplog.New(ctx, oplog.EnrollmentTokenIssue, environmentID, "")
+	if err := s.repository.CreateEnrollmentToken(ctx, tenantID, environmentID, hashToken(token), expiresAt, entry); err != nil {
 		return "", time.Time{}, err
 	}
 	return token, expiresAt, nil
@@ -177,7 +183,7 @@ func (s *Service) Enroll(ctx context.Context, token string, csrPEM, sealingPubli
 	if _, err := ecdh.P256().NewPublicKey(sealingPublicKey); err != nil {
 		return Enrollment{}, fmt.Errorf("%w: sealing key is not a p-256 public key", ErrInvalid)
 	}
-	environmentID, err := s.repository.ConsumeEnrollmentToken(ctx, tenantID, hashToken(token))
+	environmentID, issuer, err := s.repository.ConsumeEnrollmentToken(ctx, tenantID, hashToken(token))
 	if err != nil {
 		return Enrollment{}, err
 	}
@@ -191,7 +197,10 @@ func (s *Service) Enroll(ctx context.Context, token string, csrPEM, sealingPubli
 		Version: version, CertificateExpires: notAfter, CreatedAt: time.Now().UTC(),
 		SealingPublicKey: sealingPublicKey,
 	}
-	if err := s.repository.CreateAgent(ctx, agent); err != nil {
+	// The agent joins on the authority of whoever issued its token.
+	entry := oplog.New(oplog.WithActor(ctx, issuer), oplog.AgentEnroll, agentID, "").
+		With(oplog.DetailEnvironment, environmentID.String())
+	if err := s.repository.CreateAgent(ctx, agent, entry); err != nil {
 		return Enrollment{}, err
 	}
 	return Enrollment{TenantID: tenantID, AgentID: agentID, CertificatePEM: certificate}, nil
@@ -251,7 +260,7 @@ func (s *Service) RenewCertificate(ctx context.Context, tenantID, agentID uuid.U
 }
 
 func (s *Service) Revoke(ctx context.Context, tenantID, agentID uuid.UUID) error {
-	return s.repository.RevokeAgent(ctx, tenantID, agentID)
+	return s.repository.RevokeAgent(ctx, tenantID, agentID, oplog.New(ctx, oplog.AgentRevoke, agentID, ""))
 }
 
 func (s *Service) GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (Agent, error) {

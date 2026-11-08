@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
+	"dataguard/internal/core/oplog"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 )
 
@@ -39,8 +41,9 @@ type Signed struct {
 // Repository stores policy versions of one tenant.
 type Repository interface {
 	// Publish assigns the next version inside the transaction. encode receives
-	// that version so the signature covers it.
-	Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (Signed, error)) (uint64, error)
+	// that version so the signature covers it, and returns the journal entry
+	// to write in the same transaction.
+	Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (Signed, oplog.Entry, error)) (uint64, error)
 	Latest(ctx context.Context, tenantID uuid.UUID) (Signed, error)
 	// History lists every version, newest first.
 	History(ctx context.Context, tenantID uuid.UUID) ([]Published, error)
@@ -73,7 +76,7 @@ func (s *Service) Publish(ctx context.Context, tenantID uuid.UUID, createdBy str
 	if err := validateDetectors(detectors); err != nil {
 		return 0, err
 	}
-	return s.repository.Publish(ctx, tenantID, createdBy, func(version uint64) (Signed, error) {
+	return s.repository.Publish(ctx, tenantID, createdBy, func(version uint64) (Signed, oplog.Entry, error) {
 		payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(&agentv1.Policy{
 			Version:         version,
 			TenantId:        tenantID.String(),
@@ -81,9 +84,11 @@ func (s *Service) Publish(ctx context.Context, tenantID uuid.UUID, createdBy str
 			DefaultBudget:   budget,
 		})
 		if err != nil {
-			return Signed{}, fmt.Errorf("encode policy: %w", err)
+			return Signed{}, oplog.Entry{}, fmt.Errorf("encode policy: %w", err)
 		}
-		return Signed{Version: version, Payload: payload, Signature: s.signer.Sign(payload)}, nil
+		// The policy belongs to the organization, so the organization is the object.
+		entry := oplog.New(ctx, oplog.PolicyPublish, tenantID, "").With(oplog.DetailVersion, strconv.FormatUint(version, 10))
+		return Signed{Version: version, Payload: payload, Signature: s.signer.Sign(payload)}, entry, nil
 	})
 }
 

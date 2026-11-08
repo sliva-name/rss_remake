@@ -23,6 +23,8 @@ const pages = [
   { path: "/policy", heading: "Политика", expect: ["Собственные детекторы", "Бюджет сканирования"] },
   { path: "/signals", heading: "Сигналы риска", expect: ["Правила", "Новая категория"] },
   { path: "/environments", heading: "Среды", expect: ["Производственная"] },
+  // The source added through the form above is in the journal under its name.
+  { path: "/journal", heading: "Журнал действий", expect: ["Добавление источника", "ui-postgres", "Выпуск токена регистрации", "Регистрация агента"] },
 ];
 
 const failures = [];

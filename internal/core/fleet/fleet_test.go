@@ -12,29 +12,40 @@ import (
 	"github.com/google/uuid"
 
 	"dataguard/internal/core/fleet"
+	"dataguard/internal/core/oplog"
 )
 
 type fakeRepository struct {
 	fleet.Repository
 	consumed    [][]byte
 	consumeErr  error
+	issuer      oplog.Actor
 	agent       fleet.Agent
 	createdWith []fleet.Agent
 	source      fleet.Source
 	saved       []fleet.Source
+	journal     []oplog.Entry
 }
 
-func (r *fakeRepository) CreateEnrollmentToken(context.Context, uuid.UUID, uuid.UUID, []byte, time.Time) error {
+func (r *fakeRepository) record(entry *oplog.Entry) {
+	if entry != nil {
+		r.journal = append(r.journal, *entry)
+	}
+}
+
+func (r *fakeRepository) CreateEnrollmentToken(_ context.Context, _, _ uuid.UUID, _ []byte, _ time.Time, entry oplog.Entry) error {
+	r.record(&entry)
 	return nil
 }
 
-func (r *fakeRepository) ConsumeEnrollmentToken(_ context.Context, _ uuid.UUID, hash []byte) (uuid.UUID, error) {
+func (r *fakeRepository) ConsumeEnrollmentToken(_ context.Context, _ uuid.UUID, hash []byte) (uuid.UUID, oplog.Actor, error) {
 	r.consumed = append(r.consumed, hash)
-	return uuid.New(), r.consumeErr
+	return uuid.New(), r.issuer, r.consumeErr
 }
 
-func (r *fakeRepository) CreateAgent(_ context.Context, agent fleet.Agent) error {
+func (r *fakeRepository) CreateAgent(_ context.Context, agent fleet.Agent, entry oplog.Entry) error {
 	r.createdWith = append(r.createdWith, agent)
+	r.record(&entry)
 	return nil
 }
 
@@ -46,13 +57,20 @@ func (r *fakeRepository) GetSource(context.Context, uuid.UUID, uuid.UUID) (fleet
 	return r.source, nil
 }
 
-func (r *fakeRepository) CreateSource(_ context.Context, source fleet.Source) error {
+func (r *fakeRepository) CreateSource(_ context.Context, source fleet.Source, entry *oplog.Entry) error {
 	r.saved = append(r.saved, source)
+	r.record(entry)
 	return nil
 }
 
-func (r *fakeRepository) UpdateSource(_ context.Context, source fleet.Source) error {
+func (r *fakeRepository) UpdateSource(_ context.Context, source fleet.Source, entry *oplog.Entry) error {
 	r.saved = append(r.saved, source)
+	r.record(entry)
+	return nil
+}
+
+func (r *fakeRepository) DeleteSource(_ context.Context, _, _ uuid.UUID, entry *oplog.Entry) error {
+	r.record(entry)
 	return nil
 }
 
@@ -231,5 +249,91 @@ func TestUpdateSourceAsksForThePasswordWhenTheTargetChanges(t *testing.T) {
 	otherEngine.Engine = "mysql"
 	if _, err := service.UpdateSource(t.Context(), uuid.New(), current.ID, otherEngine); !errors.Is(err, fleet.ErrInvalid) {
 		t.Fatalf("engine change: %v", err)
+	}
+}
+
+var operator = oplog.Actor{Subject: "8c1b", Name: "ivanova"}
+
+func TestJournalNamesWhatChangedWithoutValues(t *testing.T) {
+	current := draft()
+	current.ID, current.Engine, current.MaxConnections = uuid.New(), "ENGINE_POSTGRESQL", 2
+	repository := &fakeRepository{source: current}
+	service := fleet.NewService(repository, fakeIssuer{}, fakeSigner{})
+	ctx := oplog.WithActor(t.Context(), operator)
+
+	moved := draft()
+	moved.Host, moved.Port = "db2.internal", 6432
+	if _, err := service.UpdateSource(ctx, uuid.New(), current.ID, moved); err != nil {
+		t.Fatal(err)
+	}
+	unchanged := current
+	unchanged.Engine, unchanged.SealedPassword = "postgresql", nil
+	if _, err := service.UpdateSource(ctx, uuid.New(), current.ID, unchanged); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.journal) != 1 {
+		t.Fatalf("journal = %+v, want one entry: a save without changes is not an action", repository.journal)
+	}
+	entry := repository.journal[0]
+	if entry.Action != oplog.SourceUpdate || entry.Actor != operator || entry.ObjectID != current.ID || entry.ObjectLabel != "crm" {
+		t.Fatalf("entry = %+v", entry)
+	}
+	if changes := entry.Details[oplog.DetailChanges]; changes != "host,port,password" {
+		t.Fatalf("changes = %q", changes)
+	}
+	for _, value := range entry.Details {
+		if strings.Contains(value, "db2.internal") || strings.Contains(value, "6432") {
+			t.Fatalf("a setting value reached the journal: %q", value)
+		}
+	}
+}
+
+func TestDraftsStayOutOfTheJournal(t *testing.T) {
+	repository := &fakeRepository{agent: fleet.Agent{Status: fleet.StatusActive, SealingPublicKey: sealingKey(t)}}
+	service := fleet.NewService(repository, fakeIssuer{}, fakeSigner{})
+	ctx := oplog.WithActor(t.Context(), operator)
+
+	checked := draft()
+	checked.Draft = true
+	created, err := service.CreateSource(ctx, uuid.New(), checked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.source = created
+	if err := service.DeleteSource(ctx, uuid.New(), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.journal) != 0 {
+		t.Fatalf("a draft reached the journal: %+v", repository.journal)
+	}
+	if _, err := service.CreateSource(ctx, uuid.New(), draft()); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.journal) != 1 || repository.journal[0].Action != oplog.SourceCreate {
+		t.Fatalf("journal = %+v", repository.journal)
+	}
+}
+
+func TestEnrolledAgentIsAttributedToWhoIssuedTheToken(t *testing.T) {
+	repository := &fakeRepository{issuer: operator}
+	service := fleet.NewService(repository, fakeIssuer{}, fakeSigner{})
+	token, _, err := service.CreateEnrollmentToken(oplog.WithActor(t.Context(), operator), uuid.New(), uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The agent itself has no operator behind its request.
+	enrolled, err := service.Enroll(t.Context(), token, []byte("csr"), sealingKey(t), "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.journal) != 2 {
+		t.Fatalf("journal = %+v", repository.journal)
+	}
+	issued, joined := repository.journal[0], repository.journal[1]
+	if issued.Action != oplog.EnrollmentTokenIssue || issued.Actor != operator {
+		t.Fatalf("token entry = %+v", issued)
+	}
+	if joined.Action != oplog.AgentEnroll || joined.Actor != operator || joined.ObjectID != enrolled.AgentID {
+		t.Fatalf("enrollment entry = %+v", joined)
 	}
 }

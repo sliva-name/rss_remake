@@ -10,9 +10,10 @@ import (
 
 	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/fleet"
+	"dataguard/internal/core/oplog"
 )
 
-func (s *Store) CreateEnrollmentToken(ctx context.Context, tenantID, environmentID uuid.UUID, hash []byte, expiresAt time.Time) error {
+func (s *Store) CreateEnrollmentToken(ctx context.Context, tenantID, environmentID uuid.UUID, hash []byte, expiresAt time.Time, entry oplog.Entry) error {
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		var exists bool
 		const check = `SELECT EXISTS (SELECT 1 FROM environments WHERE id = $1)`
@@ -22,35 +23,41 @@ func (s *Store) CreateEnrollmentToken(ctx context.Context, tenantID, environment
 		if !exists {
 			return fleet.ErrNotFound
 		}
-		const insert = `INSERT INTO enrollment_tokens (id, tenant_id, environment_id, token_hash, expires_at)
-			VALUES ($1, $2, $3, $4, $5)`
-		_, err := tx.Exec(ctx, insert, uuid.Must(uuid.NewV7()), tenantID, environmentID, hash, expiresAt)
-		return err
+		const insert = `INSERT INTO enrollment_tokens (id, tenant_id, environment_id, token_hash, expires_at, created_by_subject, created_by_name)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		if _, err := tx.Exec(ctx, insert, uuid.Must(uuid.NewV7()), tenantID, environmentID, hash, expiresAt,
+			entry.Actor.Subject, entry.Actor.Name); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, tenantID, entry)
 	})
 	return writeError("create enrollment token", err, fleet.ErrNotFound)
 }
 
-func (s *Store) ConsumeEnrollmentToken(ctx context.Context, tenantID uuid.UUID, hash []byte) (uuid.UUID, error) {
+func (s *Store) ConsumeEnrollmentToken(ctx context.Context, tenantID uuid.UUID, hash []byte) (uuid.UUID, oplog.Actor, error) {
 	var environmentID uuid.UUID
+	var issuer oplog.Actor
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		const consume = `UPDATE enrollment_tokens SET used_at = now()
 			WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
-			RETURNING environment_id`
-		return tx.QueryRow(ctx, consume, hash).Scan(&environmentID)
+			RETURNING environment_id, created_by_subject, created_by_name`
+		return tx.QueryRow(ctx, consume, hash).Scan(&environmentID, &issuer.Subject, &issuer.Name)
 	})
 	if err := readError("consume enrollment token", err, fleet.ErrInvalidToken); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, oplog.Actor{}, err
 	}
-	return environmentID, nil
+	return environmentID, issuer, nil
 }
 
-func (s *Store) CreateAgent(ctx context.Context, agent fleet.Agent) error {
+func (s *Store) CreateAgent(ctx context.Context, agent fleet.Agent, entry oplog.Entry) error {
 	err := s.inTenant(ctx, agent.TenantID, func(tx pgx.Tx) error {
 		const insert = `INSERT INTO agents (id, tenant_id, environment_id, status, version, certificate_expires, created_at, sealing_public_key)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-		_, err := tx.Exec(ctx, insert, agent.ID, agent.TenantID, agent.EnvironmentID, agent.Status,
-			agent.Version, agent.CertificateExpires, agent.CreatedAt, agent.SealingPublicKey)
-		return err
+		if _, err := tx.Exec(ctx, insert, agent.ID, agent.TenantID, agent.EnvironmentID, agent.Status,
+			agent.Version, agent.CertificateExpires, agent.CreatedAt, agent.SealingPublicKey); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, agent.TenantID, entry)
 	})
 	if err != nil {
 		return storageError("create agent", err)
@@ -109,9 +116,23 @@ func (s *Store) RefuseContract(ctx context.Context, tenantID, agentID uuid.UUID,
 	return s.updateAgent(ctx, tenantID, "refuse contract", update, agentID, offered)
 }
 
-func (s *Store) RevokeAgent(ctx context.Context, tenantID, agentID uuid.UUID) error {
-	const update = `UPDATE agents SET status = 'revoked', revoked_at = now() WHERE id = $1`
-	return s.updateAgent(ctx, tenantID, "revoke agent", update, agentID)
+func (s *Store) RevokeAgent(ctx context.Context, tenantID, agentID uuid.UUID, entry oplog.Entry) error {
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		var status string
+		if err := tx.QueryRow(ctx, `SELECT status FROM agents WHERE id = $1 FOR UPDATE`, agentID).Scan(&status); err != nil {
+			return err
+		}
+		// Revoking a revoked agent changes nothing, so the journal gets nothing.
+		if status == fleet.StatusRevoked {
+			return nil
+		}
+		const update = `UPDATE agents SET status = 'revoked', revoked_at = now() WHERE id = $1`
+		if _, err := tx.Exec(ctx, update, agentID); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, tenantID, entry)
+	})
+	return readError("revoke agent", err, fleet.ErrNotFound)
 }
 
 func (s *Store) UpdateCertificateExpiry(ctx context.Context, tenantID, agentID uuid.UUID, expires time.Time) error {
@@ -154,7 +175,15 @@ func bumpSourcesVersion(ctx context.Context, tx pgx.Tx, agentID uuid.UUID) error
 	return err
 }
 
-func (s *Store) CreateSource(ctx context.Context, source fleet.Source) error {
+// recordIf writes entry when the change is one the journal records.
+func recordIf(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, entry *oplog.Entry) error {
+	if entry == nil {
+		return nil
+	}
+	return recordAction(ctx, tx, tenantID, *entry)
+}
+
+func (s *Store) CreateSource(ctx context.Context, source fleet.Source, entry *oplog.Entry) error {
 	err := s.inTenant(ctx, source.TenantID, func(tx pgx.Tx) error {
 		// Drafts nobody saved or cancelled leave the agent's list here, in the
 		// same version bump, and free their names.
@@ -171,12 +200,15 @@ func (s *Store) CreateSource(ctx context.Context, source fleet.Source) error {
 			source.MaxConnections, source.SealedPassword, source.Draft); err != nil {
 			return err
 		}
+		if err := recordIf(ctx, tx, source.TenantID, entry); err != nil {
+			return err
+		}
 		return bumpSourcesVersion(ctx, tx, source.AgentID)
 	})
 	return sourceWriteError("create source", err)
 }
 
-func (s *Store) ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID) error {
+func (s *Store) ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID, entry oplog.Entry) error {
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		var agentID uuid.UUID
 		var draft bool
@@ -193,12 +225,15 @@ func (s *Store) ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID
 		if _, err := tx.Exec(ctx, activate, sourceID); err != nil {
 			return err
 		}
+		if err := recordAction(ctx, tx, tenantID, entry); err != nil {
+			return err
+		}
 		return bumpSourcesVersion(ctx, tx, agentID)
 	})
 	return sourceWriteError("activate source", err)
 }
 
-func (s *Store) UpdateSource(ctx context.Context, source fleet.Source) error {
+func (s *Store) UpdateSource(ctx context.Context, source fleet.Source, entry *oplog.Entry) error {
 	err := s.inTenant(ctx, source.TenantID, func(tx pgx.Tx) error {
 		const update = `UPDATE sources SET source_key = $2, host = $3, port = $4, database_name = $5, username = $6,
 				tls_mode = $7, audit_directory = $8, max_connections = $9, sealed_password = $10, updated_at = now(),
@@ -212,12 +247,15 @@ func (s *Store) UpdateSource(ctx context.Context, source fleet.Source) error {
 		if result.RowsAffected() == 0 {
 			return fleet.ErrNotFound
 		}
+		if err := recordIf(ctx, tx, source.TenantID, entry); err != nil {
+			return err
+		}
 		return bumpSourcesVersion(ctx, tx, source.AgentID)
 	})
 	return sourceWriteError("update source", err)
 }
 
-func (s *Store) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) error {
+func (s *Store) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID, entry *oplog.Entry) error {
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		var agentID uuid.UUID
 		const remove = `UPDATE sources SET deleted_at = now(), sealed_password = NULL
@@ -228,6 +266,9 @@ func (s *Store) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) 
 		const cancel = `UPDATE scan_jobs SET status = 'cancelled', failure_code = $2, finished_at = now()
 			WHERE source_id = $1 AND status IN ('pending', 'running')`
 		if _, err := tx.Exec(ctx, cancel, sourceID, codes.SourceDeleted); err != nil {
+			return err
+		}
+		if err := recordIf(ctx, tx, tenantID, entry); err != nil {
 			return err
 		}
 		return bumpSourcesVersion(ctx, tx, agentID)
