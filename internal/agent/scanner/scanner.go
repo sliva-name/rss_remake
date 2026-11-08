@@ -4,6 +4,7 @@
 package scanner
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -37,29 +38,13 @@ const (
 // EffectiveBudget fills unset limits with conservative defaults, because an
 // empty budget must never mean an unbounded scan of a production database.
 func EffectiveBudget(budget *agentv1.ScanBudget) *agentv1.ScanBudget {
-	effective := &agentv1.ScanBudget{
-		MaxDurationSeconds: uint32(defaultMaxDuration.Seconds()),
-		MaxRowsPerTable:    defaultMaxRowsPerTable,
-		MaxBytesPerTable:   defaultMaxBytesPerTable,
-		MaxConnections:     defaultMaxConnections,
-		MaxRowsPerSecond:   defaultRowsPerSecond,
+	return &agentv1.ScanBudget{
+		MaxDurationSeconds: cmp.Or(budget.GetMaxDurationSeconds(), uint32(defaultMaxDuration.Seconds())),
+		MaxRowsPerTable:    cmp.Or(budget.GetMaxRowsPerTable(), defaultMaxRowsPerTable),
+		MaxBytesPerTable:   cmp.Or(budget.GetMaxBytesPerTable(), defaultMaxBytesPerTable),
+		MaxConnections:     cmp.Or(budget.GetMaxConnections(), defaultMaxConnections),
+		MaxRowsPerSecond:   cmp.Or(budget.GetMaxRowsPerSecond(), defaultRowsPerSecond),
 	}
-	if value := budget.GetMaxDurationSeconds(); value > 0 {
-		effective.MaxDurationSeconds = value
-	}
-	if value := budget.GetMaxRowsPerTable(); value > 0 {
-		effective.MaxRowsPerTable = value
-	}
-	if value := budget.GetMaxBytesPerTable(); value > 0 {
-		effective.MaxBytesPerTable = value
-	}
-	if value := budget.GetMaxConnections(); value > 0 {
-		effective.MaxConnections = value
-	}
-	if value := budget.GetMaxRowsPerSecond(); value > 0 {
-		effective.MaxRowsPerSecond = value
-	}
-	return effective
 }
 
 // Scanner runs jobs with one classifier engine.
@@ -176,16 +161,14 @@ func (s *Scanner) scanTable(ctx context.Context, source connector.Sampler, table
 	}
 
 	profiles := make([]*columnProfile, len(sampled))
-	selected := make([]connector.Column, len(sampled))
 	for i, column := range sampled {
-		selected[i] = column
 		profiles[i] = &columnProfile{
 			column:   column,
 			evidence: s.engine.NewColumn(columnContext(table, column)),
 			unique:   hyperloglog.New14(),
 		}
 	}
-	stats, err := source.Sample(ctx, *table, selected, limits, func(index int, value []byte) {
+	stats, err := source.Sample(ctx, *table, sampled, limits, func(index int, value []byte) {
 		profile := profiles[index]
 		profile.nonNull++
 		profile.evidence.Observe(value)
@@ -232,19 +215,13 @@ func (s *Scanner) collect(table *connector.Table, profiles []*columnProfile, sta
 				// Rows were read, but they are not what this finding is based on.
 				method = agentv1.SamplingMethod_SAMPLING_METHOD_METADATA_ONLY
 			}
-			classifications = append(classifications, &agentv1.ColumnClassification{
-				Column:     &agentv1.ColumnPath{Table: tablePath(table), Column: profile.column.Name},
-				CategoryId: finding.Category,
-				Confidence: finding.Confidence,
-				Evidence:   finding.Evidence,
-				Profile: &agentv1.ColumnProfile{
-					RowsInspected:  stats.Rows,
-					RowsNonNull:    profile.nonNull,
-					RowsMatched:    finding.Matched,
-					UniqueEstimate: profile.unique.Estimate(),
-					SamplingMethod: method,
-				},
-			})
+			classifications = append(classifications, classification(table, profile.column, &finding, &agentv1.ColumnProfile{
+				RowsInspected:  stats.Rows,
+				RowsNonNull:    profile.nonNull,
+				RowsMatched:    finding.Matched,
+				UniqueEstimate: profile.unique.Estimate(),
+				SamplingMethod: method,
+			}))
 		}
 	}
 	return classifications
@@ -254,16 +231,21 @@ func (s *Scanner) metadataOnly(table *connector.Table, columns []connector.Colum
 	var classifications []*agentv1.ColumnClassification
 	for _, column := range columns {
 		for _, finding := range s.engine.Findings(s.engine.NewColumn(columnContext(table, column))) {
-			classifications = append(classifications, &agentv1.ColumnClassification{
-				Column:     &agentv1.ColumnPath{Table: tablePath(table), Column: column.Name},
-				CategoryId: finding.Category,
-				Confidence: finding.Confidence,
-				Evidence:   finding.Evidence,
-				Profile:    &agentv1.ColumnProfile{SamplingMethod: agentv1.SamplingMethod_SAMPLING_METHOD_METADATA_ONLY},
-			})
+			classifications = append(classifications, classification(table, column, &finding,
+				&agentv1.ColumnProfile{SamplingMethod: agentv1.SamplingMethod_SAMPLING_METHOD_METADATA_ONLY}))
 		}
 	}
 	return classifications
+}
+
+func classification(table *connector.Table, column connector.Column, finding *classifier.Finding, profile *agentv1.ColumnProfile) *agentv1.ColumnClassification {
+	return &agentv1.ColumnClassification{
+		Column:     &agentv1.ColumnPath{Table: tablePath(table), Column: column.Name},
+		CategoryId: finding.Category,
+		Confidence: finding.Confidence,
+		Evidence:   finding.Evidence,
+		Profile:    profile,
+	}
 }
 
 func skip(table *connector.Table, reason string) *agentv1.SkippedTable {
