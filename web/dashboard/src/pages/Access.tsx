@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api, type Schemas } from "../api";
 import { category, categoryIds, count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
-import { ObjectLink, paths, useUrlFilters } from "../links";
+import { CategoryLink, ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
 import { FailureNote, Loadable, Page } from "../ui";
 
@@ -60,7 +60,7 @@ function What({ event, sourceKey }: { event: Schemas["AuditEvent"]; sourceKey: s
       </div>
       <div className="chips">
         {event.categories.map((id) => (
-          <span key={id} className="badge warn">{category(id)}</span>
+          <CategoryLink key={id} id={id} className="badge warn">{category(id)}</CategoryLink>
         ))}
       </div>
     </>

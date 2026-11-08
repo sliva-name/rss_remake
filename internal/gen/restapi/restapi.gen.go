@@ -702,8 +702,10 @@ type ListAccessByCategoryParams struct {
 
 // ListAccessByPrincipalParams defines parameters for ListAccessByPrincipal.
 type ListAccessByPrincipalParams struct {
-	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
-	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
+	// Category Count only the events that touched this category.
+	Category *string    `form:"category,omitempty" json:"category,omitempty"`
+	From     *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To       *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // GetAccessSummaryParams defines parameters for GetAccessSummary.
@@ -1005,6 +1007,19 @@ func (siw *ServerInterfaceWrapper) ListAccessByPrincipal(w http.ResponseWriter, 
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListAccessByPrincipalParams
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
 
 	// ------------- Optional query parameter "from" -------------
 

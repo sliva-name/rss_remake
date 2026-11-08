@@ -172,7 +172,7 @@ func (s *Server) GetAccessSummary(ctx context.Context, request restapi.GetAccess
 
 func (s *Server) ListAccessByPrincipal(ctx context.Context, request restapi.ListAccessByPrincipalRequestObject) (restapi.ListAccessByPrincipalResponseObject, error) {
 	from, to := period(request.Params.From, request.Params.To)
-	groups, err := s.events.ByPrincipal(ctx, tenantOf(ctx), from, to)
+	groups, err := s.events.ByPrincipal(ctx, tenantOf(ctx), from, to, stringValue(request.Params.Category))
 	if err != nil {
 		return nil, err
 	}

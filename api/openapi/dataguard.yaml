@@ -342,6 +342,10 @@ paths:
     get:
       operationId: listAccessByPrincipal
       parameters:
+        - name: category
+          in: query
+          description: Count only the events that touched this category.
+          schema: {type: string}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
       responses:

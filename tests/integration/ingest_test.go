@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -140,6 +141,30 @@ func TestAuditReachesAnalyticsWithClassification(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(string(payload), "dg_app") {
 		t.Fatalf("principals: %d %s", status, payload)
 	}
+	var everything, email, none []restapi.PrincipalAccess
+	for path, into := range map[string]*[]restapi.PrincipalAccess{
+		"/api/v1/analytics/principals":                                      &everything,
+		"/api/v1/analytics/principals?category=" + classifier.CategoryEmail: &email,
+		"/api/v1/analytics/principals?category=NOTHING.READ":                &none,
+	} {
+		status, payload := restCall(t, platform, http.MethodGet, path, "analyst", "")
+		if status != http.StatusOK || json.Unmarshal(payload, into) != nil {
+			t.Fatalf("%s: %d %s", path, status, payload)
+		}
+	}
+	if len(none) != 0 || len(email) == 0 {
+		t.Fatalf("by category: email %+v, nothing %+v", email, none)
+	}
+	for _, row := range email {
+		whole := slices.IndexFunc(everything, func(item restapi.PrincipalAccess) bool {
+			return item.DatabasePrincipal == row.DatabasePrincipal && item.ApplicationPrincipal == row.ApplicationPrincipal &&
+				item.IdentityConfidence == row.IdentityConfidence
+		})
+		if whole < 0 || row.Events > everything[whole].Events || !slices.Contains(row.Categories, classifier.CategoryEmail) {
+			t.Errorf("email row %+v against %+v", row, everything)
+		}
+	}
+
 	status, payload = restCall(t, platform, http.MethodGet, "/api/v1/analytics/categories", "analyst", "")
 	if status != http.StatusOK || !strings.Contains(string(payload), classifier.CategoryEmail) {
 		t.Fatalf("categories: %d %s", status, payload)
@@ -419,7 +444,7 @@ func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
 		if summary.Events != want || summary.SensitiveEvents != sensitive {
 			t.Errorf("window %v: summary %+v, want %d events, %d sensitive", window, summary, want, sensitive)
 		}
-		principals, err := store.ByPrincipal(ctx, tenantID, from, to)
+		principals, err := store.ByPrincipal(ctx, tenantID, from, to, "")
 		if err != nil {
 			t.Fatal(err)
 		}

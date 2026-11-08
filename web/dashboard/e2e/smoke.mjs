@@ -15,7 +15,7 @@ const pages = [
   { path: "/access", heading: "Обращения", expect: ["Доказательство", "Запрос выполнен", "Упомянуто в запросе", "dg_app"] },
   { path: "/identities", heading: "Пользователи", expect: ["employee-123", "Подтверждено приложением", "Не идентифицирован"] },
   { path: "/compliance", heading: "Отчёты", expect: ["Инвентарь по категориям", "Доступ по категориям"] },
-  { path: "/infrastructure", heading: "Инфраструктура", expect: ["Источники", "Подключено", "Покрытие аудита", "Возможности источников", "Нет в СУБД", "Сканировать"] },
+  { path: "/infrastructure", heading: "Источники и агенты", expect: ["Источники", "Подключено", "Покрытие аудита", "Возможности источников", "Нет в СУБД", "Сканировать"] },
 ];
 
 const failures = [];
@@ -86,7 +86,7 @@ for (const scheme of ["light", "dark"]) {
 async function expectOnPage(step, expected) {
   for (const item of expected) {
     try {
-      await page.locator("main").getByText(item, { exact: false }).first().waitFor({ timeout: 30_000 });
+      await page.locator("main").getByText(item, { exact: false }).filter({ visible: true }).first().waitFor({ timeout: 30_000 });
     } catch {
       failures.push(`${step}: no "${item}"`);
     }
@@ -127,6 +127,18 @@ try {
   await expectOnPage("events of the column", ["Колонка:", "dg_app"]);
   if (!new URL(page.url()).searchParams.get("columnId")) failures.push("events of the column: the filter is not in the address");
   await page.screenshot({ path: `${output}/object-events.png`, fullPage: true });
+
+  // A kind of data, then where it lies, who read it and what they did.
+  await page.goto(`${credentials.api}/compliance`);
+  await page.locator("main").getByRole("link", { name: "ИНН", exact: true }).first().click();
+  await page.getByRole("heading", { name: "ИНН", exact: true }).waitFor();
+  await expectOnPage("category", ["Где хранятся", "dg_users", "Кто обращался за 7 дней", "dg_app", "Последние обращения"]);
+  await page.screenshot({ path: `${output}/object-category.png`, fullPage: true });
+  await page.locator("section").filter({ hasText: "Кто обращался" }).getByRole("link", { name: "dg_app", exact: true }).first().click();
+  await page.getByRole("heading", { name: "Обращения", exact: true }).waitFor();
+  const filtered = new URL(page.url()).searchParams;
+  if (filtered.get("principal") !== "dg_app" || filtered.get("category") !== "GOVERNMENT.TAX_ID") failures.push(`category reader: landed on ${page.url()}`);
+  await expectOnPage("reads of the category by one user", ["dg_app", "ИНН"]);
 } catch (error) {
   await page.screenshot({ path: `${output}/object-failure.png`, fullPage: true });
   throw error;
@@ -134,7 +146,7 @@ try {
 
 await page.setViewportSize({ width: 380, height: 800 });
 await page.goto(`${credentials.api}/infrastructure`);
-await page.getByRole("heading", { name: "Инфраструктура", exact: true }).waitFor();
+await page.getByRole("heading", { name: "Источники и агенты", exact: true }).waitFor();
 await page.waitForLoadState("networkidle");
 const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 if (overflow > 0) failures.push(`phone width: page scrolls sideways by ${overflow}px`);

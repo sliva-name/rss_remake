@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api";
 import { category, categoryIds, count, samplingMethod } from "../labels";
-import { ObjectLink, paths, useUrlFilters } from "../links";
+import { CategoryLink, ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
 import { Confidence, Loadable, Page } from "../ui";
 
@@ -42,7 +42,7 @@ export function Catalog() {
         </label>
       </div>
       <section className="card">
-        <Loadable query={columns} empty="Ничего не найдено. Запустите сканирование в разделе «Инфраструктура»." isEmpty={(page) => page.items.length === 0}>
+        <Loadable query={columns} empty="Ничего не найдено. Запустите сканирование в разделе «Источники и агенты»." isEmpty={(page) => page.items.length === 0}>
           {(page) => (
             <>
               <div className="scroll">
@@ -72,7 +72,7 @@ export function Catalog() {
                           <ObjectLink to={paths.column(item.columnId)} needs="getCatalogColumn">{item.column}</ObjectLink>
                         </td>
                         <td className="mono muted">{item.nativeType}</td>
-                        <td>{category(item.categoryId)}</td>
+                        <td><CategoryLink id={item.categoryId}>{category(item.categoryId)}</CategoryLink></td>
                         <td><Confidence value={item.confidence} /></td>
                         <td className="muted">{samplingMethod(item.samplingMethod)}</td>
                         <td className="num">

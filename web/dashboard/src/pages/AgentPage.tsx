@@ -51,7 +51,7 @@ export function AgentPage() {
   });
   return (
     <>
-      <Trail>{[<ObjectLink key="infra" to="/infrastructure" needs="listAgents">Инфраструктура</ObjectLink>, "Агент"]}</Trail>
+      <Trail>{[<ObjectLink key="infra" to="/infrastructure" needs="listAgents">Источники и агенты</ObjectLink>, "Агент"]}</Trail>
       <Loadable query={agent} empty="">
         {(data) => (
           <>

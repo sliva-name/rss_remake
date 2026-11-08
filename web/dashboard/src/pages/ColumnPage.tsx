@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { api, type Schemas } from "../api";
 import { category, count, dateTime, eventType, executionStatus, identity, percent, samplingMethod } from "../labels";
-import { ObjectLink, paths, Trail } from "../links";
+import { CategoryLink, ObjectLink, paths, Trail } from "../links";
 import { Allowed } from "../permissions";
 import { Confidence, Facts, Loadable } from "../ui";
 import { RemovedNote, Renames, SourceCrumb } from "./TablePage";
@@ -36,7 +36,7 @@ function Classifications({ decisions }: { decisions: Schemas["Classification"][]
             <tbody>
               {decisions.map((decision) => (
                 <tr key={decision.categoryId}>
-                  <td>{category(decision.categoryId)}</td>
+                  <td><CategoryLink id={decision.categoryId}>{category(decision.categoryId)}</CategoryLink></td>
                   <td>{decision.detected ? <span className="badge warn">Найдено</span> : <span className="badge">Не найдено</span>}</td>
                   <td><Confidence value={decision.confidence} /></td>
                   <td className="hint">{grounds(decision)}</td>

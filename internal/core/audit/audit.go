@@ -418,7 +418,7 @@ type Summary struct {
 // Reader answers questions about stored events.
 type Reader interface {
 	Search(ctx context.Context, tenantID uuid.UUID, filter Filter) ([]Event, uint64, error)
-	ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]PrincipalAccess, error)
+	ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, category string) ([]PrincipalAccess, error)
 	ByCategory(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]CategoryAccess, error)
 	Windows(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]SourceWindow, error)
 	Summarize(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (Summary, error)

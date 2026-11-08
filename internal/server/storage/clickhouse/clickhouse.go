@@ -289,16 +289,17 @@ func facts(tenantID uuid.UUID, from, to time.Time) (string, []any) {
 }
 
 // ByPrincipal groups by who acted. A row exists for each distinct way of being
-// known, so an unverified claim never merges into a verified identity.
-func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.PrincipalAccess, error) {
+// known, so an unverified claim never merges into a verified identity. A
+// non-empty category counts only the events that touched it.
+func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, category string) ([]audit.PrincipalAccess, error) {
 	body, arguments := facts(tenantID, from, to)
 	query := `SELECT database_principal, application_principal, identity_confidence, sum(events),
 			sumIf(events, notEmpty(categories)), arraySort(groupUniqArrayArray(categories)), uniqExact(source_id), max(last_event)
 		FROM (` + body + `)
-		WHERE event_type NOT IN (?, ?)
+		WHERE event_type NOT IN (?, ?) AND (? = '' OR has(categories, ?))
 		GROUP BY database_principal, application_principal, identity_confidence
 		ORDER BY sumIf(events, notEmpty(categories)) DESC, sum(events) DESC`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, typeGap, typeAuth)...)
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, typeGap, typeAuth, category, category)...)
 	if err != nil {
 		return nil, storageError("group by principal", err)
 	}

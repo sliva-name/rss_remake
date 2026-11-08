@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api";
 import { category, change, count, dateTime, percent } from "../labels";
-import { ObjectLink, paths } from "../links";
+import { CategoryLink, ObjectLink, paths } from "../links";
 import { Allowed, useCan } from "../permissions";
 import { CoverageBadge, Loadable, Page, Tile } from "../ui";
 
@@ -86,7 +86,7 @@ export function Overview() {
                 <tbody>
                   {rows.slice(0, 6).map((row) => (
                     <tr key={row.category}>
-                      <td>{category(row.category)}</td>
+                      <td><CategoryLink id={row.category}>{category(row.category)}</CategoryLink></td>
                       <td className="num">{count(row.events)}</td>
                       <td className="num">{count(row.principals)}</td>
                     </tr>
@@ -117,7 +117,7 @@ export function Overview() {
                             <>.<ObjectLink to={paths.column(row.columnId)} needs="getCatalogColumn">{row.columnName}</ObjectLink></>
                           )}
                         </td>
-                        <td>{row.categoryId ? category(row.categoryId) : ""}</td>
+                        <td>{row.categoryId ? <CategoryLink id={row.categoryId}>{category(row.categoryId)}</CategoryLink> : ""}</td>
                       </tr>
                     ))}
                   </tbody>

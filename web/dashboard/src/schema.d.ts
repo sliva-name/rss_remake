@@ -1379,6 +1379,8 @@ export interface operations {
     listAccessByPrincipal: {
         parameters: {
             query?: {
+                /** @description Count only the events that touched this category. */
+                category?: string;
                 from?: string;
                 to?: string;
             };

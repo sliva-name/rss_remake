@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { StrictMode, useEffect, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { api } from "./api";
 import { completeSignIn, SignInRefused, signIn, signOut } from "./auth";
 import { Access } from "./pages/Access";
+import { categoryNeeds } from "./links";
 import { AgentPage } from "./pages/AgentPage";
+import { CategoryPage } from "./pages/CategoryPage";
 import { Catalog } from "./pages/Catalog";
 import { ColumnPage } from "./pages/ColumnPage";
 import { Compliance } from "./pages/Compliance";
@@ -17,7 +19,7 @@ import { SourcePage } from "./pages/SourcePage";
 import { TablePage } from "./pages/TablePage";
 import { Tenants } from "./pages/Tenants";
 import { type Permission, PermissionsProvider } from "./permissions";
-import { visibleSections } from "./sections";
+import { groupSections, type Section, sectionOf, visibleSections } from "./sections";
 import "./styles.css";
 
 const client = new QueryClient({
@@ -61,12 +63,31 @@ const pages: Record<string, (tenantId: string) => ReactElement> = {
   "/tenants": () => <Tenants />,
 };
 
+function Navigation({ visible }: { visible: readonly Section[] }) {
+  const current = sectionOf(useLocation().pathname);
+  return (
+    <>
+      {groupSections(visible).map(({ group, sections: items }) => (
+        <div key={group || "start"} className="nav-group">
+          {group && <div className="nav-heading">{group}</div>}
+          {items.map((section) => (
+            <NavLink key={section.path} to={section.path} className={section === current ? "active" : undefined}>
+              {section.title}
+            </NavLink>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // Every object has an address, so any list can link to it (ADR-0010).
-const objectPages: { path: string; needs: Permission; element: ReactElement }[] = [
-  { path: "/sources/:id", needs: "getSource", element: <SourcePage /> },
-  { path: "/agents/:id", needs: "getAgent", element: <AgentPage /> },
-  { path: "/tables/:id", needs: "getCatalogTable", element: <TablePage /> },
-  { path: "/columns/:id", needs: "getCatalogColumn", element: <ColumnPage /> },
+const objectPages: { path: string; needs: readonly Permission[]; element: ReactElement }[] = [
+  { path: "/sources/:id", needs: ["getSource"], element: <SourcePage /> },
+  { path: "/agents/:id", needs: ["getAgent"], element: <AgentPage /> },
+  { path: "/tables/:id", needs: ["getCatalogTable"], element: <TablePage /> },
+  { path: "/columns/:id", needs: ["getCatalogColumn"], element: <ColumnPage /> },
+  { path: "/categories/:id", needs: categoryNeeds, element: <CategoryPage /> },
 ];
 
 function Shell() {
@@ -82,9 +103,7 @@ function Shell() {
       <div className="shell">
         <nav className="side" aria-label="Разделы">
           <div className="brand">DataGuard</div>
-          {visible.map((section) => (
-            <NavLink key={section.path} to={section.path}>{section.title}</NavLink>
-          ))}
+          <Navigation visible={visible} />
           <div className="side-foot">
             <ThemeSwitch />
             <button onClick={() => void signOut()}>Выйти</button>
@@ -98,7 +117,7 @@ function Shell() {
               {visible.map((section) => (
                 <Route key={section.path} path={section.path} element={pages[section.path]?.(tenantId)} />
               ))}
-              {objectPages.filter((page) => permissions.has(page.needs)).map((page) => (
+              {objectPages.filter((page) => page.needs.some((permission) => permissions.has(permission))).map((page) => (
                 <Route key={page.path} path={page.path} element={page.element} />
               ))}
               <Route path="*" element={<Navigate to={visible[0]?.path ?? "/"} replace />} />

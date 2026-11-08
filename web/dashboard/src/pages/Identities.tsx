@@ -2,11 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api";
 import { category, count, dateTime, identity } from "../labels";
-import { ObjectLink, paths } from "../links";
+import { CategoryLink, ObjectLink, paths } from "../links";
 import { Loadable, Page } from "../ui";
 
 export function Identities() {
-  const principals = useQuery({ queryKey: ["principals"], queryFn: api.principals });
+  const principals = useQuery({ queryKey: ["principals"], queryFn: () => api.principals() });
   return (
     <Page title="Пользователи" lead="Кто обращался к данным за 7 дней. Подтверждённые и заявленные личности показаны отдельно и не объединяются.">
       <section className="card">
@@ -45,7 +45,7 @@ export function Identities() {
                       <td className="num">{count(row.sensitiveEvents)}</td>
                       <td>
                         <div className="chips">
-                          {row.categories.map((id) => <span key={id} className="badge">{category(id)}</span>)}
+                          {row.categories.map((id) => <CategoryLink key={id} id={id} className="badge">{category(id)}</CategoryLink>)}
                         </div>
                       </td>
                       <td className="muted">{dateTime(row.lastAccess)}</td>

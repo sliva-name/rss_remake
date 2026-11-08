@@ -47,7 +47,7 @@ async function request<T>(method: string, path: string, query?: Query, body?: un
 export const api = {
   me: () => request<Schemas["CurrentUser"]>("GET", "/me"),
   summary: () => request<Schemas["AccessSummary"]>("GET", "/analytics/summary"),
-  principals: () => request<Schemas["PrincipalAccess"][]>("GET", "/analytics/principals"),
+  principals: (category?: string) => request<Schemas["PrincipalAccess"][]>("GET", "/analytics/principals", { category }),
   categories: () => request<Schemas["CategoryAccess"][]>("GET", "/analytics/categories"),
   coverage: (windowHours: number) => request<Schemas["CoverageRow"][]>("GET", "/audit/coverage", { windowHours }),
   events: (query: Query) => request<Schemas["AuditEventPage"]>("GET", "/audit/events", query),

@@ -179,7 +179,7 @@ export function SourcePage() {
   const source = useQuery({ queryKey: ["source", id], queryFn: () => api.source(id) });
   return (
     <>
-      <Trail>{[<ObjectLink key="infra" to="/infrastructure" needs="listSources">Инфраструктура</ObjectLink>, "Источник"]}</Trail>
+      <Trail>{[<ObjectLink key="infra" to="/infrastructure" needs="listSources">Источники и агенты</ObjectLink>, "Источник"]}</Trail>
       <Loadable query={source} empty="">
         {(data) => (
           <>

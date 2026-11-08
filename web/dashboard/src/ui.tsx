@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { ApiError } from "./api";
 import { category, coverageStatus, explain, failure } from "./labels";
+import { CategoryLink } from "./links";
 
 export function Loadable<T>({
   query,
@@ -51,7 +52,7 @@ export function Categories({ ids, tone = "warn" }: { ids: string[]; tone?: strin
   if (ids.length === 0) return <span className="muted">—</span>;
   return (
     <div className="chips">
-      {ids.map((id) => <span key={id} className={`badge ${tone}`}>{category(id)}</span>)}
+      {ids.map((id) => <CategoryLink key={id} id={id} className={`badge ${tone}`}>{category(id)}</CategoryLink>)}
     </div>
   );
 }

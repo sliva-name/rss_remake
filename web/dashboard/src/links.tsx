@@ -30,6 +30,7 @@ export const paths = {
   agent: (id: string) => `/agents/${id}`,
   table: (id: string) => `/tables/${id}`,
   column: (id: string) => `/columns/${id}`,
+  category: (id: string) => `/categories/${encodeURIComponent(id)}`,
   events: (filter: EventFilter) => `/access${search(filter)}`,
   catalog: (filter: CatalogFilter) => `/catalog${search(filter)}`,
 };
@@ -56,6 +57,15 @@ export function useUrlFilters<K extends string>(keys: readonly K[]): [Record<K |
     setParameters(next, { replace: true });
   };
   return [values, update];
+}
+
+// A category opens its own page when any of its parts is readable.
+export const categoryNeeds: readonly Permission[] = ["listCatalogColumns", "listAccessByPrincipal", "listAuditEvents"];
+
+export function CategoryLink({ id, className, children }: { id: string; className?: string; children: ReactNode }) {
+  const can = useCan();
+  if (!categoryNeeds.some(can)) return <span className={className}>{children}</span>;
+  return <Link className={className} to={paths.category(id)}>{children}</Link>;
 }
 
 export function Trail({ children }: { children: ReactNode[] }) {

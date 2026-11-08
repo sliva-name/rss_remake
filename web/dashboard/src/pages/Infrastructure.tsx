@@ -92,7 +92,7 @@ export function Infrastructure({ tenantId }: { tenantId: string }) {
   const keyOf = (id: string) => sources.data?.find((source) => source.id === id)?.key ?? id;
 
   return (
-    <Page title="Инфраструктура" lead="Что платформа видит и чего не видит. «Нет данных» значит, что измерять было нечего: это не ноль.">
+    <Page title="Источники и агенты" lead="Что платформа видит и чего не видит. «Нет данных» значит, что измерять было нечего: это не ноль.">
       <Allowed to="listSources">
         <Sources tenantId={tenantId} />
       </Allowed>
