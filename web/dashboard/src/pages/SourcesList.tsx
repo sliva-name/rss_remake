@@ -3,7 +3,7 @@ import { MoreHorizontal, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { api, type Schemas } from "../api";
-import { CoverageState, FailureNote, Mono, ScanState, SourceState } from "../components/domain";
+import { CoverageState, FailureNote, Mono, NoValue, ScanState, SourceState } from "../components/domain";
 import { SourceDrawer } from "../components/source-form";
 import { Badge, type Tone } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -101,7 +101,7 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
       id: "audit", header: "Аудит за сутки", meta: { needs: "getAuditCoverage" }, accessorFn: (row) => coverageOf(row.id)?.status ?? "",
       cell: ({ row }) => {
         const state = coverageOf(row.original.id);
-        return state ? <CoverageState status={state.status} reason={state.reason} /> : <span className="text-fg-3">—</span>;
+        return state ? <CoverageState status={state.status} reason={state.reason} /> : <NoValue />;
       },
     },
     {
@@ -214,7 +214,7 @@ function CapabilitiesTab() {
                         const item = row.capabilities.find((entry) => entry.capability === name);
                         return (
                           <td key={row.id} className="px-3 py-2">
-                            {item ? <Badge tone={supportTone[item.support] ?? "neutral"} title={item.reasonCode || undefined}>{support(item.support)}</Badge> : <span className="text-fg-3">—</span>}
+                            {item ? <Badge tone={supportTone[item.support] ?? "neutral"} title={item.reasonCode || undefined}>{support(item.support)}</Badge> : <NoValue />}
                           </td>
                         );
                       })}

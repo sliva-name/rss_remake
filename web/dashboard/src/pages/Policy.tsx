@@ -3,7 +3,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { api, ApiError, type Schemas } from "../api";
-import { Mono } from "../components/domain";
+import { Mono, NoValue } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Drawer, useConfirm } from "../components/ui/dialog";
@@ -49,8 +49,8 @@ function View({ policy, onEdit }: { policy: Schemas["Policy"] | null; onEdit?: (
                 {policy.customDetectors.map((detector) => (
                   <tr key={detector.categoryId} className="border-b border-border last:border-0">
                     <td className="px-3 py-2"><Mono>{detector.categoryId}</Mono></td>
-                    <td className="px-3 py-2">{detector.namePattern ? <Mono className="break-all">{detector.namePattern}</Mono> : <span className="text-fg-3">—</span>}</td>
-                    <td className="px-3 py-2">{detector.valuePattern ? <Mono className="break-all">{detector.valuePattern}</Mono> : <span className="text-fg-3">—</span>}</td>
+                    <td className="px-3 py-2">{detector.namePattern ? <Mono className="break-all">{detector.namePattern}</Mono> : <NoValue />}</td>
+                    <td className="px-3 py-2">{detector.valuePattern ? <Mono className="break-all">{detector.valuePattern}</Mono> : <NoValue />}</td>
                   </tr>
                 ))}
               </tbody>

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
-import { AgentState, Mono } from "../components/domain";
+import { AgentState, Mono, NoValue } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { Dialog, useConfirm } from "../components/ui/dialog";
 import { Field, Select } from "../components/ui/form";
@@ -14,7 +14,7 @@ import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
-import { ago, count, dateTime, shortId } from "../labels";
+import { ago, count, dateTime, environmentKind, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
@@ -43,12 +43,6 @@ export function useRevokeAgent() {
     if (yes) revoke.mutate(agent);
   };
 }
-
-export const environmentKinds: Record<Schemas["EnvironmentKind"], string> = {
-  production: "Производственная",
-  testing: "Тестовая",
-  development: "Разработка",
-};
 
 function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const can = useCan();
@@ -100,7 +94,7 @@ function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open
             value={selected}
             onValueChange={setEnvironmentId}
             placeholder="Загрузка…"
-            options={(environments.data ?? []).map((item) => ({ value: item.id, label: item.name, hint: environmentKinds[item.kind] }))}
+            options={(environments.data ?? []).map((item) => ({ value: item.id, label: item.name, hint: environmentKind(item.kind) }))}
           />
         </Field>
       )}
@@ -122,7 +116,7 @@ export function AgentsList() {
   const columns = useMemo<TableColumn<Agent>[]>(() => [
     { id: "agent", header: "Агент", enableHiding: false, accessorFn: (row) => row.id, cell: ({ row }) => <ObjectLink to={paths.agent(row.original.id)} needs="getAgent" className="font-mono text-[13px]">{row.original.id}</ObjectLink> },
     { id: "state", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <AgentState agent={row.original} /> },
-    { id: "environment", header: "Среда", accessorFn: (row) => environments.data?.find((item) => item.id === row.environmentId)?.name ?? "", cell: ({ getValue }) => (getValue() as string) || <span className="text-fg-3">—</span> },
+    { id: "environment", header: "Среда", accessorFn: (row) => environments.data?.find((item) => item.id === row.environmentId)?.name ?? "", cell: ({ getValue }) => (getValue() as string) || <NoValue /> },
     { id: "version", header: "Версия", accessorFn: (row) => row.version, cell: ({ row }) => <Mono>{row.original.version}</Mono> },
     { id: "sources", header: "Источников", accessorFn: (row) => sources.data?.filter((source) => source.agentId === row.id).length ?? 0, meta: { align: "right", needs: "listSources" }, cell: ({ getValue }) => count(getValue() as number) },
     { id: "seen", header: "Был на связи", accessorFn: (row) => row.lastSeenAt ?? "", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{ago(row.original.lastSeenAt)}</span> },

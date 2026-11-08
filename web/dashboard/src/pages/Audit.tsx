@@ -3,7 +3,7 @@ import { Download, Link2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { api, downloadEvents, type Schemas } from "../api";
-import { Categories, categoryOptions, FailureNote, Mono, PeriodPicker, sourceOptions } from "../components/domain";
+import { Categories, categoryOptions, FailureNote, Mono, NoValue, PeriodPicker, sourceOptions } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Drawer } from "../components/ui/dialog";
@@ -218,7 +218,7 @@ export function Audit() {
         return (
           <div className="flex min-w-0 flex-col" title={shown.join("\n")}>
             {shown.slice(0, 2).map((name) => <Mono key={name} className="truncate text-fg-2">{name}</Mono>)}
-            {shown.length === 0 && <span className="text-fg-3">—</span>}
+            {shown.length === 0 && <NoValue />}
             {shown.length > 2 && <span className="text-xs text-fg-3">и ещё {shown.length - 2}</span>}
           </div>
         );

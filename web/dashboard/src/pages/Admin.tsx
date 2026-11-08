@@ -13,15 +13,9 @@ import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
-import { count, dateTime } from "../labels";
+import { count, dateTime, environmentKind, environmentKindIds } from "../labels";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
-
-const kinds: { id: Schemas["EnvironmentKind"]; label: string }[] = [
-  { id: "production", label: "Производственная" },
-  { id: "testing", label: "Тестовая" },
-  { id: "development", label: "Разработка" },
-];
 
 function CreateDialog({ open, onOpenChange, title, description, label, children, onSubmit, pending, error }: {
   open: boolean;
@@ -72,7 +66,7 @@ export function Environments() {
   });
   const columns = useMemo<TableColumn<Schemas["Environment"]>[]>(() => [
     { id: "name", header: "Среда", enableHiding: false, accessorFn: (row) => row.name, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
-    { id: "kind", header: "Вид", accessorFn: (row) => row.kind, cell: ({ row }) => <Badge tone={row.original.kind === "production" ? "accent" : "neutral"}>{kinds.find((item) => item.id === row.original.kind)?.label ?? row.original.kind}</Badge> },
+    { id: "kind", header: "Вид", accessorFn: (row) => row.kind, cell: ({ row }) => <Badge tone={row.original.kind === "production" ? "accent" : "neutral"}>{environmentKind(row.original.kind)}</Badge> },
     { id: "agents", header: "Агентов", meta: { align: "right", needs: "listAgents" }, accessorFn: (row) => agents.data?.filter((agent) => agent.environmentId === row.id && agent.status === "active").length ?? 0, cell: ({ getValue }) => count(getValue() as number) },
     { id: "created", header: "Создана", accessorFn: (row) => row.createdAt, cell: ({ row }) => <span className="text-fg-2">{dateTime(row.original.createdAt)}</span> },
     { id: "id", header: "Идентификатор", cell: ({ row }) => <Mono className="text-fg-3">{row.original.id}</Mono> },
@@ -90,7 +84,7 @@ export function Environments() {
       <CreateDialog open={open} onOpenChange={setOpen} title="Новая среда" description="Имя видно в списках агентов и источников." label="Создать" onSubmit={() => create.mutate()} pending={create.isPending} error={create.error}>
         <Field label="Название"><Input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="Основной ЦОД" /></Field>
         <Field label="Вид">
-          <Select value={kind} onValueChange={(value) => setKind(value as Schemas["EnvironmentKind"])} options={kinds.map((item) => ({ value: item.id, label: item.label }))} />
+          <Select value={kind} onValueChange={(value) => setKind(value as Schemas["EnvironmentKind"])} options={environmentKindIds.map((id) => ({ value: id, label: environmentKind(id) }))} />
         </Field>
       </CreateDialog>
     </>

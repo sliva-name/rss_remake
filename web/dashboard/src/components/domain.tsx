@@ -120,3 +120,7 @@ export function sourceOptions(sources: Schemas["Source"][] | undefined, all = "Ð
 export function Mono({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={cn("font-mono text-[13px]", className)}>{children}</span>;
 }
+
+export function NoValue() {
+  return <span className="text-fg-3">â€”</span>;
+}
