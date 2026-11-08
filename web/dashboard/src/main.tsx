@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { StrictMode, useEffect, useState, type ReactElement } from "react";
+import { StrictMode, useEffect, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { api } from "./api";
-import { completeSignIn, signIn, signOut } from "./auth";
+import { completeSignIn, SignInRefused, signIn, signOut } from "./auth";
 import { Access } from "./pages/Access";
 import { AgentPage } from "./pages/AgentPage";
 import { Catalog } from "./pages/Catalog";
@@ -110,33 +110,39 @@ function Shell() {
   );
 }
 
+const signInUnavailable = "Сервис входа недоступен. Попробуйте позже или обратитесь к администратору.";
+
+function refusal(code: string): string {
+  if (code === "access_denied") return "Вход отклонён. Обратитесь к администратору организации.";
+  return `Сервис входа вернул ошибку ${code}. Попробуйте ещё раз или обратитесь к администратору.`;
+}
+
+// Signed-out users go straight to the provider's sign-in page, styled like the
+// dashboard. A card appears only when that is impossible.
 function App() {
-  const [state, setState] = useState<"loading" | "signed-in" | "signed-out" | "failed">("loading");
-  const [loginError, setLoginError] = useState("");
+  const [state, setState] = useState<{ kind: "loading" } | { kind: "signed-in" } | { kind: "problem"; message: string }>({ kind: "loading" });
+  const started = useRef(false);
+  const goSignIn = () => {
+    setState({ kind: "loading" });
+    signIn().catch(() => setState({ kind: "problem", message: signInUnavailable }));
+  };
   useEffect(() => {
+    // The authorization code can be exchanged once; StrictMode runs effects twice.
+    if (started.current) return;
+    started.current = true;
     completeSignIn()
-      .then((user) => setState(user ? "signed-in" : "signed-out"))
-      .catch(() => setState("failed"));
+      .then((user) => (user ? setState({ kind: "signed-in" }) : goSignIn()))
+      .catch((error: unknown) => setState({ kind: "problem", message: error instanceof SignInRefused ? refusal(error.code) : signInUnavailable }));
   }, []);
 
-  if (state === "loading") return <div className="login">Загрузка…</div>;
-  if (state === "failed") return <div className="login">Сервис входа недоступен. Обновите страницу позже.</div>;
-  if (state === "signed-out") {
+  if (state.kind === "loading") return <div className="login">Переход ко входу…</div>;
+  if (state.kind === "problem") {
     return (
       <div className="login">
         <div className="card">
           <h1>DataGuard</h1>
-          <p className="lead">Обнаружение чувствительных данных и контроль доступа к ним.</p>
-          <button
-            className="primary"
-            onClick={() => {
-              setLoginError("");
-              signIn().catch(() => setLoginError("Сервис входа недоступен. Попробуйте позже или обратитесь к администратору."));
-            }}
-          >
-            Войти
-          </button>
-          {loginError && <div className="error" role="alert">{loginError}</div>}
+          <p className="lead" role="alert">{state.message}</p>
+          <button className="primary" onClick={goSignIn}>Попробовать снова</button>
         </div>
       </div>
     );

@@ -28,12 +28,14 @@ page.on("console", (message) => {
 page.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
 
 try {
-  await page.goto(credentials.api);
-  await page.getByRole("button", { name: "Войти" }).click();
+  // A link opened while signed out goes straight to the sign-in form and,
+  // after it, back to the same page with its filter.
+  await page.goto(`${credentials.api}/catalog?category=GOVERNMENT.TAX_ID`);
   await page.locator("#username").fill(credentials.user);
   await page.locator("#password").fill(credentials.password);
   await page.locator("#kc-login").click();
-  await page.getByRole("heading", { name: "Обзор" }).waitFor();
+  await page.getByRole("heading", { name: "Каталог данных" }).waitFor();
+  if (new URL(page.url()).searchParams.get("category") !== "GOVERNMENT.TAX_ID") failures.push(`sign-in returned to ${page.url()}`);
 } catch (error) {
   await page.screenshot({ path: `${output}/login-failure.png`, fullPage: true });
   process.stderr.write(`login failed at ${page.url()}\n${failures.join("\n")}\n${(await page.locator("body").innerText()).slice(0, 500)}\n`);
