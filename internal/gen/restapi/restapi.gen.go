@@ -357,11 +357,17 @@ type AccessSummary struct {
 
 // Agent defines model for Agent.
 type Agent struct {
-	CertificateExpires time.Time          `json:"certificateExpires"`
-	CreatedAt          time.Time          `json:"createdAt"`
-	EnvironmentId      openapi_types.UUID `json:"environmentId"`
-	Id                 openapi_types.UUID `json:"id"`
-	LastSeenAt         *time.Time         `json:"lastSeenAt,omitempty"`
+	CertificateExpires time.Time `json:"certificateExpires"`
+
+	// ContractVersion Contract version of the last accepted heartbeat
+	ContractVersion int32              `json:"contractVersion"`
+	CreatedAt       time.Time          `json:"createdAt"`
+	EnvironmentId   openapi_types.UUID `json:"environmentId"`
+	Id              openapi_types.UUID `json:"id"`
+	LastSeenAt      *time.Time         `json:"lastSeenAt,omitempty"`
+
+	// ProblemCode Why the center does not accept the agent right now, such as CONTRACT_UNSUPPORTED. Absent when nothing is wrong.
+	ProblemCode *string `json:"problemCode,omitempty"`
 
 	// SealingPublicKey Uncompressed P-256 point the browser seals passwords to. Absent for agents enrolled before managed sources.
 	SealingPublicKey *[]byte     `json:"sealingPublicKey,omitempty"`

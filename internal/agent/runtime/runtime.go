@@ -14,6 +14,7 @@ import (
 	"dataguard/internal/agent/center"
 	"dataguard/internal/agent/identity"
 	"dataguard/internal/agent/telemetry"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/platform/retry"
@@ -171,6 +172,11 @@ func (c *Control) heartbeat(ctx context.Context) (*agentv1.HeartbeatResponse, er
 		request.Queue, request.AuditSources = c.options.Health.Health()
 	}
 	response, err := c.options.Client.Heartbeat(ctx, request)
+	if connect.CodeOf(err) == connect.CodeFailedPrecondition {
+		// The center does not, or does not yet, speak this agent's contract. Events
+		// wait in the queue until the agent or the center is upgraded.
+		c.options.Logger.Error("center refused the agent version", "code", codes.ContractUnsupported, "version", c.options.Version)
+	}
 	if err != nil {
 		return nil, rpcError("heartbeat", err)
 	}

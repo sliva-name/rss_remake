@@ -49,6 +49,11 @@ type Agent struct {
 	// SealingPublicKey is what browsers seal passwords to. Agents enrolled
 	// before ADR-0006 have none and cannot serve sources.
 	SealingPublicKey []byte
+	// ContractVersion is the contract of the last accepted heartbeat.
+	ContractVersion uint32
+	// RefusedContractVersion is set while the center refuses the contract the
+	// agent speaks: from the refusal until the next accepted heartbeat.
+	RefusedContractVersion *uint32
 }
 
 type Capability struct {
@@ -99,8 +104,10 @@ type Repository interface {
 	CreateAgent(ctx context.Context, agent Agent) error
 	GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (Agent, error)
 	ListAgents(ctx context.Context, tenantID uuid.UUID) ([]Agent, error)
-	// TouchAgent records a heartbeat and returns the agent's source list version.
-	TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, version string) (uint64, error)
+	// TouchAgent records a heartbeat, which clears a contract refusal, and
+	// returns the agent's source list version.
+	TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, version string, contract uint32) (uint64, error)
+	RefuseContract(ctx context.Context, tenantID, agentID uuid.UUID, offered uint32) error
 	RevokeAgent(ctx context.Context, tenantID, agentID uuid.UUID) error
 	UpdateCertificateExpiry(ctx context.Context, tenantID, agentID uuid.UUID, expires time.Time) error
 	// CreateSource, UpdateSource and DeleteSource also advance the serving
@@ -222,8 +229,14 @@ func (s *Service) Authorize(ctx context.Context, tenantID, agentID uuid.UUID) er
 
 // Heartbeat returns the agent's source list version, so it fetches the list
 // only when it changed.
-func (s *Service) Heartbeat(ctx context.Context, tenantID, agentID uuid.UUID, version string) (uint64, error) {
-	return s.repository.TouchAgent(ctx, tenantID, agentID, version)
+func (s *Service) Heartbeat(ctx context.Context, tenantID, agentID uuid.UUID, version string, contract uint32) (uint64, error) {
+	return s.repository.TouchAgent(ctx, tenantID, agentID, version, contract)
+}
+
+// RefuseContract records that the center refused the contract version the agent
+// offered, for the dashboard to explain.
+func (s *Service) RefuseContract(ctx context.Context, tenantID, agentID uuid.UUID, offered uint32) error {
+	return s.repository.RefuseContract(ctx, tenantID, agentID, offered)
 }
 
 func (s *Service) RenewCertificate(ctx context.Context, tenantID, agentID uuid.UUID, csrPEM []byte) ([]byte, error) {

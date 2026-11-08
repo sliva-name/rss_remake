@@ -32,12 +32,19 @@ export function SourceState({ statusCode, probedAt, className }: { statusCode: s
 const silentAfterMs = 5 * 60_000;
 
 export function agentTone(agent: Schemas["Agent"], now = Date.now()): Tone {
-  if (agent.status !== "active") return "bad";
+  if (agent.status !== "active" || agent.problemCode) return "bad";
   if (!agent.lastSeenAt) return "warn";
   return now - new Date(agent.lastSeenAt).getTime() > silentAfterMs ? "warn" : "ok";
 }
 
 export function AgentState({ agent }: { agent: Schemas["Agent"] }) {
+  if (agent.status === "active" && agent.problemCode) {
+    return (
+      <Tooltip content={explain(agent.problemCode)}>
+        <span tabIndex={0} className="cursor-help"><Status tone="bad">{failure(agent.problemCode).problem}</Status></span>
+      </Tooltip>
+    );
+  }
   const tone = agentTone(agent);
   const label = agent.status !== "active" ? "Отозван" : tone === "ok" ? "На связи" : agent.lastSeenAt ? `Молчит ${ago(agent.lastSeenAt).replace(" назад", "")}` : "Ещё не выходил на связь";
   return <Status tone={tone}>{label}</Status>;

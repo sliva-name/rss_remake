@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Ban } from "lucide-react";
+import type { ReactNode } from "react";
 import { Link, useParams } from "react-router";
 
-import { AgentState, Mono, SourceState } from "../components/domain";
+import { AgentState, FailureNote, Mono, SourceState } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page";
 import { Facts, Panel } from "../components/ui/panel";
@@ -47,9 +48,10 @@ export function AgentPage() {
         <Panel title="Агент">
           <Facts
             items={[
+              ...(data.problemCode ? [["Что не так", <FailureNote key="problem" code={data.problemCode} />] as [string, ReactNode]] : []),
               ["Идентификатор", <Mono key="id" className="break-all">{data.id}</Mono>],
               ["Среда", environment?.name ?? <Mono key="environment" className="text-fg-3">{data.environmentId}</Mono>],
-              ["Версия", <Mono key="version">{data.version}</Mono>],
+              ["Версия", <Mono key="version">{data.version} · контракт {data.contractVersion}</Mono>],
               ["Был на связи", data.lastSeenAt ? `${ago(data.lastSeenAt)} · ${dateTime(data.lastSeenAt)}` : "ещё не выходил на связь"],
               ["Сертификат до", dateTime(data.certificateExpires)],
               ["Зарегистрирован", dateTime(data.createdAt)],

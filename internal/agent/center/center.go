@@ -140,6 +140,7 @@ func Enroll(ctx context.Context, url, caFile string, request *agentv1.EnrollRequ
 		return nil, err
 	}
 	transport := connecthttp.NewTransport(httpClient(&tls.Config{RootCAs: roots}), url)
+	request.SchemaVersion = schemaVersion
 	return agentv1connect.NewEnrollmentServiceClient(connect.NewClient(transport, egressInterceptor)).Enroll(ctx, request)
 }
 

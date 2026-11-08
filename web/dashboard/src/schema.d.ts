@@ -609,6 +609,13 @@ export interface components {
             /** @enum {string} */
             status: "active" | "revoked";
             version: string;
+            /**
+             * Format: int32
+             * @description Contract version of the last accepted heartbeat
+             */
+            contractVersion: number;
+            /** @description Why the center does not accept the agent right now, such as CONTRACT_UNSUPPORTED. Absent when nothing is wrong. */
+            problemCode?: string;
             /** Format: date-time */
             certificateExpires: string;
             /** Format: date-time */

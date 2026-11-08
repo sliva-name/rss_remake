@@ -60,7 +60,9 @@ function issuesOf(sources: Schemas["Source"][], coverage: Schemas["CoverageRow"]
     }
   }
   for (const agent of agents) {
-    if (agent.status === "active" && agentTone(agent) !== "ok") {
+    if (agent.status === "active" && agent.problemCode) {
+      issues.push({ key: `agent-${agent.id}`, icon: <ServerCrash className="text-bad" />, title: <>Агент {shortId(agent.id)}: {lowerFirst(failure(agent.problemCode).problem)}</>, detail: failure(agent.problemCode).action, to: paths.agent(agent.id) });
+    } else if (agent.status === "active" && agentTone(agent) !== "ok") {
       issues.push({ key: `agent-${agent.id}`, icon: <ServerCrash className="text-warn" />, title: <>Агент {shortId(agent.id)} молчит</>, detail: `Последний сигнал ${ago(agent.lastSeenAt)}. Его источники не сканируются и не присылают события.`, to: paths.agent(agent.id) });
     }
   }

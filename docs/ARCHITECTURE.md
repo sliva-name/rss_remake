@@ -90,6 +90,7 @@ flowchart LR
 | Часовой пояс журнала неизвестен | Журнал не читается, позиция не движется, источник в состоянии `DEGRADED` с причиной `LOG_TIME_ZONE_UNKNOWN`. Пояс берётся у СУБД: `log_timezone` у PostgreSQL, системный пояс у MariaDB | `audit_source_reason{reason="LOG_TIME_ZONE_UNKNOWN"}` |
 | Агент не открыл источник из списка центра: цель не разрешена, пароль не открылся | Агент не подключается и сообщает код центру | `source_refused{code="TARGET_NOT_ALLOWED"}` и другие коды |
 | Политика или список источников не прошли проверку | Агент работает по последним принятым | `center_documents_rejected_total` |
+| Центр не принимает версию контракта агента (ADR-0012) | Центр отвечает `FailedPrecondition` с кодом `CONTRACT_UNSUPPORTED`, Dashboard показывает причину у агента. Агент копит события и повторяет с backoff, как при недоступном центре | `center_requests_total{code="failed_precondition"}`, на сервере `dataguard_server_agent_requests_total{code="failed_precondition"}` |
 
 На сервере повторная доставка видна как `dataguard_server_events_ingested_total{result="duplicate"}`, задержка доставки — как `dataguard_server_event_delivery_delay_seconds`.
 

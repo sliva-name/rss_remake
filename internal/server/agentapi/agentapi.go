@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/contract/egress"
 	"dataguard/internal/core/audit"
 	"dataguard/internal/core/coverage"
@@ -28,8 +29,23 @@ import (
 	"dataguard/internal/server/telemetry"
 )
 
-// CurrentSchemaVersion is the envelope version this server understands.
-const CurrentSchemaVersion = 1
+// The envelope versions this server accepts. A breaking change to the contract
+// raises CurrentSchemaVersion and keeps the one before it accepted for a release,
+// so the center is upgraded first and agents follow at their own pace (ADR-0012).
+const (
+	MinSchemaVersion     = 1
+	CurrentSchemaVersion = 1
+)
+
+func supportedSchema(version uint32) bool {
+	return version >= MinSchemaVersion && version <= CurrentSchemaVersion
+}
+
+// errContractUnsupported carries the dashboard code, so an agent operator sees
+// the same name in the agent's log as the administrator does in the dashboard.
+func errContractUnsupported() error {
+	return connect.NewError(connect.CodeFailedPrecondition, codes.ContractUnsupported)
+}
 
 const (
 	maxMessageBytes = 16 << 20
@@ -74,7 +90,14 @@ func authorizeInterceptor(service *fleet.Service, logger *slog.Logger) connect.S
 			if err := checkActive(ctx, service, identity, logger); err != nil {
 				return err
 			}
-			return next(ctx, spec, checkedStream{ServerStream: stream, identity: identity})
+			// The refusal is kept on the agent, so the dashboard explains why an
+			// agent that keeps calling never shows up as connected.
+			refuse := func(offered uint32) {
+				if err := service.RefuseContract(ctx, identity.TenantID, identity.AgentID, offered); err != nil {
+					logger.Error("record refused contract", "error", err, "agent_id", identity.AgentID.String())
+				}
+			}
+			return next(ctx, spec, checkedStream{ServerStream: stream, identity: identity, refuse: refuse})
 		}
 	}
 }
@@ -82,11 +105,16 @@ func authorizeInterceptor(service *fleet.Service, logger *slog.Logger) connect.S
 type checkedStream struct {
 	connect.ServerStream
 	identity pki.Identity
+	refuse   func(offered uint32)
 }
 
 func (s checkedStream) Receive(message any) error {
 	if err := s.ServerStream.Receive(message); err != nil {
 		return err
+	}
+	if withEnvelope, ok := message.(enveloped); ok && !supportedSchema(withEnvelope.GetEnvelope().GetSchemaVersion()) {
+		s.refuse(withEnvelope.GetEnvelope().GetSchemaVersion())
+		return errContractUnsupported()
 	}
 	return checkMessage(message, s.identity)
 }
@@ -120,9 +148,6 @@ func checkMessage(message any, identity pki.Identity) error {
 }
 
 func checkEnvelope(envelope *agentv1.Envelope, identity pki.Identity) error {
-	if envelope.GetSchemaVersion() != CurrentSchemaVersion {
-		return connect.NewError(connect.CodeFailedPrecondition, "unsupported schema version")
-	}
 	if envelope.GetTenantId() != identity.TenantID.String() || envelope.GetAgentId() != identity.AgentID.String() {
 		return connect.NewError(connect.CodePermissionDenied, "envelope does not match certificate")
 	}
@@ -173,6 +198,11 @@ func (h *enrollmentHandler) Enroll(ctx context.Context, request *agentv1.EnrollR
 	if err := egress.Check(request); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
+	// Refused before the token is spent: the agent would enroll and then be
+	// refused on every call.
+	if offered := max(request.GetSchemaVersion(), 1); !supportedSchema(offered) {
+		return nil, errContractUnsupported()
+	}
 	enrollment, err := h.dependencies.Fleet.Enroll(ctx, request.GetEnrollmentToken(), request.GetCsrPem(),
 		request.GetSealingPublicKey(), request.GetAgentVersion())
 	if err != nil {
@@ -206,7 +236,8 @@ type agentHandler struct {
 
 func (h *agentHandler) Heartbeat(ctx context.Context, request *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
 	identity, _ := identityFrom(ctx)
-	sourcesVersion, err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID, request.GetAgentVersion())
+	sourcesVersion, err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID,
+		request.GetAgentVersion(), request.GetEnvelope().GetSchemaVersion())
 	if err != nil {
 		return nil, h.internal("heartbeat", err)
 	}

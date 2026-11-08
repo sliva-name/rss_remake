@@ -47,6 +47,13 @@ const (
 	NotImplementedForEngine     = "NOT_IMPLEMENTED_FOR_ENGINE"
 )
 
+// Why the center refuses an agent as a whole.
+const (
+	// ContractUnsupported: the agent speaks a contract version outside the
+	// window the center accepts.
+	ContractUnsupported = "CONTRACT_UNSUPPORTED"
+)
+
 // Why a scan job failed or was cancelled, besides the safeerr codes the agent
 // reports for a failed read.
 const (
@@ -65,6 +72,7 @@ func All() []string {
 		ProbeFailed, PgauditWithJSONLogRequired, PgauditReadClassRequired, PgauditMiscSetClassRequired,
 		LogDisconnectionsRequired, GeneralLogRequired, GeneralLogHasNoOutcome, ServerAuditRequired,
 		SQLServerAuditRequired, NoReadRecordsSeen, DerivedFromQueryText, NotInNativeAudit, NotImplementedForEngine,
+		ContractUnsupported,
 		UnknownSource, LeaseExpired, SourceDeleted,
 	}
 	for _, code := range safeerr.Codes() {

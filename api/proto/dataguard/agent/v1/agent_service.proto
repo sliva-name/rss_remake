@@ -34,6 +34,9 @@ message EnrollRequest {
   string agent_version = 3 [(field_kind) = FIELD_KIND_VERSION];
   // The center stores it so browsers can seal passwords that only this agent opens.
   bytes sealing_public_key = 4 [(field_kind) = FIELD_KIND_SEALING_PUBLIC_KEY];
+  // The Envelope.schema_version this agent speaks, checked before the token is
+  // spent. Zero comes from agents older than the field, which speak version 1.
+  uint32 schema_version = 5;
 }
 
 message EnrollResponse {

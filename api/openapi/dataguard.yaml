@@ -710,12 +710,19 @@ components:
         expiresAt: {type: string, format: date-time}
     Agent:
       type: object
-      required: [id, environmentId, status, version, certificateExpires, createdAt]
+      required: [id, environmentId, status, version, contractVersion, certificateExpires, createdAt]
       properties:
         id: {type: string, format: uuid}
         environmentId: {type: string, format: uuid}
         status: {type: string, enum: [active, revoked]}
         version: {type: string}
+        contractVersion:
+          description: Contract version of the last accepted heartbeat
+          type: integer
+          format: int32
+        problemCode:
+          description: Why the center does not accept the agent right now, such as CONTRACT_UNSUPPORTED. Absent when nothing is wrong.
+          type: string
         certificateExpires: {type: string, format: date-time}
         lastSeenAt: {type: string, format: date-time}
         createdAt: {type: string, format: date-time}

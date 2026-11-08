@@ -80,8 +80,11 @@ type EnrollRequest struct {
 	AgentVersion    string                 `protobuf:"bytes,3,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	// The center stores it so browsers can seal passwords that only this agent opens.
 	SealingPublicKey []byte `protobuf:"bytes,4,opt,name=sealing_public_key,json=sealingPublicKey,proto3" json:"sealing_public_key,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The Envelope.schema_version this agent speaks, checked before the token is
+	// spent. Zero comes from agents older than the field, which speak version 1.
+	SchemaVersion uint32 `protobuf:"varint,5,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EnrollRequest) Reset() {
@@ -140,6 +143,13 @@ func (x *EnrollRequest) GetSealingPublicKey() []byte {
 		return x.SealingPublicKey
 	}
 	return nil
+}
+
+func (x *EnrollRequest) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
 }
 
 type EnrollResponse struct {
@@ -1533,13 +1543,14 @@ var File_dataguard_agent_v1_agent_service_proto protoreflect.FileDescriptor
 
 const file_dataguard_agent_v1_agent_service_proto_rawDesc = "" +
 	"\n" +
-	"&dataguard/agent/v1/agent_service.proto\x12\x12dataguard.agent.v1\x1a%dataguard/agent/v1/capabilities.proto\x1a\x1fdataguard/agent/v1/common.proto\x1a\"dataguard/agent/v1/discovery.proto\x1a\x1fdataguard/agent/v1/events.proto\x1a dataguard/agent/v1/options.proto\"\xbe\x01\n" +
+	"&dataguard/agent/v1/agent_service.proto\x12\x12dataguard.agent.v1\x1a%dataguard/agent/v1/capabilities.proto\x1a\x1fdataguard/agent/v1/common.proto\x1a\"dataguard/agent/v1/discovery.proto\x1a\x1fdataguard/agent/v1/events.proto\x1a dataguard/agent/v1/options.proto\"\xe5\x01\n" +
 	"\rEnrollRequest\x12/\n" +
 	"\x10enrollment_token\x18\x01 \x01(\tB\x04\xc0\xf3\x18\vR\x0fenrollmentToken\x12\x1d\n" +
 	"\acsr_pem\x18\x02 \x01(\fB\x04\xc0\xf3\x18\n" +
 	"R\x06csrPem\x12)\n" +
 	"\ragent_version\x18\x03 \x01(\tB\x04\xc0\xf3\x18\x05R\fagentVersion\x122\n" +
-	"\x12sealing_public_key\x18\x04 \x01(\fB\x04\xc0\xf3\x18\rR\x10sealingPublicKey\"\xcb\x01\n" +
+	"\x12sealing_public_key\x18\x04 \x01(\fB\x04\xc0\xf3\x18\rR\x10sealingPublicKey\x12%\n" +
+	"\x0eschema_version\x18\x05 \x01(\rR\rschemaVersion\"\xcb\x01\n" +
 	"\x0eEnrollResponse\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12'\n" +

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/audit"
 	"dataguard/internal/core/coverage"
@@ -286,11 +287,14 @@ func toEnvironment(item tenant.Environment) restapi.Environment {
 func toAgent(item fleet.Agent) restapi.Agent {
 	agent := restapi.Agent{
 		Id: item.ID, EnvironmentId: item.EnvironmentID, Status: restapi.AgentStatus(item.Status),
-		Version: item.Version, CertificateExpires: item.CertificateExpires,
+		Version: item.Version, ContractVersion: int32(item.ContractVersion), CertificateExpires: item.CertificateExpires,
 		LastSeenAt: item.LastSeenAt, CreatedAt: item.CreatedAt,
 	}
 	if len(item.SealingPublicKey) > 0 {
 		agent.SealingPublicKey = &item.SealingPublicKey
+	}
+	if item.RefusedContractVersion != nil {
+		agent.ProblemCode = new(codes.ContractUnsupported)
 	}
 	return agent
 }
