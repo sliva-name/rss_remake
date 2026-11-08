@@ -165,7 +165,11 @@ button.danger { color: var(--bad); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 
-.login { display: grid; place-items: center; min-height: 100vh; }
+.login { display: grid; place-items: center; min-height: 100vh; padding: 24px 16px; }
+/* The same card as the Keycloak login theme, so signing in reads as one flow. */
+.login .card { width: min(380px, 100%); padding: 22px 22px 20px; margin: 0; }
+.login .card .lead { margin-bottom: 16px; }
+.login .card button.primary { width: 100%; padding: 7px 14px; }
 
 @media (max-width: 760px) {
   .shell { grid-template-columns: 1fr; }

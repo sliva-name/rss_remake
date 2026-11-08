@@ -104,6 +104,8 @@ docker build --target agent -t dataguard/agent .
 - для `migrate` ещё `DG_BROKER_ADMIN_USER`, `DG_BROKER_ADMIN_PASSWORD` и `DG_BROKER_REPLICATION`: 1 только для стенда, при установке 3 узла и 3. Необязательно: `DG_BROKER_PARTITIONS` (12) и `DG_BROKER_RETENTION` (`168h`);
 - `DG_METRICS_ADDR` — необязательно: адрес порта метрик Prometheus, например `:9100`. Порт без аутентификации, открывайте его только во внутренней сети.
 
+Страницы входа рисует провайдер OIDC, а не Dashboard. Для Keycloak есть тема в стиле Dashboard: `deployments/keycloak/themes/dataguard`. Каталог копируется в `/opt/keycloak/themes/dataguard`, в realm выставляется тема входа `dataguard` и русский язык, как в `deployments/dev/keycloak/dataguard-realm.json`. Цвета темы — копия цветов Dashboard, тест Dashboard следит, чтобы они не разошлись. Другой провайдер OIDC показывает свои страницы.
+
 Подкоманды образа сервера:
 
 - `pki-init --dir DIR --hosts HOSTS [--keep-existing] [--public-dir DIR]`;

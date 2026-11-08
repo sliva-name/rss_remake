@@ -1,6 +1,12 @@
 {
   "realm": "dataguard",
+  "displayName": "DataGuard",
+  "displayNameHtml": "DataGuard",
   "enabled": true,
+  "loginTheme": "dataguard",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["ru"],
+  "defaultLocale": "ru",
   "registrationAllowed": false,
   "sslRequired": "none",
   "roles": {
