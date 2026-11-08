@@ -62,17 +62,7 @@ func (s *Source) Close() error { return s.db.Close() }
 
 // Probe reports discovery capabilities and the server version.
 func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus) {
-	var version string
-	if err := s.db.QueryRowContext(ctx, `SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(32))`).Scan(&version); err != nil {
-		return "", []*agentv1.CapabilityStatus{
-			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
-			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
-		}
-	}
-	return version, append([]*agentv1.CapabilityStatus{
-		connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_AVAILABLE, ""),
-		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_AVAILABLE, ""),
-	}, s.auditCapabilities(ctx)...)
+	return sqlsource.Probe(ctx, s.db, `SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(32))`, s.auditCapabilities)
 }
 
 // auditCapabilities checks what the agent can actually read. The catalog views of
@@ -126,37 +116,17 @@ ORDER BY s.name, o.name, c.column_id`
 
 // Tables lists user tables and views of the connected database.
 func (s *Source) Tables(ctx context.Context) ([]connector.Table, error) {
-	rows, err := s.db.QueryContext(ctx, catalogQuery)
-	if err != nil {
-		return nil, safeerr.New("read catalog", safeerr.CodeQuery, err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var tables []connector.Table
-	for rows.Next() {
-		var schema, name, kind, definition string
-		var estimate int64
+	return sqlsource.Catalog(ctx, s.db, catalogQuery, func(rows *sql.Rows) (connector.Table, connector.Column, error) {
+		table := connector.Table{Database: s.database}
+		var kind string
 		var ordinal int32
 		var column connector.Column
-		if err := rows.Scan(&schema, &name, &kind, &estimate, &definition, &column.Name, &column.NativeType,
-			&ordinal, &column.Nullable, &column.Comment); err != nil {
-			return nil, safeerr.New("decode catalog row", safeerr.CodeQuery, err)
-		}
+		err := rows.Scan(&table.Schema, &table.Name, &kind, &table.EstimatedRows, &table.Definition,
+			&column.Name, &column.NativeType, &ordinal, &column.Nullable, &column.Comment)
+		table.Kind = tableKind(kind)
 		column.Ordinal = uint32(ordinal)
-		last := len(tables) - 1
-		if last < 0 || tables[last].Schema != schema || tables[last].Name != name {
-			tables = append(tables, connector.Table{
-				Database: s.database, Schema: schema, Name: name, Kind: tableKind(kind),
-				EstimatedRows: estimate, Definition: definition,
-			})
-			last++
-		}
-		tables[last].Columns = append(tables[last].Columns, column)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, safeerr.New("read catalog", safeerr.CodeQuery, err)
-	}
-	return tables, nil
+		return table, column, err
+	})
 }
 
 func tableKind(kind string) agentv1.TableKind {
@@ -220,15 +190,12 @@ func (dialect) Quote(identifier string) string {
 
 // SampleQuery samples pages when the table outgrows the limit. Unread rows are
 // the reason TOP alone would bias towards the clustered index order.
-func (d dialect) SampleQuery(table connector.Table, quotedColumns []string, maxRows uint64) (string, agentv1.SamplingMethod) {
-	const samplePadding = 3.0
-	list := strings.Join(quotedColumns, ", ")
-	target := d.Quote(table.Schema) + "." + d.Quote(table.Name)
-	if table.EstimatedRows <= int64(maxRows) {
-		return fmt.Sprintf(`SELECT TOP (%d) %s FROM %s`, maxRows, list, target), agentv1.SamplingMethod_SAMPLING_METHOD_BOUNDED_PREFIX
+func (dialect) SampleQuery(target, columns string, estimatedRows int64, maxRows uint64) (string, agentv1.SamplingMethod) {
+	percent, sampled := sqlsource.SamplePercent(estimatedRows, maxRows)
+	if !sampled {
+		return fmt.Sprintf(`SELECT TOP (%d) %s FROM %s`, maxRows, columns, target), agentv1.SamplingMethod_SAMPLING_METHOD_BOUNDED_PREFIX
 	}
-	percent := min(100, samplePadding*100*float64(maxRows)/float64(table.EstimatedRows))
-	return fmt.Sprintf(`SELECT TOP (%d) %s FROM %s TABLESAMPLE (%.6f PERCENT)`, maxRows, list, target, percent),
+	return fmt.Sprintf(`SELECT TOP (%d) %s FROM %s TABLESAMPLE (%.6f PERCENT)`, maxRows, columns, target, percent),
 		agentv1.SamplingMethod_SAMPLING_METHOD_ENGINE_SAMPLE
 }
 

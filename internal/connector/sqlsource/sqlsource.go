@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dataguard/internal/connector"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safeerr"
 )
@@ -29,9 +30,10 @@ const (
 // Dialect supplies engine-specific SQL.
 type Dialect interface {
 	Quote(identifier string) string
-	// SampleQuery returns the statement and the method it implements. All names
-	// come from the catalog and are quoted by Quote.
-	SampleQuery(table connector.Table, quotedColumns []string, maxRows uint64) (string, agentv1.SamplingMethod)
+	// SampleQuery returns the statement reading at most maxRows of columns from
+	// target, and the method it implements. Both are names from the catalog,
+	// already quoted by Quote.
+	SampleQuery(target, columns string, estimatedRows int64, maxRows uint64) (string, agentv1.SamplingMethod)
 	// TxOptions returns the strongest read protection the driver supports.
 	TxOptions() *sql.TxOptions
 	// Prepare applies statement and lock timeouts inside the transaction.
@@ -44,6 +46,68 @@ func Configure(db *sql.DB, maxConnections int) {
 	db.SetMaxIdleConns(maxConnections)
 	db.SetConnMaxLifetime(connectionMaxLifetime)
 	db.SetConnMaxIdleTime(connectionMaxIdle)
+}
+
+// Probe reads the server version with versionQuery. A server that answers can
+// be discovered and profiled, and audit adds what its log can show; one that
+// does not leaves discovery unknown.
+func Probe(ctx context.Context, db *sql.DB, versionQuery string, audit func(context.Context) []*agentv1.CapabilityStatus) (string, []*agentv1.CapabilityStatus) {
+	var version string
+	if err := db.QueryRowContext(ctx, versionQuery).Scan(&version); err != nil {
+		return "", []*agentv1.CapabilityStatus{
+			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
+			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
+		}
+	}
+	return version, append([]*agentv1.CapabilityStatus{
+		connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_AVAILABLE, ""),
+		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_AVAILABLE, ""),
+	}, audit(ctx)...)
+}
+
+// CatalogRow decodes one row of a catalog query: a column and the table it
+// belongs to, whose Columns stay empty.
+type CatalogRow func(rows *sql.Rows) (connector.Table, connector.Column, error)
+
+// Catalog runs a catalog query and folds its rows into tables. The query must
+// order rows by schema, table and column position, so a table's columns come
+// together.
+func Catalog(ctx context.Context, db *sql.DB, query string, decode CatalogRow) ([]connector.Table, error) {
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, safeerr.New("read catalog", safeerr.CodeQuery, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var tables []connector.Table
+	for rows.Next() {
+		table, column, err := decode(rows)
+		if err != nil {
+			return nil, safeerr.New("decode catalog row", safeerr.CodeQuery, err)
+		}
+		last := len(tables) - 1
+		if last < 0 || tables[last].Schema != table.Schema || tables[last].Name != table.Name {
+			tables = append(tables, table)
+			last++
+		}
+		tables[last].Columns = append(tables[last].Columns, column)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, safeerr.New("read catalog", safeerr.CodeQuery, err)
+	}
+	return tables, nil
+}
+
+// SamplePercent is the share of a table that engine sampling should read, or
+// false when the whole table fits in maxRows and a prefix reads it all.
+// Engines sample whole pages, so the share is padded: the LIMIT, not the
+// sample, normally ends the read.
+func SamplePercent(estimatedRows int64, maxRows uint64) (float64, bool) {
+	const padding = 3.0
+	if estimatedRows <= int64(maxRows) {
+		return 0, false
+	}
+	return min(100, padding*100*float64(maxRows)/float64(estimatedRows)), true
 }
 
 // Sample streams a bounded read through visit. Driver errors are converted to
@@ -63,7 +127,8 @@ func Sample(ctx context.Context, db *sql.DB, dialect Dialect, table connector.Ta
 	for i, column := range columns {
 		quoted[i] = dialect.Quote(column.Name)
 	}
-	query, method := dialect.SampleQuery(table, quoted, limits.MaxRows)
+	target := dialect.Quote(table.Schema) + "." + dialect.Quote(table.Name)
+	query, method := dialect.SampleQuery(target, strings.Join(quoted, ", "), table.EstimatedRows, limits.MaxRows)
 	rows, err := tx.QueryContext(ctx, query)
 	if err != nil {
 		return connector.SampleStats{}, safeerr.New("run sample", safeerr.CodeQuery, err)
