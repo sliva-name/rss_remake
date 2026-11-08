@@ -73,10 +73,10 @@ export function Environments() {
   const columns = useMemo<TableColumn<Schemas["Environment"]>[]>(() => [
     { id: "name", header: "Среда", enableHiding: false, accessorFn: (row) => row.name, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: "kind", header: "Вид", accessorFn: (row) => row.kind, cell: ({ row }) => <Badge tone={row.original.kind === "production" ? "accent" : "neutral"}>{kinds.find((item) => item.id === row.original.kind)?.label ?? row.original.kind}</Badge> },
-    ...(can("listAgents") ? [{ id: "agents", header: "Агентов", meta: { align: "right" as const }, accessorFn: (row: Schemas["Environment"]) => agents.data?.filter((agent) => agent.environmentId === row.id && agent.status === "active").length ?? 0, cell: ({ getValue }: { getValue: () => unknown }) => count(getValue() as number) }] : []),
+    { id: "agents", header: "Агентов", meta: { align: "right", needs: "listAgents" }, accessorFn: (row) => agents.data?.filter((agent) => agent.environmentId === row.id && agent.status === "active").length ?? 0, cell: ({ getValue }) => count(getValue() as number) },
     { id: "created", header: "Создана", accessorFn: (row) => row.createdAt, cell: ({ row }) => <span className="text-fg-2">{dateTime(row.original.createdAt)}</span> },
     { id: "id", header: "Идентификатор", cell: ({ row }) => <Mono className="text-fg-3">{row.original.id}</Mono> },
-  ], [can, agents.data]);
+  ], [agents.data]);
   return (
     <>
       <PageHeader

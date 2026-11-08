@@ -12,7 +12,7 @@ import { PageHeader } from "../components/ui/page";
 import { Facts, Panel } from "../components/ui/panel";
 import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
-import { Tabs } from "../components/ui/tabs";
+import { type TabItem, Tabs } from "../components/ui/tabs";
 import { ago, capability, count, dateTime, engine, percent, support, tableKind } from "../labels";
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useMe } from "../me";
@@ -152,10 +152,10 @@ export function SourcePage() {
   if (source.isError) return <ErrorState error={source.error} />;
   const data = source.data;
   const connected = Boolean(data.probedAt) && !data.statusCode;
-  const tabs = [
+  const tabs: TabItem[] = [
     { id: "overview", label: "Обзор", content: <Overview source={data} /> },
-    ...(can("listCatalogTables") ? [{ id: "tables", label: "Таблицы", content: <Tables sourceId={data.id} /> }] : []),
-    ...(can("listScans") ? [{ id: "scans", label: "Сканирования", content: <Scans sourceId={data.id} /> }] : []),
+    { id: "tables", label: "Таблицы", needs: "listCatalogTables", content: <Tables sourceId={data.id} /> },
+    { id: "scans", label: "Сканирования", needs: "listScans", content: <Scans sourceId={data.id} /> },
   ];
 
   return (

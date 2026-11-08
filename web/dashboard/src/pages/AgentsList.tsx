@@ -124,7 +124,7 @@ export function AgentsList() {
     { id: "state", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <AgentState agent={row.original} /> },
     { id: "environment", header: "Среда", accessorFn: (row) => environments.data?.find((item) => item.id === row.environmentId)?.name ?? "", cell: ({ getValue }) => (getValue() as string) || <span className="text-fg-3">—</span> },
     { id: "version", header: "Версия", accessorFn: (row) => row.version, cell: ({ row }) => <Mono>{row.original.version}</Mono> },
-    ...(can("listSources") ? [{ id: "sources", header: "Источников", accessorFn: (row: Agent) => sources.data?.filter((source) => source.agentId === row.id).length ?? 0, meta: { align: "right" as const }, cell: ({ getValue }: { getValue: () => unknown }) => count(getValue() as number) }] : []),
+    { id: "sources", header: "Источников", accessorFn: (row) => sources.data?.filter((source) => source.agentId === row.id).length ?? 0, meta: { align: "right", needs: "listSources" }, cell: ({ getValue }) => count(getValue() as number) },
     { id: "seen", header: "Был на связи", accessorFn: (row) => row.lastSeenAt ?? "", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{ago(row.original.lastSeenAt)}</span> },
     {
       id: "certificate", header: "Сертификат до", accessorFn: (row) => row.certificateExpires,

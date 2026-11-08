@@ -18,6 +18,7 @@ import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Rows3 } from "
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { count } from "../../labels";
+import { type Permission, useCan } from "../../permissions";
 import { Button } from "./button";
 import { cn } from "./cn";
 import { Checkbox } from "./form";
@@ -29,6 +30,9 @@ interface ColumnMeta {
   // The name in the column settings menu when the header is not plain text.
   label?: string;
   className?: string;
+  // Without this permission the column is left out, not merely hidden: the
+  // server would refuse the data behind it.
+  needs?: Permission;
 }
 
 const features = tableFeatures({
@@ -124,8 +128,12 @@ export function DataTable<T extends RowData>({
   useEffect(() => store("table:density", density), [density]);
   useEffect(() => setSelection({}), [data]);
 
+  const can = useCan();
   const selectable = bulkActions !== undefined;
-  const allColumns = useMemo(() => (selectable ? [selectColumn<T>(), ...columns] : columns), [selectable, columns]);
+  const allColumns = useMemo(() => {
+    const permitted = columns.filter((column) => column.meta?.needs === undefined || can(column.meta.needs));
+    return selectable ? [selectColumn<T>(), ...permitted] : permitted;
+  }, [selectable, columns, can]);
   const table = useTable({
     features,
     data: data ?? noRows,

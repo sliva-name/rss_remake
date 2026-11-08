@@ -45,16 +45,12 @@ function CategoriesTab() {
 
   const columns = useMemo<TableColumn<CategoryRow>[]>(() => [
     { id: "category", header: "Категория", enableHiding: false, accessorFn: (row) => category(row.id), cell: ({ row }) => <CategoryLink id={row.original.id} className={linkStyle}>{category(row.original.id)}</CategoryLink> },
-    ...(can("getCatalogSummary") ? [
-      { id: "columns", header: "Колонок", accessorFn: (row: CategoryRow) => row.columns ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.columns ?? 0) },
-      { id: "tables", header: "Таблиц", accessorFn: (row: CategoryRow) => row.tables ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.tables ?? 0) },
-    ] : []),
-    ...(can("listAccessByCategory") ? [
-      { id: "events", header: "Обращений", accessorFn: (row: CategoryRow) => row.events ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.events ?? 0) },
-      { id: "principals", header: "Пользователей", accessorFn: (row: CategoryRow) => row.principals ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.principals ?? 0) },
-      { id: "last", header: "Последнее обращение", accessorFn: (row: CategoryRow) => row.lastAccess ?? "", cell: ({ row }: { row: { original: CategoryRow } }) => <span className="text-fg-2">{row.original.lastAccess ? ago(row.original.lastAccess) : "—"}</span> },
-    ] : []),
-  ], [can]);
+    { id: "columns", header: "Колонок", accessorFn: (row) => row.columns ?? 0, meta: { align: "right", needs: "getCatalogSummary" }, cell: ({ row }) => count(row.original.columns ?? 0) },
+    { id: "tables", header: "Таблиц", accessorFn: (row) => row.tables ?? 0, meta: { align: "right", needs: "getCatalogSummary" }, cell: ({ row }) => count(row.original.tables ?? 0) },
+    { id: "events", header: "Обращений", accessorFn: (row) => row.events ?? 0, meta: { align: "right", needs: "listAccessByCategory" }, cell: ({ row }) => count(row.original.events ?? 0) },
+    { id: "principals", header: "Пользователей", accessorFn: (row) => row.principals ?? 0, meta: { align: "right", needs: "listAccessByCategory" }, cell: ({ row }) => count(row.original.principals ?? 0) },
+    { id: "last", header: "Последнее обращение", accessorFn: (row) => row.lastAccess ?? "", meta: { needs: "listAccessByCategory" }, cell: ({ row }) => <span className="text-fg-2">{row.original.lastAccess ? ago(row.original.lastAccess) : "—"}</span> },
+  ], []);
 
   return (
     <Panel flush>
@@ -190,16 +186,16 @@ function DetectorsTab() {
 }
 
 export function Classification() {
-  const can = useCan();
-  const tabs = [
-    ...(can("getCatalogSummary") || can("listAccessByCategory") ? [{ id: "categories", label: "Категории", content: <CategoriesTab /> }] : []),
-    ...(can("listCatalogColumns") ? [{ id: "findings", label: "Находки", content: <FindingsTab /> }] : []),
-    { id: "detectors", label: "Детекторы", content: <DetectorsTab /> },
-  ];
   return (
     <>
       <PageHeader title="Классификация" description="Какие чувствительные данные найдены, где они хранятся и как часто их читают." actions={<ViewsMenu />} />
-      <Tabs items={tabs} />
+      <Tabs
+        items={[
+          { id: "categories", label: "Категории", needs: ["getCatalogSummary", "listAccessByCategory"], content: <CategoriesTab /> },
+          { id: "findings", label: "Находки", needs: "listCatalogColumns", content: <FindingsTab /> },
+          { id: "detectors", label: "Детекторы", content: <DetectorsTab /> },
+        ]}
+      />
     </>
   );
 }

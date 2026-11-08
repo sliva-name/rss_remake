@@ -2,16 +2,21 @@ import { Tabs as Primitive } from "radix-ui";
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
+import { type Permission, useCan } from "../../permissions";
 import { cn } from "./cn";
 
 export interface TabItem {
   id: string;
   label: ReactNode;
   content: ReactNode;
+  // The tab is shown with any of these permissions.
+  needs?: Permission | readonly Permission[];
 }
 
 // Tabs keep their choice in the address, so a link or a reload opens the same tab.
-export function Tabs({ items, param = "tab", className }: { items: TabItem[]; param?: string; className?: string }) {
+export function Tabs({ items: all, param = "tab", className }: { items: TabItem[]; param?: string; className?: string }) {
+  const can = useCan();
+  const items = all.filter(({ needs }) => needs === undefined || (typeof needs === "string" ? can(needs) : needs.some(can)));
   const [parameters, setParameters] = useSearchParams();
   const requested = parameters.get(param);
   const current = items.some((item) => item.id === requested) ? (requested as string) : (items[0]?.id ?? "");
