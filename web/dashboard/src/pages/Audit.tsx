@@ -9,7 +9,8 @@ import { Button } from "../components/ui/button";
 import { Drawer } from "../components/ui/dialog";
 import { CheckField, Field, Input, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
-import { Facts, Panel } from "../components/ui/panel";
+import { cn } from "../components/ui/cn";
+import { Facts, groupLabel, Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
@@ -98,7 +99,7 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
         <Badge>{resolution(event.objectResolution)}</Badge>
       </div>
       <section>
-        <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Кто</h3>
+        <h3 className={cn("mb-2", groupLabel)}>Кто</h3>
         <Facts
           items={[
             ["Пользователь", person.name],
@@ -122,7 +123,7 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
         </div>
       </section>
       <section>
-        <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">К чему</h3>
+        <h3 className={cn("mb-2", groupLabel)}>К чему</h3>
         <Facts
           items={[
             ["Источник", <ObjectLink key="source" to={paths.source(event.sourceId)} needs="getSource">{sourceKey ?? "Источник"}</ObjectLink>],
@@ -134,13 +135,13 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
       </section>
       {event.type === "EVENT_TYPE_AUDIT_GAP" && (
         <section>
-          <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Потеря аудита</h3>
+          <h3 className={cn("mb-2", groupLabel)}>Потеря аудита</h3>
           <p className="mb-1 text-sm text-fg">{event.gapLostEvents === undefined ? "Сколько событий потеряно, неизвестно." : `Потеряно событий: ${count(event.gapLostEvents)}.`}</p>
           <FailureNote code={event.gapReason} />
         </section>
       )}
       <section>
-        <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Подробности</h3>
+        <h3 className={cn("mb-2", groupLabel)}>Подробности</h3>
         <Facts
           items={[
             ["Время", dateTime(event.time)],

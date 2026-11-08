@@ -9,8 +9,10 @@ import { paths } from "../links";
 import { queries } from "../queries";
 import { fromBase64, sealPassword, toBase64 } from "../sealing";
 import { Button } from "./ui/button";
+import { cn } from "./ui/cn";
 import { Drawer } from "./ui/dialog";
 import { Field, Input, Select } from "./ui/form";
+import { groupLabel } from "./ui/panel";
 
 type EngineName = Schemas["SourceEngine"];
 type TlsMode = Schemas["TlsMode"];
@@ -230,7 +232,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
   return (
     <form ref={form} onSubmit={submit} aria-label={editing ? "Изменить источник" : "Новый источник"} className="flex flex-col gap-5">
       <fieldset className="grid gap-3 sm:grid-cols-2">
-        <legend className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Где источник</legend>
+        <legend className={cn("mb-2", groupLabel)}>Где источник</legend>
         <Field label="Имя" hint="Строчные латинские буквы, цифры, - и _">
           <Input required pattern="[a-z][a-z0-9_\-]{0,63}" value={draft.name} onChange={(event) => set({ name: event.target.value })} placeholder="crm-main" />
         </Field>
@@ -265,7 +267,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
       </fieldset>
 
       <fieldset className="grid gap-3 sm:grid-cols-2">
-        <legend className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Доступ</legend>
+        <legend className={cn("mb-2", groupLabel)}>Доступ</legend>
         <Field label="База данных">
           <Input required value={draft.database} onChange={(event) => set({ database: event.target.value })} />
         </Field>
@@ -282,7 +284,7 @@ function SourceForm({ tenantId, agents, editing, onSaved, onCancel }: {
       </fieldset>
 
       <fieldset className="grid gap-3 sm:grid-cols-2">
-        <legend className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Аудит и нагрузка</legend>
+        <legend className={cn("mb-2", groupLabel)}>Аудит и нагрузка</legend>
         <Field label="Каталог журналов аудита" className="sm:col-span-2" hint="Должен быть в списке разрешённых каталогов агента">
           <Input value={draft.auditDirectory} onChange={(event) => set({ auditDirectory: event.target.value.trim() })} placeholder={draft.engine === "mssql" ? "Путь на сервере SQL Server" : "Пусто — аудит не собирается"} />
         </Field>

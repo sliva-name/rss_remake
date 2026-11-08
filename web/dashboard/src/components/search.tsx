@@ -11,6 +11,7 @@ import { useCan } from "../permissions";
 import type { Section } from "../sections";
 import { kindNames, pathOf, useFavorites, useRecent } from "../workspace";
 import { cn } from "./ui/cn";
+import { groupLabel } from "./ui/panel";
 
 interface Hit {
   key: string;
@@ -129,7 +130,7 @@ export function SearchPalette({ open, onOpenChange, visible }: { open: boolean; 
                 const first = index === 0 || hits[index - 1]?.group !== hit.group;
                 return (
                   <div key={`${hit.group}-${hit.key}`}>
-                    {first && <div className="px-2.5 pt-3 pb-1.5 text-xs font-semibold tracking-wide text-fg-3 uppercase">{hit.group}</div>}
+                    {first && <div className={cn("px-2.5 pt-3 pb-1.5", groupLabel)}>{hit.group}</div>}
                     <div
                       id={`hit-${index}`}
                       role="option"

@@ -36,6 +36,9 @@ export function Panel({
   );
 }
 
+// The small capitals over a group: a drawer section, a fieldset, a menu group.
+export const groupLabel = "text-xs font-semibold tracking-wide text-fg-3 uppercase";
+
 // A headline number. It links to the list it summarises when there is one, so a
 // figure is always a way into its detail.
 export function Stat({ label, value, hint, to, tone }: { label: string; value: ReactNode; hint?: ReactNode; to?: string; tone?: "bad" | "warn" }) {
