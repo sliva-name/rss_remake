@@ -75,22 +75,9 @@ func run() error {
 	}
 
 	step("Учётные записи и организация")
-	admin, err := keycloak.Connect(ctx, env["KEYCLOAK_ADMIN_PASSWORD"])
+	tenant, passwords, err := accounts(ctx, env["KEYCLOAK_ADMIN_PASSWORD"])
 	if err != nil {
 		return err
-	}
-	passwords := map[string]string{}
-	if passwords["platform"], err = admin.CreateUser(ctx, "platform", "platform_admin", ""); err != nil {
-		return err
-	}
-	tenant, err := ensureTenant(ctx, newClient("platform", passwords["platform"]))
-	if err != nil {
-		return err
-	}
-	for _, item := range tenantAccounts {
-		if passwords[item.name], err = admin.CreateUser(ctx, item.name, item.role, tenant.Id.String()); err != nil {
-			return err
-		}
 	}
 	center := newClient("demo-admin", passwords["demo-admin"])
 
@@ -140,6 +127,29 @@ func run() error {
 		return err
 	}
 	return printSummary(passwords)
+}
+
+// accounts creates the platform administrator, the organization and its users.
+// Every run issues new passwords.
+func accounts(ctx context.Context, keycloakPassword string) (restapi.Tenant, map[string]string, error) {
+	admin, err := keycloak.Connect(ctx, keycloakPassword)
+	if err != nil {
+		return restapi.Tenant{}, nil, err
+	}
+	passwords := map[string]string{}
+	if passwords["platform"], err = admin.CreateUser(ctx, "platform", "platform_admin", ""); err != nil {
+		return restapi.Tenant{}, nil, err
+	}
+	tenant, err := ensureTenant(ctx, newClient("platform", passwords["platform"]))
+	if err != nil {
+		return restapi.Tenant{}, nil, err
+	}
+	for _, item := range tenantAccounts {
+		if passwords[item.name], err = admin.CreateUser(ctx, item.name, item.role, tenant.Id.String()); err != nil {
+			return restapi.Tenant{}, nil, err
+		}
+	}
+	return tenant, passwords, nil
 }
 
 // client calls the API as one user and signs in again before the token expires.
@@ -242,11 +252,8 @@ func ensureAgent(ctx context.Context, center *client) (restapi.Agent, error) {
 	if err != nil {
 		return restapi.Agent{}, err
 	}
-	for _, agent := range agents {
-		if agent.Status == restapi.AgentStatusActive && agent.SealingPublicKey != nil && agent.LastSeenAt != nil &&
-			time.Since(*agent.LastSeenAt) < agentFresh && strings.TrimSpace(running) != "" {
-			return agent, nil
-		}
+	if index := slices.IndexFunc(agents, serving); index >= 0 && strings.TrimSpace(running) != "" {
+		return agents[index], nil
 	}
 	for _, agent := range agents {
 		if agent.Status == restapi.AgentStatusActive {
@@ -263,25 +270,43 @@ func ensureAgent(ctx context.Context, center *client) (restapi.Agent, error) {
 	if err := center.call(ctx, http.MethodPost, "/enrollment-tokens", restapi.NewEnrollmentToken{EnvironmentId: environment.Id}, &token); err != nil {
 		return restapi.Agent{}, err
 	}
-	if _, err := compose(ctx, nil, "rm", "--stop", "--force", "agent"); err != nil {
+	if err := enrollFromScratch(ctx, token.Token); err != nil {
 		return restapi.Agent{}, err
+	}
+	return awaitNewAgent(ctx, center, agents)
+}
+
+// serving is an agent that can open sealed passwords and reported in lately.
+func serving(agent restapi.Agent) bool {
+	return agent.Status == restapi.AgentStatusActive && agent.SealingPublicKey != nil && agent.LastSeenAt != nil &&
+		time.Since(*agent.LastSeenAt) < agentFresh
+}
+
+// enrollFromScratch drops the agent container with its state, enrolls it with
+// token and starts it.
+func enrollFromScratch(ctx context.Context, token string) error {
+	if _, err := compose(ctx, nil, "rm", "--stop", "--force", "agent"); err != nil {
+		return err
 	}
 	if output, err := exec.CommandContext(ctx, "docker", "volume", "rm", "--force", agentVolume).CombinedOutput(); err != nil {
-		return restapi.Agent{}, fmt.Errorf("remove agent state: %w: %s", err, output)
+		return fmt.Errorf("remove agent state: %w: %s", err, output)
 	}
-	if _, err := compose(ctx, strings.NewReader(token.Token), "run", "--rm", "--no-deps", "-T", "agent",
+	if _, err := compose(ctx, strings.NewReader(token), "run", "--rm", "--no-deps", "-T", "agent",
 		"enroll", "--config", "/etc/dataguard/agent.yaml", "--token-file", "/dev/stdin"); err != nil {
-		return restapi.Agent{}, err
+		return err
 	}
-	if _, err := compose(ctx, nil, "up", "--detach", "--no-deps", "agent"); err != nil {
-		return restapi.Agent{}, err
-	}
-	known := make(map[uuid.UUID]bool, len(agents))
-	for _, agent := range agents {
+	_, err := compose(ctx, nil, "up", "--detach", "--no-deps", "agent")
+	return err
+}
+
+// awaitNewAgent waits for an agent the center did not list before to report in.
+func awaitNewAgent(ctx context.Context, center *client, before []restapi.Agent) (restapi.Agent, error) {
+	known := make(map[uuid.UUID]bool, len(before))
+	for _, agent := range before {
 		known[agent.Id] = true
 	}
 	var enrolled restapi.Agent
-	err = until(ctx, "the agent reports in", func() (bool, error) {
+	err := until(ctx, "the agent reports in", func() (bool, error) {
 		var current []restapi.Agent
 		if err := center.call(ctx, http.MethodGet, "/agents", nil, &current); err != nil {
 			return false, err
