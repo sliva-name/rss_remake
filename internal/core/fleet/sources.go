@@ -128,6 +128,15 @@ func (s *Service) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID
 	return s.repository.DeleteSource(ctx, tenantID, sourceID)
 }
 
+// ActivateSource turns a checked draft into a source the agent scans and
+// audits. Activating a source that is not a draft is a no-op.
+func (s *Service) ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID) (Source, error) {
+	if err := s.repository.ActivateSource(ctx, tenantID, sourceID); err != nil {
+		return Source{}, err
+	}
+	return s.repository.GetSource(ctx, tenantID, sourceID)
+}
+
 func (s *Service) GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (Source, error) {
 	return s.repository.GetSource(ctx, tenantID, sourceID)
 }
@@ -156,6 +165,7 @@ func (s *Service) SourceList(ctx context.Context, tenantID, agentID uuid.UUID) (
 			Username: source.Username, Tls: tlsModes[source.TLS], AuditDirectory: source.AuditDirectory,
 			MaxConnections: uint32(source.MaxConnections),
 			SealedPassword: source.SealedPassword,
+			ProbeOnly:      source.Draft,
 		})
 	}
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(list)

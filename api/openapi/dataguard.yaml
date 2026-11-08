@@ -16,6 +16,32 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/CurrentUser"}
+  /preferences/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: {$ref: "#/components/schemas/PreferenceKey"}
+    get:
+      operationId: getPreference
+      description: A personal setting of the caller in the current organization. Value is null when it was never saved.
+      responses:
+        "200":
+          description: The setting
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Preference"}
+    put:
+      operationId: savePreference
+      description: Replaces the setting. At most 64 KiB of JSON; references and filters only, never data values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Preference"}
+      responses:
+        "204":
+          description: Saved
   /tenants:
     get:
       operationId: listTenants
@@ -173,6 +199,21 @@ paths:
       responses:
         "204":
           description: Deleted
+  /sources/{sourceId}/activate:
+    post:
+      operationId: activateSource
+      description: Saves a checked draft; the agent starts scanning it and reading its audit. A saved source is returned as is.
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The saved source
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Source"}
   /scans:
     get:
       operationId: listScans
@@ -309,6 +350,10 @@ paths:
         - {name: principal, in: query, schema: {type: string}}
         - {name: category, in: query, schema: {type: string}}
         - {name: eventType, in: query, schema: {type: string}}
+        - name: sessionId
+          in: query
+          description: Events of one database session, as the engine numbered it.
+          schema: {type: string, maxLength: 128}
         - name: includeLogins
           in: query
           description: Logins outnumber data access by far, so they are left out unless asked for or filtered by type.
@@ -327,6 +372,31 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AuditEventPage"}
+  /audit/events/export:
+    get:
+      operationId: exportAuditEvents
+      description: The same selection as listAuditEvents as CSV, newest first, at most 100 000 rows. X-Dataguard-Truncated is true when more matched.
+      parameters:
+        - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - {name: tableId, in: query, schema: {type: string, format: uuid}}
+        - {name: columnId, in: query, schema: {type: string, format: uuid}}
+        - {name: principal, in: query, schema: {type: string}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: eventType, in: query, schema: {type: string}}
+        - {name: sessionId, in: query, schema: {type: string, maxLength: 128}}
+        - {name: includeLogins, in: query, schema: {type: boolean, default: false}}
+        - {name: includeScanner, in: query, schema: {type: boolean, default: false}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: CSV, UTF-8 with a byte order mark so spreadsheet programs read Cyrillic correctly
+          headers:
+            X-Dataguard-Truncated:
+              schema: {type: boolean}
+          content:
+            text/csv:
+              schema: {type: string, format: binary}
   /audit/coverage:
     get:
       operationId: getAuditCoverage
@@ -440,6 +510,46 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Policy"}
+  /policy/versions:
+    get:
+      operationId: listPolicyVersions
+      responses:
+        "200":
+          description: Every published version, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/PolicyVersion"}
+  /policy/versions/{version}:
+    get:
+      operationId: getPolicyVersion
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        "200":
+          description: One published version as it was signed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Policy"}
+  /analytics/signals:
+    get:
+      operationId: listRiskSignals
+      description: >-
+        Heuristic signals over the last 24 hours compared with the days before.
+        A signal is a reason to look, not a confirmed incident; each carries the
+        rule and the numbers it was computed from.
+      responses:
+        "200":
+          description: Signals, strongest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/RiskSignal"}
 components:
   securitySchemes:
     bearerAuth:
@@ -465,11 +575,68 @@ components:
           description: Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010).
           type: array
           items: {$ref: "#/components/schemas/Permission"}
+    PreferenceKey:
+      type: string
+      enum: [views, favorites, recent, overview]
+    Preference:
+      type: object
+      required: [value]
+      properties:
+        value:
+          description: Whatever the dashboard keeps under the key, as JSON; null when never saved.
+          nullable: true
+    PolicyVersion:
+      type: object
+      required: [version, createdBy, createdAt, customDetectors, hasScanBudget]
+      properties:
+        version: {type: integer, format: int64}
+        createdBy: {type: string}
+        createdAt: {type: string, format: date-time}
+        customDetectors: {type: integer}
+        hasScanBudget: {type: boolean}
+    RiskSignal:
+      type: object
+      required: [kind, databasePrincipal, applicationPrincipal, identityConfidence, category, observed, baseline, lastSeen]
+      properties:
+        kind:
+          type: string
+          enum: [VOLUME_SPIKE, NEW_CATEGORY, FAILED_ACCESS]
+        databasePrincipal: {type: string}
+        applicationPrincipal: {type: string}
+        identityConfidence: {type: string}
+        category:
+          description: Empty when the signal is not about one category.
+          type: string
+        observed:
+          description: Events in the last 24 hours that the rule counted.
+          type: integer
+          format: int64
+        baseline:
+          description: What the rule compared with; its meaning depends on the kind.
+          type: number
+          format: double
+        lastSeen: {type: string, format: date-time}
+    PrincipalHit:
+      type: object
+      required: [databasePrincipal, applicationPrincipal, events]
+      properties:
+        databasePrincipal: {type: string}
+        applicationPrincipal: {type: string}
+        events:
+          description: Events in the last 30 days.
+          type: integer
+          format: int64
     Permission:
       description: An operationId of this API.
       type: string
       enum:
         - getCurrentUser
+        - getPreference
+        - savePreference
+        - exportAuditEvents
+        - listPolicyVersions
+        - getPolicyVersion
+        - listRiskSignals
         - listTenants
         - createTenant
         - listEnvironments
@@ -483,6 +650,7 @@ components:
         - createSource
         - updateSource
         - deleteSource
+        - activateSource
         - listScans
         - requestScan
         - listCatalogColumns
@@ -592,9 +760,13 @@ components:
           required: [agentId, sealedPassword]
           properties:
             agentId: {type: string, format: uuid}
+            draft:
+              description: Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+              type: boolean
+              default: false
     Source:
       type: object
-      required: [id, agentId, key, engine, host, port, database, username, tls, auditDirectory, maxConnections, statusCode, engineVersion, capabilities, updatedAt]
+      required: [id, agentId, key, engine, host, port, database, username, tls, auditDirectory, maxConnections, statusCode, engineVersion, capabilities, updatedAt, draft]
       properties:
         id: {type: string, format: uuid}
         agentId: {type: string, format: uuid}
@@ -616,6 +788,9 @@ components:
           type: array
           items: {$ref: "#/components/schemas/Capability"}
         updatedAt: {type: string, format: date-time}
+        draft:
+          description: A connection check that has not been saved yet.
+          type: boolean
     NewScan:
       type: object
       required: [sourceId]
@@ -820,7 +995,7 @@ components:
             version: {type: integer, format: int64}
     AuditEvent:
       type: object
-      required: [id, time, type, sourceId, databasePrincipal, applicationPrincipal, identityConfidence, operation, tables, columns, categories, queryFingerprint, executionStatus, errorCode, evidenceLevel, objectResolution, gapReason]
+      required: [id, time, type, sourceId, databasePrincipal, applicationPrincipal, applicationId, clientAddress, sessionId, transactionId, identityConfidence, operation, tables, columns, categories, queryFingerprint, executionStatus, errorCode, evidenceLevel, objectResolution, gapReason]
       properties:
         id: {type: string, format: uuid}
         time: {type: string, format: date-time}
@@ -828,6 +1003,14 @@ components:
         sourceId: {type: string, format: uuid}
         databasePrincipal: {type: string}
         applicationPrincipal: {type: string}
+        applicationId:
+          description: The application that signed the context, empty without one.
+          type: string
+        clientAddress: {type: string}
+        sessionId:
+          description: The engine's session number; with the source it ties statements of one connection together.
+          type: string
+        transactionId: {type: string}
         identityConfidence: {type: string}
         operation: {type: string}
         tables:
@@ -889,8 +1072,11 @@ components:
         failedEvents: {type: integer, format: int64}
     SearchResult:
       type: object
-      required: [sources, tables, columns]
+      required: [sources, tables, columns, principals]
       properties:
+        principals:
+          type: array
+          items: {$ref: "#/components/schemas/PrincipalHit"}
         sources:
           type: array
           items: {$ref: "#/components/schemas/SearchHit"}

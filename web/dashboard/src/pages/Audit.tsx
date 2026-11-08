@@ -1,10 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Link2, X } from "lucide-react";
+import { Download, Link2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
-import { api, type Schemas } from "../api";
-import { Categories, FailureNote, Mono, PeriodPicker } from "../components/domain";
+import { api, downloadEvents, type Schemas } from "../api";
+import { Categories, categoryOptions, FailureNote, Mono, PeriodPicker, sourceOptions } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Drawer } from "../components/ui/dialog";
@@ -14,12 +14,14 @@ import { Facts, Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
-import { category, categoryIds, count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
+import { stamp } from "../csv";
+import { count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
 import { ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
+import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
-const filterKeys = ["sourceId", "tableId", "columnId", "principal", "category", "eventType", "scanner", "from", "to"] as const;
+const filterKeys = ["sourceId", "tableId", "columnId", "principal", "category", "eventType", "sessionId", "scanner", "from", "to"] as const;
 
 type Event = Schemas["AuditEvent"];
 
@@ -35,7 +37,7 @@ function objects(event: Event): string[] {
 
 function Chip({ label, value, onClear }: { label: string; value: string | undefined; onClear: () => void }) {
   return (
-    <span className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-2 pr-1 pl-2.5 text-[13px]">
+    <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-2 pr-1 pl-3 text-xs">
       <span className="text-fg-2">{label}:</span>
       <span className="max-w-64 truncate font-medium text-fg">{value ?? "…"}</span>
       <button type="button" aria-label={`Убрать фильтр «${label}»`} onClick={onClear} className="cursor-pointer rounded p-0.5 text-fg-3 hover:bg-surface hover:text-fg">
@@ -101,13 +103,22 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
             ["Пользователь", person.name],
             ["Учётная запись СУБД", event.databasePrincipal ? <Mono>{event.databasePrincipal}</Mono> : "—"],
             ["Как установлен", identity(event.identityConfidence)],
+            ...(event.applicationId ? [["Приложение", <Mono key="app">{event.applicationId}</Mono>] as [string, ReactNode]] : []),
+            ...(event.clientAddress ? [["Адрес клиента", <Mono key="client">{event.clientAddress}</Mono>] as [string, ReactNode]] : []),
           ]}
         />
-        {(event.applicationPrincipal || event.databasePrincipal) && (
-          <Button size="sm" className="mt-3" onClick={() => filterBy({ principal: event.applicationPrincipal || event.databasePrincipal })}>
-            Все события этого пользователя
-          </Button>
-        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {(event.applicationPrincipal || event.databasePrincipal) && (
+            <Button size="sm" onClick={() => filterBy({ principal: event.applicationPrincipal || event.databasePrincipal })}>
+              Все события пользователя
+            </Button>
+          )}
+          {event.sessionId && (
+            <Button size="sm" onClick={() => filterBy({ sessionId: event.sessionId, sourceId: event.sourceId, principal: "" })}>
+              Все события этой сессии
+            </Button>
+          )}
+        </div>
       </section>
       <section>
         <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">К чему</h3>
@@ -135,6 +146,8 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
             ["Тип", eventType(event.type)],
             ...(event.errorCode ? [["Код ошибки СУБД", <Mono key="error">{event.errorCode}</Mono>] as [string, ReactNode]] : []),
             ["Отпечаток запроса", event.queryFingerprint ? <Mono className="break-all">{event.queryFingerprint}</Mono> : <span className="text-fg-3">запрос не разобран</span>],
+            ...(event.sessionId ? [["Сессия СУБД", <Mono key="session">{event.sessionId}</Mono>] as [string, ReactNode]] : []),
+            ...(event.transactionId ? [["Транзакция", <Mono key="tx">{event.transactionId}</Mono>] as [string, ReactNode]] : []),
             ["Идентификатор события", <Mono key="id" className="break-all">{event.id}</Mono>],
           ]}
         />
@@ -153,17 +166,27 @@ export function Audit() {
   const offset = Number(filters.offset) || 0;
   const custom = filters.from !== "" && filters.to !== "";
   const span = custom ? { from: filters.from, to: filters.to } : { from: period.from, to: period.to };
+  // The list and the export ask for the same selection.
+  const selection = {
+    sourceId: filters.sourceId, tableId: filters.tableId, columnId: filters.columnId, principal: filters.principal, category: filters.category,
+    sessionId: filters.sessionId,
+    includeLogins: filters.eventType === "all" ? "true" : undefined,
+    includeScanner: filters.scanner ? "true" : undefined,
+    eventType: filters.eventType === "all" ? "" : filters.eventType,
+    from: span.from, to: span.to,
+  };
+  const exporting = useMutation({
+    mutationFn: () => downloadEvents(selection, `dataguard-events-${stamp()}.csv`),
+    onSuccess: ({ truncated }) => notify(truncated
+      ? { tone: "ok", title: "Выгружены первые 100 000 событий", description: "Совпало больше. Сузьте период или фильтры, чтобы выгрузить остальное." }
+      : { tone: "ok", title: "Выгрузка готова", description: "Файл CSV сохранён." }),
+    onError: (error) => notify({ tone: "bad", title: "Выгрузка не удалась", description: error.message }),
+  });
 
   const events = useQuery({
     queryKey: ["events", filters, span.from, span.to],
     placeholderData: (previous) => previous,
-    queryFn: () => api.events({
-      sourceId: filters.sourceId, tableId: filters.tableId, columnId: filters.columnId, principal: filters.principal, category: filters.category,
-      includeLogins: filters.eventType === "all" ? "true" : undefined,
-      includeScanner: filters.scanner ? "true" : undefined,
-      eventType: filters.eventType === "all" ? "" : filters.eventType,
-      from: span.from, to: span.to, limit: pageSize, offset,
-    }),
+    queryFn: () => api.events({ ...selection, limit: pageSize, offset }),
   });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
   const table = useQuery({ queryKey: ["table", filters.tableId], queryFn: () => api.table(filters.tableId), enabled: filters.tableId !== "" && can("getCatalogTable") });
@@ -216,6 +239,7 @@ export function Audit() {
   const chips = [
     filters.tableId && <Chip key="table" label="Таблица" value={table.data && `${table.data.schema}.${table.data.table}`} onClear={() => update({ tableId: "" })} />,
     filters.columnId && <Chip key="column" label="Колонка" value={column.data && `${column.data.table}.${column.data.name}`} onClear={() => update({ columnId: "" })} />,
+    filters.sessionId && <Chip key="session" label="Сессия" value={`${sourceKey(filters.sourceId) ?? ""} № ${filters.sessionId}`} onClear={() => update({ sessionId: "" })} />,
     custom && <Chip key="window" label="Период" value={`${dateTime(filters.from)} – ${dateTime(filters.to)}`} onClear={() => update({ from: "", to: "" })} />,
   ].filter(Boolean);
 
@@ -227,11 +251,13 @@ export function Audit() {
         actions={
           <>
             {!custom && <PeriodPicker />}
-            <Button onClick={copyLink}><Link2 /> Ссылка на выборку</Button>
+            <ViewsMenu />
+            <Button onClick={copyLink}><Link2 /> Ссылка</Button>
+            {can("exportAuditEvents") && <Button onClick={() => exporting.mutate()} disabled={exporting.isPending}><Download /> {exporting.isPending ? "Выгрузка…" : "CSV"}</Button>}
           </>
         }
       />
-      {chips.length > 0 && <div className="mb-3 flex flex-wrap gap-2">{chips}</div>}
+      {chips.length > 0 && <div className="mb-4 flex flex-wrap gap-2">{chips}</div>}
       <Panel flush>
         <DataTable
           id="audit"
@@ -248,28 +274,26 @@ export function Audit() {
           toolbar={
             <>
               {can("listSources") && (
-                <Field label="Источник" className="w-40">
-                  <Select value={filters.sourceId} onChange={(event) => update({ sourceId: event.target.value })}>
-                    <option value="">Все</option>
-                    {sources.data?.map((source) => <option key={source.id} value={source.id}>{source.key}</option>)}
-                  </Select>
+                <Field label="Источник" className="w-48">
+                  <Select value={filters.sourceId} onValueChange={(sourceId) => update({ sourceId })} options={sourceOptions(sources.data)} />
                 </Field>
               )}
-              <Field label="Пользователь" className="w-44">
+              <Field label="Пользователь" className="w-48">
                 <Input value={filters.principal} onChange={(event) => update({ principal: event.target.value })} placeholder="Точное совпадение" />
               </Field>
-              <Field label="Категория" className="w-40">
-                <Select value={filters.category} onChange={(event) => update({ category: event.target.value })}>
-                  <option value="">Все</option>
-                  {categoryIds.map((id) => <option key={id} value={id}>{category(id)}</option>)}
-                </Select>
+              <Field label="Категория" className="w-48">
+                <Select value={filters.category} onValueChange={(value) => update({ category: value })} options={categoryOptions("Все категории")} />
               </Field>
-              <Field label="Тип" className="w-44">
-                <Select value={filters.eventType} onChange={(event) => update({ eventType: event.target.value })}>
-                  <option value="">Все, кроме входов</option>
-                  <option value="all">Все, включая входы</option>
-                  {eventTypeIds.map((id) => <option key={id} value={id}>{eventType(id)}</option>)}
-                </Select>
+              <Field label="Тип" className="w-52">
+                <Select
+                  value={filters.eventType}
+                  onValueChange={(value) => update({ eventType: value })}
+                  options={[
+                    { value: "", label: "Все, кроме входов", hint: "Входов на порядок больше обращений" },
+                    { value: "all", label: "Все, включая входы" },
+                    ...eventTypeIds.map((id) => ({ value: id, label: eventType(id) })),
+                  ]}
+                />
               </Field>
               <CheckField label="Чтения сканера" checked={filters.scanner !== ""} onChange={(event) => update({ scanner: event.target.checked ? "1" : "" })} />
             </>

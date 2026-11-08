@@ -21,6 +21,7 @@ const pages = [
   { path: "/sources?tab=capabilities", heading: "Источники", expect: ["Нет в СУБД", "Аудит чтения"] },
   { path: "/agents", heading: "Агенты", expect: ["На связи", "Подключить агента"] },
   { path: "/policy", heading: "Политика", expect: ["Собственные детекторы", "Бюджет сканирования"] },
+  { path: "/signals", heading: "Сигналы риска", expect: ["Правила", "Новая категория"] },
   { path: "/environments", heading: "Среды", expect: ["Производственная"] },
 ];
 
@@ -98,8 +99,13 @@ try {
   await form.getByLabel("База данных", { exact: true }).fill("crm");
   await form.getByLabel("Пользователь", { exact: true }).fill("dg_scanner");
   await form.getByLabel("Пароль", { exact: true }).fill(sourcePassword);
-  // A select's accessible name includes its chosen option, so the match is by prefix.
-  await form.getByRole("combobox", { name: /^TLS/ }).selectOption("disable");
+  await form.getByRole("combobox", { name: /^TLS/ }).click();
+  await page.getByRole("option", { name: "Без шифрования" }).click();
+  // The check runs on a draft before anything is saved.
+  await form.getByRole("button", { name: "Проверить подключение" }).click();
+  const check = form.getByRole("region", { name: "Проверка подключения" });
+  await check.getByText("Подключено", { exact: true }).waitFor({ timeout: 90_000 });
+  await page.screenshot({ path: `${output}/source-checked.png`, fullPage: true });
   await form.getByRole("button", { name: "Сохранить" }).click();
   await page.getByRole("dialog").getByText("Подключено", { exact: true }).waitFor({ timeout: 90_000 });
   await page.screenshot({ path: `${output}/source-added.png`, fullPage: true });
@@ -148,6 +154,11 @@ try {
   await expectOnPage("column", ["Классификация", "Найдено", "Email", "Кто читал колонку", "dg_app", "Последние обращения"]);
   await page.screenshot({ path: `${output}/object-column.png`, fullPage: true });
 
+  // A favourite is kept in the center and shows in the side panel.
+  await page.getByRole("button", { name: "В избранное" }).click();
+  await page.getByRole("button", { name: "В избранном" }).waitFor();
+  await page.locator("nav[aria-label='Разделы']").getByRole("link", { name: "email" }).waitFor();
+
   await page.getByRole("link", { name: "Обращения к колонке" }).click();
   await heading("Журнал событий");
   await expectOnPage("events of the column", ["Колонка:", "dg_app"]);
@@ -158,8 +169,21 @@ try {
   const details = page.getByRole("dialog");
   await details.getByText("К чему").waitFor();
   await details.getByRole("link", { name: /dg_users\.email$/ }).first().waitFor({ timeout: 15_000 }).catch(() => failures.push("event details: the column is not a link"));
+  await details.getByText("Сессия СУБД").waitFor().catch(() => failures.push("event details: no session"));
   await page.screenshot({ path: `${output}/object-event.png`, fullPage: true });
-  await page.keyboard.press("Escape");
+  await details.getByRole("button", { name: "Все события этой сессии" }).click();
+  await expectOnPage("events of a session", ["Сессия:"]);
+  if (!new URL(page.url()).searchParams.get("sessionId")) failures.push("session filter is not in the address");
+
+  // The selection exports as CSV and saves as a view.
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "CSV" }).click();
+  if (!(await download).suggestedFilename().endsWith(".csv")) failures.push("export: not a CSV file");
+  await page.getByRole("button", { name: "Представления" }).click();
+  await page.getByRole("menuitem", { name: "Сохранить текущую выборку…" }).click();
+  await page.getByRole("form", { name: "Сохранить представление" }).getByLabel("Название", { exact: true }).fill("Сессия из проверки");
+  await page.getByRole("form", { name: "Сохранить представление" }).getByRole("button", { name: "Сохранить" }).click();
+  await page.locator("nav[aria-label='Разделы']").getByRole("link", { name: "Сессия из проверки" }).waitFor();
 
   // Scenario: a kind of data, then where it lies, who read it and what they did.
   await page.goto(`${credentials.api}/classification`);
@@ -185,6 +209,27 @@ try {
   await page.screenshot({ path: `${output}/search.png` });
   await page.getByRole("option").filter({ hasText: "dg_users" }).first().click();
   await heading("dg_users");
+
+  // Database principals are searchable too, and lead to their events.
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Что найти" }).fill("dg_ap");
+  await page.getByRole("option").filter({ hasText: "обращений за 30 дней" }).first().click();
+  await heading("Журнал событий");
+  if (new URL(page.url()).searchParams.get("principal") !== "dg_app") failures.push(`principal search: landed on ${page.url()}`);
+
+  // Personal settings follow the account to another browser.
+  const other = await browser.newContext({ viewport: { width: 1360, height: 900 }, locale: "ru-RU" });
+  const second = await other.newPage();
+  await second.goto(`${credentials.api}/overview`);
+  await second.locator("#username").fill(credentials.user);
+  await second.locator("#password").fill(credentials.password);
+  await second.locator("#kc-login").click();
+  await second.getByRole("heading", { level: 1, name: "Обзор" }).waitFor();
+  const sidebar = second.locator("nav[aria-label='Разделы']");
+  await sidebar.getByRole("link", { name: "Сессия из проверки" }).waitFor({ timeout: 15_000 }).catch(() => failures.push("saved view is not in another browser"));
+  await sidebar.getByRole("link", { name: "email" }).waitFor({ timeout: 15_000 }).catch(() => failures.push("favourite is not in another browser"));
+  await second.screenshot({ path: `${output}/second-browser.png`, fullPage: true });
+  await other.close();
 } catch (error) {
   await page.screenshot({ path: `${output}/object-failure.png`, fullPage: true });
   throw error;

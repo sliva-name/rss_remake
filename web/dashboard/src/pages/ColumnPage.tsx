@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/stat
 import { ago, category, count, dateTime, eventType, executionStatus, percent, samplingMethod } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod } from "../links";
 import { useCan } from "../permissions";
+import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { RemovedNote, Renames, SourceCrumb } from "./TablePage";
 
 // What the classifier relied on, in the words an auditor would use.
@@ -104,6 +105,8 @@ export function ColumnPage() {
   const { id = "" } = useParams();
   const can = useCan();
   const column = useQuery({ queryKey: ["column", id], queryFn: () => api.column(id) });
+  const item: ObjectRef | undefined = column.data && { kind: "column", id, label: column.data.name, context: `${column.data.schema}.${column.data.table}` };
+  useRememberVisit(item);
   if (column.isPending) return <Loading rows={8} />;
   if (column.isError) return <ErrorState error={column.error} />;
   const data = column.data;
@@ -126,15 +129,20 @@ export function ColumnPage() {
             <Categories ids={detected} empty={<Badge>Чувствительных данных не найдено</Badge>} />
           </>
         }
-        actions={can("listAuditEvents") ? <Button asChild><Link to={paths.events({ columnId: data.id })}><ScrollText /> Обращения к колонке</Link></Button> : undefined}
+        actions={
+          <>
+            {item && <FavoriteButton item={item} />}
+            {can("listAuditEvents") && <Button asChild><Link to={paths.events({ columnId: data.id })}><ScrollText /> Обращения к колонке</Link></Button>}
+          </>
+        }
       />
       <RemovedNote status={data.status} lastSeenAt={data.lastSeenAt} />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-4">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <div className="flex flex-col gap-6">
           <Decisions decisions={data.classifications} />
           {can("listAccessByPrincipal") && <Readers columnId={data.id} />}
         </div>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
           <Panel title="Колонка">
             <Facts
               items={[

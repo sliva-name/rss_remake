@@ -90,9 +90,7 @@ export function Environments() {
       <CreateDialog open={open} onOpenChange={setOpen} title="Новая среда" description="Имя видно в списках агентов и источников." label="Создать" onSubmit={() => create.mutate()} pending={create.isPending} error={create.error}>
         <Field label="Название"><Input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="Основной ЦОД" /></Field>
         <Field label="Вид">
-          <Select value={kind} onChange={(event) => setKind(event.target.value as Schemas["EnvironmentKind"])}>
-            {kinds.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </Select>
+          <Select value={kind} onValueChange={(value) => setKind(value as Schemas["EnvironmentKind"])} options={kinds.map((item) => ({ value: item.id, label: item.label }))} />
         </Field>
       </CreateDialog>
     </>

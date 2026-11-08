@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, Menu as MenuIcon, Monitor, Moon, Search, Shield, Sun, X } from "lucide-react";
+import { Bookmark, LogOut, Menu as MenuIcon, Monitor, Moon, Search, Shield, Star, Sun, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 
 import { displayName, signOut } from "../auth";
 import { groupSections, type Section, sectionOf } from "../sections";
+import { kindNames, pathOf, useFavorites, useViews } from "../workspace";
 import { SearchPalette } from "./search";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
@@ -42,10 +43,10 @@ function useTheme(): [Theme, (theme: Theme) => void] {
 function Navigation({ visible, onNavigate }: { visible: readonly Section[]; onNavigate?: () => void }) {
   const current = sectionOf(useLocation().pathname);
   return (
-    <nav aria-label="Разделы" className="flex flex-col gap-4">
+    <nav aria-label="Разделы" className="flex flex-col gap-6">
       {groupSections(visible).map(({ group, sections }) => (
-        <div key={group || "start"} className="flex flex-col gap-0.5">
-          {group && <div className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-fg-3 uppercase">{group}</div>}
+        <div key={group || "start"} className="flex flex-col gap-1">
+          {group && <div className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg-3 uppercase">{group}</div>}
           {sections.map((section) => {
             const Icon = section.icon;
             const active = section === current;
@@ -56,7 +57,7 @@ function Navigation({ visible, onNavigate }: { visible: readonly Section[]; onNa
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex h-8 items-center gap-2.5 rounded-md px-2 text-sm text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg",
+                  "flex h-9 items-center gap-3 rounded-md px-3 text-sm text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg",
                   active && "bg-surface-2 font-medium text-fg",
                 )}
               >
@@ -67,17 +68,52 @@ function Navigation({ visible, onNavigate }: { visible: readonly Section[]; onNa
           })}
         </div>
       ))}
+      <Personal onNavigate={onNavigate} />
     </nav>
+  );
+}
+
+const personalLink = "flex h-8 items-center gap-3 rounded-md px-3 text-sm text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg";
+
+// The account's own shortcuts, from its settings in the center.
+function Personal({ onNavigate }: { onNavigate?: () => void }) {
+  const favorites = useFavorites();
+  const views = useViews();
+  return (
+    <>
+      {favorites.value.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg-3 uppercase">Избранное</div>
+          {favorites.value.slice(0, 8).map((item) => (
+            <Link key={`${item.kind}-${item.id}`} to={pathOf(item)} onClick={onNavigate} className={personalLink} title={`${kindNames[item.kind]} ${item.label}`}>
+              <Star aria-hidden className="size-4 shrink-0 text-fg-3" />
+              <span className="truncate">{item.label}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+      {views.value.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg-3 uppercase">Мои представления</div>
+          {views.value.slice(0, 8).map((view) => (
+            <Link key={view.id} to={`${view.path}${view.query ? `?${view.query}` : ""}`} onClick={onNavigate} className={personalLink}>
+              <Bookmark aria-hidden className="size-4 shrink-0 text-fg-3" />
+              <span className="truncate">{view.name}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
 function Brand() {
   return (
-    <div className="flex h-12 items-center gap-2 px-2">
-      <span className="grid size-6 place-items-center rounded-md bg-accent text-accent-fg">
-        <Shield aria-hidden className="size-3.5" />
+    <div className="flex h-16 items-center gap-2.5 px-3">
+      <span className="grid size-7 place-items-center rounded-md bg-accent text-accent-fg">
+        <Shield aria-hidden className="size-4" />
       </span>
-      <span className="text-[15px] font-semibold tracking-tight text-fg">DataGuard</span>
+      <span className="text-base font-semibold tracking-tight text-fg">DataGuard</span>
     </div>
   );
 }
@@ -139,7 +175,7 @@ export function AppShell({ visible, children }: { visible: readonly Section[]; c
 
   return (
     <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface px-3 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface px-3 lg:flex">
         <Brand />
         <div className="mt-2 min-h-0 flex-1 overflow-y-auto pb-4">
           <Navigation visible={visible} />
@@ -149,7 +185,7 @@ export function AppShell({ visible, children }: { visible: readonly Section[]; c
       {navOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <button type="button" aria-label="Закрыть меню" className="absolute inset-0 bg-black/30" onClick={() => setNavOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col border-r border-border bg-surface px-3 shadow-xl">
+          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-border bg-surface px-3 shadow-xl">
             <div className="flex items-center justify-between">
               <Brand />
               <Button variant="ghost" size="icon-sm" aria-label="Закрыть меню" onClick={() => setNavOpen(false)}><X /></Button>
@@ -162,24 +198,24 @@ export function AppShell({ visible, children }: { visible: readonly Section[]; c
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-surface/95 px-3 backdrop-blur-sm sm:px-5">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-surface/95 px-4 backdrop-blur-sm sm:px-8">
           <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Меню" onClick={() => setNavOpen(true)}>
             <MenuIcon />
           </Button>
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="flex h-8 w-full max-w-md min-w-0 cursor-pointer items-center gap-2 rounded-md border border-border bg-bg px-2.5 text-sm text-fg-3 transition-colors hover:border-border-strong"
+            className="flex h-10 w-full max-w-lg min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-bg px-3 text-sm text-fg-3 transition-colors hover:border-border-strong"
           >
             <Search aria-hidden className="size-4 shrink-0" />
-            <span className="truncate">Поиск источников, таблиц, колонок, разделов</span>
-            <kbd className="ml-auto hidden rounded border border-border bg-surface px-1.5 font-sans text-[11px] text-fg-3 sm:inline">Ctrl K</kbd>
+            <span className="truncate">Поиск источников, таблиц, колонок, пользователей</span>
+            <kbd className="ml-auto hidden rounded border border-border bg-surface px-1.5 font-sans text-xs text-fg-3 sm:inline">Ctrl K</kbd>
           </button>
           <div className="ml-auto">
             <Account />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1440px] min-w-0 flex-1 px-4 py-5 sm:px-6">{children}</main>
+        <main className="mx-auto w-full max-w-[1480px] min-w-0 flex-1 px-4 py-8 sm:px-8 lg:px-10">{children}</main>
       </div>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} visible={visible} />

@@ -1,18 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CircleSlash, ServerCrash, ShieldAlert } from "lucide-react";
-import type { ReactNode } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, CircleSlash, ServerCrash, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api, type Schemas } from "../api";
 import { BarList } from "../components/bar-list";
 import { ActivityChart } from "../components/charts";
 import { agentTone, PeriodPicker } from "../components/domain";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { cn } from "../components/ui/cn";
+import { Dialog } from "../components/ui/dialog";
+import { CheckField } from "../components/ui/form";
 import { Panel, Stat } from "../components/ui/panel";
 import { PageHeader } from "../components/ui/page";
 import { EmptyState, Loadable, Loading } from "../components/ui/state";
 import { ago, category, change, count, coverageStatus, failure, shortId } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod } from "../links";
-import { useCan } from "../permissions";
+import { type Permission, useCan } from "../permissions";
+import { defaultLayout, kindNames, type OverviewLayout, pathOf, useFavorites, useOverviewLayout, useRecent } from "../workspace";
+import { observed, signalKinds } from "./Signals";
 
 interface Issue {
   key: string;
@@ -77,7 +84,7 @@ function Attention() {
         <ul className="divide-y divide-border">
           {issues.map((issue) => (
             <li key={issue.key}>
-              <Link to={issue.to} className="flex gap-3 px-4 py-3 transition-colors hover:bg-surface-2/60 [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0">
+              <Link to={issue.to} className="flex gap-3 px-5 py-3.5 transition-colors hover:bg-surface-2/60 [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0">
                 {issue.icon}
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-fg">{issue.title}</span>
@@ -108,7 +115,7 @@ function Headline() {
   const sensitiveColumns = inventory.data?.reduce((sum, row) => sum + row.columns, 0);
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
       {can("listSources") && (
         <Stat label="Источники" to="/sources" value={sources.data ? count(sources.data.length) : "…"} hint={coverage.data ? `${observing} наблюдаются · ${(coverage.data.length - observing)} с проблемами` : undefined} tone={coverage.data && coverage.data.length > observing ? "warn" : undefined} />
       )}
@@ -133,7 +140,7 @@ function Activity() {
   const [period] = usePeriod("7d");
   const timeline = useQuery({ queryKey: ["timeline", period.from, period.to], queryFn: () => api.timeline(period) });
   return (
-    <Panel title="Активность" description={`Обращения к данным за ${period.label}`} className="xl:col-span-2">
+    <Panel title="Активность" description={`Обращения к данным за ${period.label}`}>
       <Loadable query={timeline} loading={<Loading rows={6} />}>
         {(points) => (
           <ActivityChart points={points} from={period.from} to={period.to} onOpen={(from, to) => navigate(`/audit?${new URLSearchParams({ from, to }).toString()}`)} />
@@ -199,7 +206,7 @@ function Changes() {
         {(rows) => (
           <ul className="divide-y divide-border">
             {rows.map((row, index) => (
-              <li key={index} className="flex flex-col gap-0.5 px-4 py-2.5 text-sm">
+              <li key={index} className="flex flex-col gap-0.5 px-5 py-3 text-sm">
                 <span className="flex items-baseline justify-between gap-3">
                   <span className="text-fg">{change(row.kind)}</span>
                   <span className="shrink-0 text-xs text-fg-3">{ago(row.occurredAt)}</span>
@@ -219,23 +226,158 @@ function Changes() {
   );
 }
 
+function TopSignals() {
+  const signals = useQuery({ queryKey: ["signals"], queryFn: api.signals, refetchInterval: 60_000 });
+  return (
+    <Panel title="Сигналы риска" description="Отклонения за сутки — повод посмотреть, не инцидент" actions={<Button size="sm" variant="ghost" asChild><Link to="/signals">Все</Link></Button>} flush>
+      <Loadable query={signals} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Сигналов нет">Активность за сутки обычная.</EmptyState>}>
+        {(rows) => (
+          <ul className="divide-y divide-border">
+            {rows.slice(0, 5).map((signal) => (
+              <li key={`${signal.kind}-${signal.databasePrincipal}-${signal.applicationPrincipal}-${signal.category}`} className="flex flex-col gap-1 px-5 py-3">
+                <span className="flex items-center justify-between gap-3">
+                  <span className="truncate text-sm font-medium text-fg">{signal.applicationPrincipal || signal.databasePrincipal}</span>
+                  <Badge tone={signalKinds[signal.kind].tone}>{signalKinds[signal.kind].title}</Badge>
+                </span>
+                <span className="text-xs text-fg-2">{signal.category ? `${category(signal.category)} · ` : ""}{observed(signal)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Loadable>
+    </Panel>
+  );
+}
+
+function Shortcuts({ kind }: { kind: "favorites" | "recent" }) {
+  const favorites = useFavorites();
+  const recent = useRecent();
+  const items = kind === "favorites" ? favorites.value : recent.value;
+  return (
+    <Panel title={kind === "favorites" ? "Избранное" : "Недавно открытые"} flush>
+      {items.length === 0 ? (
+        <EmptyState title={kind === "favorites" ? "В избранном пусто" : "Пока ничего не открывали"}>
+          {kind === "favorites" ? "Отметьте источник, таблицу, колонку или категорию звёздочкой на её странице." : "Здесь появятся страницы объектов, которые вы открывали."}
+        </EmptyState>
+      ) : (
+        <ul className="divide-y divide-border">
+          {items.slice(0, 7).map((item) => (
+            <li key={`${item.kind}-${item.id}`}>
+              <Link to={pathOf(item)} className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-surface-2/60">
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-fg">{item.label}</span>
+                  <span className="block truncate text-xs text-fg-2">{[kindNames[item.kind], item.context].filter(Boolean).join(" · ")}</span>
+                </span>
+                {"at" in item && <span className="shrink-0 text-xs text-fg-3">{ago((item as { at: string }).at)}</span>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+interface Widget {
+  id: string;
+  title: string;
+  span: "full" | "wide" | "narrow";
+  needs: readonly Permission[];
+  render: () => ReactNode;
+}
+
+// The overview is a set of widgets the user arranges; a widget whose data the
+// user may not read is not offered at all.
+const widgets: Widget[] = [
+  { id: "headline", title: "Ключевые показатели", span: "full", needs: ["listSources", "listAgents", "getCatalogSummary", "getAccessSummary"], render: () => <Headline /> },
+  { id: "activity", title: "Активность", span: "wide", needs: ["getAccessTimeline"], render: () => <Activity /> },
+  { id: "attention", title: "Требует внимания", span: "narrow", needs: ["listSources", "getAuditCoverage", "listAgents"], render: () => <Attention /> },
+  { id: "signals", title: "Сигналы риска", span: "narrow", needs: ["listRiskSignals"], render: () => <TopSignals /> },
+  { id: "categories", title: "Что читают", span: "narrow", needs: ["listAccessByCategory"], render: () => <TopCategories /> },
+  { id: "readers", title: "Кто читает чувствительные данные", span: "narrow", needs: ["listAccessByPrincipal"], render: () => <TopReaders /> },
+  { id: "changes", title: "Изменения в инвентаре", span: "narrow", needs: ["listCatalogChanges"], render: () => <Changes /> },
+  { id: "favorites", title: "Избранное", span: "narrow", needs: ["getPreference"], render: () => <Shortcuts kind="favorites" /> },
+  { id: "recent", title: "Недавно открытые", span: "narrow", needs: ["getPreference"], render: () => <Shortcuts kind="recent" /> },
+];
+
+function arrange(available: Widget[], layout: OverviewLayout): Widget[] {
+  const known = layout.order.map((id) => available.find((widget) => widget.id === id)).filter((widget): widget is Widget => widget !== undefined);
+  const rest = available.filter((widget) => !layout.order.includes(widget.id));
+  return [...known, ...rest];
+}
+
+function Customize({ open, onOpenChange, available }: { open: boolean; onOpenChange: (open: boolean) => void; available: Widget[] }) {
+  const layout = useOverviewLayout();
+  const [draft, setDraft] = useState<OverviewLayout>(layout.value);
+  useEffect(() => { if (open) setDraft(layout.value); }, [open, layout.value]);
+  const ordered = arrange(available, draft);
+  const move = (index: number, by: number) => {
+    const ids = ordered.map((widget) => widget.id);
+    const [moved] = ids.splice(index, 1);
+    if (moved === undefined) return;
+    ids.splice(index + by, 0, moved);
+    setDraft({ ...draft, order: ids });
+  };
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Настроить обзор"
+      description="Какие блоки показывать и в каком порядке. Раскладка хранится в вашей учётной записи."
+      footer={
+        <>
+          <Button onClick={() => setDraft(defaultLayout)}>По умолчанию</Button>
+          <Button variant="primary" onClick={() => { layout.save(draft); onOpenChange(false); }}>Сохранить</Button>
+        </>
+      }
+    >
+      <ul className="flex flex-col divide-y divide-border">
+        {ordered.map((widget, index) => (
+          <li key={widget.id} className="flex items-center justify-between gap-3 py-2.5">
+            <CheckField
+              label={widget.title}
+              checked={!draft.hidden.includes(widget.id)}
+              onChange={(event) => setDraft({ ...draft, hidden: event.target.checked ? draft.hidden.filter((id) => id !== widget.id) : [...draft.hidden, widget.id] })}
+            />
+            <span className="flex gap-1">
+              <Button variant="ghost" size="icon-sm" aria-label={`Выше: ${widget.title}`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label={`Ниже: ${widget.title}`} disabled={index === ordered.length - 1} onClick={() => move(index, 1)}><ArrowDown /></Button>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Dialog>
+  );
+}
+
+const spans = { full: "xl:col-span-3 lg:col-span-2", wide: "xl:col-span-2 lg:col-span-2", narrow: "" };
+
 export function Overview() {
   const can = useCan();
+  const layout = useOverviewLayout();
+  const [customizing, setCustomizing] = useState(false);
+  const available = widgets.filter((widget) => widget.needs.some(can));
+  const shown = arrange(available, layout.value).filter((widget) => !layout.value.hidden.includes(widget.id));
   return (
     <>
-      <PageHeader title="Обзор" description="Состояние сбора и обращения к данным." actions={<PeriodPicker allowed={["24h", "7d", "30d"]} />} />
-      <div className="flex flex-col gap-4">
-        <Headline />
-        <div className="grid gap-4 xl:grid-cols-3">
-          {can("getAccessTimeline") && <Activity />}
-          {(can("listSources") || can("getAuditCoverage") || can("listAgents")) && <Attention />}
+      <PageHeader
+        title="Обзор"
+        description="Состояние сбора и обращения к данным."
+        actions={
+          <>
+            <PeriodPicker allowed={["24h", "7d", "30d"]} />
+            {layout.canSave && <Button onClick={() => setCustomizing(true)}><SlidersHorizontal /> Настроить</Button>}
+          </>
+        }
+      />
+      {shown.length === 0 ? (
+        <EmptyState title="Все блоки скрыты" action={<Button onClick={() => setCustomizing(true)}>Настроить обзор</Button>} />
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          {shown.map((widget) => <div key={widget.id} className={cn("min-w-0 [&>*]:h-full", spans[widget.span])}>{widget.render()}</div>)}
         </div>
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {can("listAccessByCategory") && <TopCategories />}
-          {can("listAccessByPrincipal") && <TopReaders />}
-          {can("listCatalogChanges") && <Changes />}
-        </div>
-      </div>
+      )}
+      <Customize open={customizing} onOpenChange={setCustomizing} available={available} />
     </>
   );
 }

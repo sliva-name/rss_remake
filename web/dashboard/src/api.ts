@@ -74,6 +74,7 @@ export const api = {
   createSource: (body: Schemas["NewSource"]) => request<Schemas["Source"]>("POST", "/sources", undefined, body),
   updateSource: (id: string, body: Schemas["SourceUpdate"]) => request<Schemas["Source"]>("PUT", `/sources/${id}`, undefined, body),
   deleteSource: (id: string) => request<void>("DELETE", `/sources/${id}`),
+  activateSource: (id: string) => request<Schemas["Source"]>("POST", `/sources/${id}/activate`),
   agents: () => request<Schemas["Agent"][]>("GET", "/agents"),
   revokeAgent: (id: string) => request<void>("POST", `/agents/${id}/revoke`),
   scans: () => request<Schemas["Scan"][]>("GET", "/scans", { limit: 20 }),
@@ -85,4 +86,35 @@ export const api = {
     request<Schemas["EnrollmentToken"]>("POST", "/enrollment-tokens", undefined, { environmentId }),
   tenants: () => request<Schemas["Tenant"][]>("GET", "/tenants"),
   createTenant: (name: string) => request<Schemas["Tenant"]>("POST", "/tenants", undefined, { name }),
+  preference: (key: Schemas["PreferenceKey"]) => request<Schemas["Preference"]>("GET", `/preferences/${key}`),
+  savePreference: (key: Schemas["PreferenceKey"], value: unknown) => request<void>("PUT", `/preferences/${key}`, undefined, { value }),
+  policyVersions: () => request<Schemas["PolicyVersion"][]>("GET", "/policy/versions"),
+  policyVersion: (version: number) => request<Schemas["Policy"]>("GET", `/policy/versions/${version}`),
+  signals: () => request<Schemas["RiskSignal"][]>("GET", "/analytics/signals"),
 };
+
+// The export goes through fetch rather than a plain link: the request carries
+// the access token, which a link cannot. Resolves to whether the server cut
+// the file at its limit.
+export async function downloadEvents(query: Query, filename: string): Promise<{ truncated: boolean }> {
+  const token = await accessToken();
+  const response = await fetch(url("/audit/events/export", query), { headers: { Authorization: `Bearer ${token ?? ""}` } });
+  if (response.status === 401) {
+    await signIn();
+    throw new ApiError(401, "сессия истекла");
+  }
+  if (!response.ok) {
+    const problem = (await response.json().catch(() => null)) as Schemas["Problem"] | null;
+    throw new ApiError(response.status, problem?.message ?? "выгрузка не удалась");
+  }
+  saveFile(await response.blob(), filename);
+  return { truncated: response.headers.get("X-Dataguard-Truncated") === "true" };
+}
+
+export function saveFile(blob: Blob, filename: string) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+}

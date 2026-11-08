@@ -177,14 +177,43 @@ func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, filter audit.Fil
 	if err := s.conn.QueryRow(ctx, counted, append(slices.Clone(arguments), audit.CountLimit+1)...).Scan(&total); err != nil {
 		return nil, 0, storageError("count events", err)
 	}
-	query := `SELECT ` + eventColumns + ` FROM audit_events WHERE ` + where + ` ORDER BY event_time DESC, event_id DESC LIMIT ? OFFSET ?`
-	rows, err := s.conn.Query(ctx, query, append(arguments, filter.Limit, filter.Offset)...)
+	var events []audit.Event
+	err := s.read(ctx, tenantID, where, arguments, filter.Limit, filter.Offset, func(event *audit.Event) error {
+		events = append(events, *event)
+		return nil
+	})
 	if err != nil {
-		return nil, 0, storageError("search events", err)
+		return nil, 0, err
+	}
+	return events, total, nil
+}
+
+// Stream reads matching events in one pass, newest first, for an export that
+// is larger than any page.
+func (s *Store) Stream(ctx context.Context, tenantID uuid.UUID, filter audit.Filter, limit int, emit func(*audit.Event) error) error {
+	where, arguments := filterClause(tenantID, filter)
+	return s.read(scoped(ctx, tenantID), tenantID, where, arguments, limit, 0, emit)
+}
+
+// Count counts matching events up to limit; past it the exact number costs
+// more than the answer is worth.
+func (s *Store) Count(ctx context.Context, tenantID uuid.UUID, filter audit.Filter, limit int) (uint64, error) {
+	where, arguments := filterClause(tenantID, filter)
+	var total uint64
+	counted := `SELECT count() FROM (SELECT 1 FROM audit_events WHERE ` + where + ` LIMIT ?)`
+	if err := s.conn.QueryRow(scoped(ctx, tenantID), counted, append(arguments, limit)...).Scan(&total); err != nil {
+		return 0, storageError("count events", err)
+	}
+	return total, nil
+}
+
+func (s *Store) read(ctx context.Context, tenantID uuid.UUID, where string, arguments []any, limit, offset int, emit func(*audit.Event) error) error {
+	query := `SELECT ` + eventColumns + ` FROM audit_events WHERE ` + where + ` ORDER BY event_time DESC, event_id DESC LIMIT ? OFFSET ?`
+	rows, err := s.conn.Query(ctx, query, append(slices.Clone(arguments), limit, offset)...)
+	if err != nil {
+		return storageError("search events", err)
 	}
 	defer func() { _ = rows.Close() }()
-
-	var events []audit.Event
 	for rows.Next() {
 		event := audit.Event{TenantID: tenantID}
 		if err := rows.Scan(&event.ID, &event.Time, &event.Type, &event.AgentID, &event.SourceID,
@@ -193,14 +222,16 @@ func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, filter audit.Fil
 			&event.QueryFingerprint, &event.ExecutionStatus, &event.ErrorCode, &event.EvidenceLevel,
 			&event.ObjectResolution, &event.SessionID, &event.TransactionID, &event.TraceID, &event.GapReason,
 			&event.GapLostEvents); err != nil {
-			return nil, 0, storageError("decode event", err)
+			return storageError("decode event", err)
 		}
-		events = append(events, event)
+		if err := emit(&event); err != nil {
+			return err
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, storageError("read events", err)
+		return storageError("read events", err)
 	}
-	return events, total, nil
+	return nil
 }
 
 func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
@@ -234,15 +265,43 @@ func filterClause(tenantID uuid.UUID, filter audit.Filter) (string, []any) {
 	if filter.Category != "" {
 		add("has(categories, ?)", filter.Category)
 	}
-	for _, account := range filter.ExcludeAccounts {
-		conditions = append(conditions, "NOT (source_id = ? AND database_principal = ?)")
-		arguments = append(arguments, account.SourceID, account.Principal)
+	if filter.SessionID != "" {
+		add("session_id = ?", filter.SessionID)
+	}
+	if clause, values := excluded(filter.ExcludeAccounts); clause != "" {
+		conditions = append(conditions, clause)
+		arguments = append(arguments, values...)
 	}
 	if filter.Principal != "" {
 		conditions = append(conditions, "(database_principal = ? OR application_principal = ?)")
 		arguments = append(arguments, filter.Principal, filter.Principal)
 	}
 	return strings.Join(conditions, " AND "), arguments
+}
+
+// excluded leaves out the given logins on their sources. It needs only
+// source_id and database_principal, which the rows and the hourly projection
+// both carry.
+func excluded(accounts []audit.SourceAccount) (string, []any) {
+	if len(accounts) == 0 {
+		return "", nil
+	}
+	parts := make([]string, 0, len(accounts))
+	values := make([]any, 0, 2*len(accounts))
+	for _, account := range accounts {
+		parts = append(parts, "NOT (source_id = ? AND database_principal = ?)")
+		values = append(values, account.SourceID, account.Principal)
+	}
+	return strings.Join(parts, " AND "), values
+}
+
+// andExcluded is excluded as a suffix for a WHERE that already has a condition.
+func andExcluded(accounts []audit.SourceAccount) (string, []any) {
+	clause, values := excluded(accounts)
+	if clause == "" {
+		return "", nil
+	}
+	return " AND " + clause, values
 }
 
 func tableCondition(table *audit.TableMatch) string {
@@ -264,10 +323,11 @@ func uuidStrings(ids []uuid.UUID) []string {
 // dimension. Whole hours come from the hourly projection; the partial hours at
 // the edges of the window come from the rows, so the result equals a count over
 // the rows. The edge part names event_time, which the projection lacks, so it
-// cannot be served from it by mistake.
-func facts(tenantID uuid.UUID, from, to time.Time) (string, []any) {
-	const dimensions = `source_id, database_principal, application_principal, identity_confidence,
-		event_type, execution_status, object_resolution, categories`
+// cannot be served from it by mistake. Excluded accounts are left out before
+// grouping, which the projection can do since it keeps both columns. Each
+// report groups by the dimensions it reads and no more: fewer groups, less
+// to aggregate.
+func facts(tenantID uuid.UUID, from, to time.Time, exclude []audit.SourceAccount, dimensions string) (string, []any) {
 	firstHour := from.UTC().Truncate(time.Hour)
 	if firstHour.Before(from) {
 		firstHour = firstHour.Add(time.Hour)
@@ -276,37 +336,48 @@ func facts(tenantID uuid.UUID, from, to time.Time) (string, []any) {
 	if !firstHour.Before(lastHour) {
 		firstHour, lastHour = to, to
 	}
+	exclusion, excludedValues := andExcluded(exclude)
 	query := `SELECT ` + dimensions + `, count() AS events, max(event_time) AS last_event
 		FROM audit_events
-		WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND toStartOfHour(event_time) < ?
+		WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND toStartOfHour(event_time) < ?` + exclusion + `
 		GROUP BY ` + dimensions + `
 		UNION ALL
 		SELECT ` + dimensions + `, count() AS events, max(event_time) AS last_event
 		FROM audit_events
-		WHERE tenant_id = ? AND ((event_time >= ? AND event_time < ?) OR (event_time >= ? AND event_time < ?))
+		WHERE tenant_id = ? AND ((event_time >= ? AND event_time < ?) OR (event_time >= ? AND event_time < ?))` + exclusion + `
 		GROUP BY ` + dimensions
-	return query, []any{tenantID, firstHour, lastHour, tenantID, from, firstHour, lastHour, to}
+	arguments := append([]any{tenantID, firstHour, lastHour}, excludedValues...)
+	arguments = append(arguments, tenantID, from, firstHour, lastHour, to)
+	return query, append(arguments, excludedValues...)
 }
+
+// Dimensions of the reports, each a subset of the hourly projection's.
+const (
+	coverageDimensions = `source_id, database_principal, application_principal, identity_confidence,
+		event_type, execution_status, object_resolution, categories`
+	principalDimensions = `source_id, database_principal, application_principal, identity_confidence, event_type, categories`
+	categoryDimensions  = `source_id, database_principal, application_principal, categories`
+	summaryDimensions   = `database_principal, application_principal, event_type, execution_status, categories`
+)
 
 // columnFacts is facts for the events that read one column. The hourly
 // projection does not keep columns, so these come from the rows.
-func columnFacts(tenantID uuid.UUID, from, to time.Time, columnID uuid.UUID) (string, []any) {
-	const dimensions = `source_id, database_principal, application_principal, identity_confidence,
-		event_type, execution_status, object_resolution, categories`
+func columnFacts(tenantID uuid.UUID, from, to time.Time, columnID uuid.UUID, exclude []audit.SourceAccount, dimensions string) (string, []any) {
+	exclusion, excludedValues := andExcluded(exclude)
 	query := `SELECT ` + dimensions + `, count() AS events, max(event_time) AS last_event
 		FROM audit_events
-		WHERE tenant_id = ? AND event_time >= ? AND event_time < ? AND has(column_ids, toUUID(?))
+		WHERE tenant_id = ? AND event_time >= ? AND event_time < ? AND has(column_ids, toUUID(?))` + exclusion + `
 		GROUP BY ` + dimensions
-	return query, []any{tenantID, from, to, columnID.String()}
+	return query, append([]any{tenantID, from, to, columnID.String()}, excludedValues...)
 }
 
 // ByPrincipal groups by who acted. A row exists for each distinct way of being
 // known, so an unverified claim never merges into a verified identity. The
 // filter counts only the events that touched a category or read a column.
 func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, filter audit.PrincipalFilter) ([]audit.PrincipalAccess, error) {
-	body, arguments := facts(tenantID, from, to)
+	body, arguments := facts(tenantID, from, to, filter.Exclude, principalDimensions)
 	if filter.ColumnID != uuid.Nil {
-		body, arguments = columnFacts(tenantID, from, to, filter.ColumnID)
+		body, arguments = columnFacts(tenantID, from, to, filter.ColumnID, filter.Exclude, principalDimensions)
 	}
 	query := `SELECT database_principal, application_principal, identity_confidence, sum(events),
 			sumIf(events, notEmpty(categories)), arraySort(groupUniqArrayArray(categories)), uniqExact(source_id), max(last_event)
@@ -335,8 +406,8 @@ func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to ti
 }
 
 // ByCategory groups by data category.
-func (s *Store) ByCategory(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.CategoryAccess, error) {
-	body, arguments := facts(tenantID, from, to)
+func (s *Store) ByCategory(ctx context.Context, tenantID uuid.UUID, from, to time.Time, exclude []audit.SourceAccount) ([]audit.CategoryAccess, error) {
+	body, arguments := facts(tenantID, from, to, exclude, categoryDimensions)
 	query := `SELECT category, sum(events), uniqExact(database_principal, application_principal), uniqExact(source_id), max(last_event)
 		FROM (` + body + `) ARRAY JOIN categories AS category
 		GROUP BY category ORDER BY sum(events) DESC`
@@ -362,7 +433,7 @@ func (s *Store) ByCategory(ctx context.Context, tenantID uuid.UUID, from, to tim
 // Windows measures coverage per source. Logins are excluded: they name no objects,
 // so counting them would inflate the share of resolved statements.
 func (s *Store) Windows(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.SourceWindow, error) {
-	body, arguments := facts(tenantID, from, to)
+	body, arguments := facts(tenantID, from, to, nil, coverageDimensions)
 	query := `SELECT source_id,
 			sumIf(events, event_type NOT IN (?, ?)),
 			sumIf(events, event_type NOT IN (?, ?) AND object_resolution = ?),
@@ -398,8 +469,8 @@ func (s *Store) Windows(ctx context.Context, tenantID uuid.UUID, from, to time.T
 }
 
 // Summarize gives the headline numbers.
-func (s *Store) Summarize(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (audit.Summary, error) {
-	body, arguments := facts(tenantID, from, to)
+func (s *Store) Summarize(ctx context.Context, tenantID uuid.UUID, from, to time.Time, exclude []audit.SourceAccount) (audit.Summary, error) {
+	body, arguments := facts(tenantID, from, to, exclude, summaryDimensions)
 	query := `SELECT sumIf(events, event_type NOT IN (?, ?)), sumIf(events, notEmpty(categories)),
 			sumIf(events, execution_status = ?), uniqExactIf((database_principal, application_principal), event_type != ?),
 			sumIf(events, event_type = ?)
@@ -416,18 +487,20 @@ func (s *Store) Summarize(ctx context.Context, tenantID uuid.UUID, from, to time
 // Timeline counts events per hour over whole hours: the first and the last
 // hour of the window are counted in full. Grouping by the hour and the
 // projection's dimensions lets ClickHouse answer from the hourly projection.
-func (s *Store) Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.Hour, error) {
+func (s *Store) Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.Time, exclude []audit.SourceAccount) ([]audit.Hour, error) {
 	first := from.UTC().Truncate(time.Hour)
 	last := to.UTC().Truncate(time.Hour).Add(time.Hour)
+	exclusion, excludedValues := andExcluded(exclude)
 	query := `SELECT hour, sumIf(events, event_type NOT IN (?, ?)), sumIf(events, notEmpty(categories)), sumIf(events, execution_status = ?)
 		FROM (
-			SELECT toStartOfHour(event_time) AS hour, event_type, execution_status, categories, count() AS events
+			SELECT toStartOfHour(event_time) AS hour, source_id, database_principal, event_type, execution_status, categories, count() AS events
 			FROM audit_events
-			WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND toStartOfHour(event_time) < ?
-			GROUP BY hour, event_type, execution_status, categories
+			WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND toStartOfHour(event_time) < ?` + exclusion + `
+			GROUP BY hour, source_id, database_principal, event_type, execution_status, categories
 		)
 		GROUP BY hour ORDER BY hour`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, typeGap, typeAuth, statusFail, tenantID, first, last)
+	arguments := append([]any{typeGap, typeAuth, statusFail, tenantID, first, last}, excludedValues...)
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, arguments...)
 	if err != nil {
 		return nil, storageError("count events per hour", err)
 	}
@@ -444,6 +517,105 @@ func (s *Store) Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.
 		return nil, storageError("read hours", err)
 	}
 	return hours, nil
+}
+
+// Activity counts events per principal and category in three windows at once,
+// failures included, as the input of risk signals: the recent window from
+// since, and two baselines ending at since. It reads the whole hours of the
+// longest window once, from the hourly projection, and splits them by window.
+// A row with an empty category is the principal's total: an event with two
+// categories counts once there and once in each category row.
+func (s *Store) Activity(ctx context.Context, tenantID uuid.UUID, windows audit.ActivityWindows, exclude []audit.SourceAccount) (audit.ActivityByWindow, error) {
+	since := windows.Since.UTC().Truncate(time.Hour)
+	week := since.Add(-windows.Week)
+	month := since.Add(-windows.Month)
+	exclusion, excludedValues := andExcluded(exclude)
+	// The hourly rows are folded into three windows before the categories are
+	// unrolled, so the ARRAY JOIN sees a few rows per principal, not one per hour.
+	query := `SELECT database_principal, application_principal, identity_confidence, category,
+			sumIf(events, span = 2), sumIf(events, span = 2 AND execution_status = ?), maxIf(last_event, span = 2),
+			sumIf(events, span = 1), sumIf(events, span = 1 AND execution_status = ?),
+			sumIf(events, span < 2)
+		FROM (
+			SELECT database_principal, application_principal, identity_confidence, execution_status, categories,
+				multiIf(hour >= ?, 2, hour >= ?, 1, 0) AS span, sum(events) AS events, max(last_event) AS last_event
+			FROM (
+				SELECT database_principal, application_principal, identity_confidence, execution_status, categories,
+					toStartOfHour(event_time) AS hour, count() AS events, max(event_time) AS last_event
+				FROM audit_events
+				WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND event_type NOT IN (?, ?)` + exclusion + `
+				GROUP BY database_principal, application_principal, identity_confidence, execution_status, categories, hour
+			)
+			GROUP BY database_principal, application_principal, identity_confidence, execution_status, categories, span
+		)
+		ARRAY JOIN arrayConcat([''], categories) AS category
+		GROUP BY database_principal, application_principal, identity_confidence, category`
+	arguments := []any{statusFail, statusFail, since, week, tenantID, month, typeGap, typeAuth}
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, excludedValues...)...)
+	if err != nil {
+		return audit.ActivityByWindow{}, storageError("measure activity", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var result audit.ActivityByWindow
+	for rows.Next() {
+		var item audit.Activity
+		var weekEvents, weekFailed, monthEvents uint64
+		if err := rows.Scan(&item.DatabasePrincipal, &item.ApplicationPrincipal, &item.IdentityConfidence, &item.Category,
+			&item.Events, &item.Failed, &item.LastEvent, &weekEvents, &weekFailed, &monthEvents); err != nil {
+			return audit.ActivityByWindow{}, storageError("decode activity", err)
+		}
+		if item.Events > 0 {
+			result.Recent = append(result.Recent, item)
+		}
+		if weekEvents > 0 {
+			before := item
+			before.Events, before.Failed = weekEvents, weekFailed
+			result.Week = append(result.Week, before)
+		}
+		if monthEvents > 0 {
+			before := item
+			before.Events, before.Failed = monthEvents, 0
+			result.Month = append(result.Month, before)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return audit.ActivityByWindow{}, storageError("read activity", err)
+	}
+	return result, nil
+}
+
+// MatchPrincipals finds principals whose name contains the text, busiest
+// first. It reads whole hours, which the hourly projection answers.
+func (s *Store) MatchPrincipals(ctx context.Context, tenantID uuid.UUID, text string, since time.Time, exclude []audit.SourceAccount, limit int) ([]audit.PrincipalMatch, error) {
+	exclusion, excludedValues := andExcluded(exclude)
+	query := `SELECT database_principal, application_principal, sum(events)
+		FROM (
+			SELECT source_id, database_principal, application_principal, count() AS events
+			FROM audit_events
+			WHERE tenant_id = ? AND toStartOfHour(event_time) >= ? AND event_type NOT IN (?, ?)` + exclusion + `
+			GROUP BY source_id, database_principal, application_principal
+		)
+		WHERE positionCaseInsensitiveUTF8(database_principal, ?) > 0 OR positionCaseInsensitiveUTF8(application_principal, ?) > 0
+		GROUP BY database_principal, application_principal
+		ORDER BY sum(events) DESC LIMIT ?`
+	arguments := append([]any{tenantID, since.UTC().Truncate(time.Hour), typeGap, typeAuth}, excludedValues...)
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, text, text, limit)...)
+	if err != nil {
+		return nil, storageError("match principals", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var result []audit.PrincipalMatch
+	for rows.Next() {
+		var item audit.PrincipalMatch
+		if err := rows.Scan(&item.DatabasePrincipal, &item.ApplicationPrincipal, &item.Events); err != nil {
+			return nil, storageError("decode principal match", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, storageError("read principal matches", err)
+	}
+	return result, nil
 }
 
 // ExecAdmin runs one administrative statement.

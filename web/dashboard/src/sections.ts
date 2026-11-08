@@ -8,6 +8,7 @@ import {
   ScrollText,
   ServerCog,
   ShieldCheck,
+  Siren,
   Tags,
   Users,
 } from "lucide-react";
@@ -32,6 +33,7 @@ export const sections: readonly Section[] = [
   { path: "/classification", title: "Классификация", icon: Tags, group: "Данные", needs: ["listCatalogColumns", "getCatalogSummary", "listAccessByCategory"], owns: ["/categories/"] },
   { path: "/audit", title: "Журнал событий", icon: ScrollText, group: "Аудит", needs: ["listAuditEvents"], owns: [] },
   { path: "/principals", title: "Пользователи СУБД", icon: Users, group: "Аудит", needs: ["listAccessByPrincipal"], owns: [] },
+  { path: "/signals", title: "Сигналы риска", icon: Siren, group: "Аудит", needs: ["listRiskSignals"], owns: [] },
   { path: "/sources", title: "Источники", icon: Plug, group: "Инфраструктура", needs: ["listSources", "getAuditCoverage"], owns: [] },
   { path: "/agents", title: "Агенты", icon: ServerCog, group: "Инфраструктура", needs: ["listAgents", "createEnrollmentToken"], owns: [] },
   { path: "/policy", title: "Политика", icon: ShieldCheck, group: "Контроль", needs: ["getPolicy"], owns: [] },

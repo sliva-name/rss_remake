@@ -47,6 +47,9 @@ type Definition struct {
 	TLS            string
 	MaxConnections int
 	AuditDirectory string
+	// ProbeOnly marks a draft being checked before it is saved: it is opened
+	// and probed, but not scanned and its audit log is not read.
+	ProbeOnly bool
 }
 
 // Refusal is a source from the center the agent will not open. Code says why
@@ -177,12 +180,17 @@ func open(definition Definition) (*entry, error) {
 }
 
 // Acquire returns a source for use until release is called. A source replaced
-// or removed meanwhile stays open until then.
+// or removed meanwhile stays open until then. A draft is not handed out: it
+// exists only to be probed.
 func (r *Registry) Acquire(sourceID string) (source connector.Scannable, release func(), ok bool) {
+	return r.acquire(sourceID, false)
+}
+
+func (r *Registry) acquire(sourceID string, drafts bool) (connector.Scannable, func(), bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	item, ok := r.entries[sourceID]
-	if !ok {
+	if !ok || (item.definition.ProbeOnly && !drafts) {
 		return nil, nil, false
 	}
 	item.users++
@@ -206,12 +214,15 @@ type Plan struct {
 	Revision   uint64
 }
 
-// Plans returns the open sources.
+// Plans returns the open sources whose audit log is read; drafts are not.
 func (r *Registry) Plans() map[string]Plan {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	plans := make(map[string]Plan, len(r.entries))
 	for id, item := range r.entries {
+		if item.definition.ProbeOnly {
+			continue
+		}
 		plans[id] = Plan{Definition: item.definition, Revision: item.revision}
 	}
 	return plans
@@ -231,7 +242,7 @@ func (r *Registry) Probe(ctx context.Context) []*agentv1.SourceReport {
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		source, release, ok := r.Acquire(id)
+		source, release, ok := r.acquire(id, true)
 		if !ok {
 			continue
 		}

@@ -12,6 +12,7 @@ import { EmptyState, Loadable } from "../components/ui/state";
 import { ago, category, count, dateTime, eventType, executionStatus } from "../labels";
 import { ObjectLink, paths, usePeriod } from "../links";
 import { useCan } from "../permissions";
+import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 
 const shown = 15;
 
@@ -23,7 +24,7 @@ function Figures({ id }: { id: string }) {
   const stored = inventory.data?.find((row) => row.category === id);
   const read = access.data?.find((row) => row.category === id);
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
       {can("getCatalogSummary") && (
         <>
           <Stat label="Колонок" value={inventory.data ? count(stored?.columns ?? 0) : "…"} to={paths.findings({ category: id })} />
@@ -129,6 +130,8 @@ function Recent({ id }: { id: string }) {
 export function CategoryPage() {
   const { id = "" } = useParams();
   const can = useCan();
+  const item: ObjectRef = { kind: "category", id, label: category(id) };
+  useRememberVisit(item);
   return (
     <>
       <PageHeader
@@ -138,14 +141,15 @@ export function CategoryPage() {
         actions={
           <>
             <PeriodPicker allowed={["24h", "7d", "30d"]} />
+            <FavoriteButton item={item} />
             {can("listCatalogTables") && <Button asChild><Link to={paths.inventory({ category: id })}><Database /> Таблицы</Link></Button>}
             {can("listAuditEvents") && <Button asChild><Link to={paths.events({ category: id })}><ScrollText /> События</Link></Button>}
           </>
         }
       />
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6">
         <Figures id={id} />
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-6 xl:grid-cols-2">
           {can("listCatalogColumns") && <Storage id={id} />}
           {can("listAccessByPrincipal") && <Readers id={id} />}
         </div>

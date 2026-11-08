@@ -98,5 +98,6 @@ func (s *SourceSync) resolve(ctx context.Context, item *agentv1.SourceDefinition
 		ID: item.GetSourceId(), Name: item.GetName(), Engine: engine, Host: item.GetHost(), Port: port,
 		Database: item.GetDatabase(), Username: item.GetUsername(), Password: string(password), TLS: tls,
 		MaxConnections: min(pool, maxConnections), AuditDirectory: item.GetAuditDirectory(),
+		ProbeOnly: item.GetProbeOnly(),
 	}, ""
 }

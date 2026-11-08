@@ -354,6 +354,7 @@ type Filter struct {
 	Principal string
 	Category  string
 	Type      string
+	SessionID string
 	// ExcludeType hides one type unless Type asks for it explicitly.
 	ExcludeType string
 	// ExcludeAccounts hides events of these logins on these sources, such as
@@ -428,14 +429,55 @@ type Hour struct {
 type PrincipalFilter struct {
 	Category string
 	ColumnID uuid.UUID
+	Exclude  []SourceAccount
 }
 
-// Reader answers questions about stored events.
+// Activity is what one principal did with one category in a window. Events
+// that touched no sensitive data have an empty category.
+type Activity struct {
+	DatabasePrincipal    string
+	ApplicationPrincipal string
+	IdentityConfidence   string
+	Category             string
+	Events               uint64
+	Failed               uint64
+	LastEvent            time.Time
+}
+
+// ActivityWindows are the recent window from Since to now and two baselines,
+// a week and a month long, that end at Since.
+type ActivityWindows struct {
+	Since time.Time
+	Week  time.Duration
+	Month time.Duration
+}
+
+// ActivityByWindow is activity split by those windows.
+type ActivityByWindow struct {
+	Recent, Week, Month []Activity
+}
+
+// PrincipalMatch is a principal whose name contains a searched text.
+type PrincipalMatch struct {
+	DatabasePrincipal    string
+	ApplicationPrincipal string
+	Events               uint64
+}
+
+// Reader answers questions about stored events. Reports take the accounts to
+// leave out, such as the agent's own scanner logins, which read every column
+// they classify and would drown the people the report is about.
 type Reader interface {
 	Search(ctx context.Context, tenantID uuid.UUID, filter Filter) ([]Event, uint64, error)
+	// Stream emits matching events newest first, up to limit, without paging.
+	Stream(ctx context.Context, tenantID uuid.UUID, filter Filter, limit int, emit func(*Event) error) error
+	// Count counts matching events, stopping at limit.
+	Count(ctx context.Context, tenantID uuid.UUID, filter Filter, limit int) (uint64, error)
 	ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to time.Time, filter PrincipalFilter) ([]PrincipalAccess, error)
-	ByCategory(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]CategoryAccess, error)
+	ByCategory(ctx context.Context, tenantID uuid.UUID, from, to time.Time, exclude []SourceAccount) ([]CategoryAccess, error)
 	Windows(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]SourceWindow, error)
-	Summarize(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (Summary, error)
-	Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]Hour, error)
+	Summarize(ctx context.Context, tenantID uuid.UUID, from, to time.Time, exclude []SourceAccount) (Summary, error)
+	Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.Time, exclude []SourceAccount) ([]Hour, error)
+	Activity(ctx context.Context, tenantID uuid.UUID, windows ActivityWindows, exclude []SourceAccount) (ActivityByWindow, error)
+	MatchPrincipals(ctx context.Context, tenantID uuid.UUID, text string, since time.Time, exclude []SourceAccount, limit int) ([]PrincipalMatch, error)
 }

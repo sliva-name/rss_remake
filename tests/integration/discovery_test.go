@@ -75,6 +75,7 @@ func (p *platform) addSource(t *testing.T, enrolled enrolledAgent, definition so
 		Key: definition.Name, AgentID: agentID, Engine: definition.Engine, Host: definition.Host, Port: definition.Port,
 		Database: definition.Database, Username: definition.Username, TLS: definition.TLS,
 		AuditDirectory: definition.AuditDirectory, MaxConnections: definition.MaxConnections, SealedPassword: sealed,
+		Draft: definition.ProbeOnly,
 	})
 	if err != nil {
 		t.Fatalf("CreateSource: %v", err)
@@ -154,14 +155,12 @@ func waitForProbe(t *testing.T, platform *platform, tenantID, sourceID uuid.UUID
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		found, err := platform.app.Fleet.ListSources(context.Background(), tenantID)
+		source, err := platform.app.Fleet.GetSource(context.Background(), tenantID, sourceID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, source := range found {
-			if source.ID == sourceID && source.ProbedAt != nil {
-				return source
-			}
+		if source.ProbedAt != nil {
+			return source
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

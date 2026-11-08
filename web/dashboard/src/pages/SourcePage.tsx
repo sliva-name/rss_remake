@@ -18,6 +18,7 @@ import { ago, capability, count, dateTime, engine, percent, support, tableKind }
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useMe } from "../me";
 import { useCan } from "../permissions";
+import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { useSourceActions } from "./SourcesList";
 
 const supportTone: Record<string, Tone> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT_CONFIGURED: "warn", SUPPORT_UNKNOWN: "warn", SUPPORT_UNAVAILABLE: "neutral" };
@@ -27,7 +28,7 @@ function Overview({ source }: { source: Schemas["Source"] }) {
   const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24), enabled: can("getAuditCoverage") });
   const row = coverage.data?.find((item) => item.sourceId === source.id);
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
+    <div className="grid gap-6 xl:grid-cols-2">
       <Panel title="Подключение">
         <Facts
           items={[
@@ -144,6 +145,8 @@ export function SourcePage() {
   const me = useMe();
   const actions = useSourceActions(me.data?.tenantId ?? "");
   const source = useQuery({ queryKey: ["source", id], queryFn: () => api.source(id), refetchInterval: 10_000 });
+  const item: ObjectRef | undefined = source.data && { kind: "source", id, label: source.data.key, context: engine(source.data.engine) };
+  useRememberVisit(item);
 
   if (source.isPending) return <Loading rows={8} />;
   if (source.isError) return <ErrorState error={source.error} />;
@@ -168,6 +171,7 @@ export function SourcePage() {
         }
         actions={
           <>
+            {item && <FavoriteButton item={item} />}
             {can("listAuditEvents") && <Button asChild><Link to={paths.events({ sourceId: data.id })}><ScrollText /> События</Link></Button>}
             {can("requestScan") && <Button disabled={!connected || actions.scanning} onClick={() => actions.scan([data])} title={connected ? undefined : "Источник не подключён"}><Play /> Сканировать</Button>}
             {can("updateSource") && <Button onClick={() => actions.edit(data)}><Pencil /> Изменить</Button>}

@@ -11,10 +11,10 @@ const variants = {
 };
 
 const sizes = {
-  sm: "h-7 px-2.5 text-[13px] gap-1.5",
-  md: "h-8 px-3 text-sm gap-2",
-  icon: "h-8 w-8 justify-center",
-  "icon-sm": "h-7 w-7 justify-center",
+  sm: "h-8 px-3 text-xs gap-1.5",
+  md: "h-9 px-3.5 text-sm gap-2",
+  icon: "h-9 w-9 justify-center",
+  "icon-sm": "h-8 w-8 justify-center",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

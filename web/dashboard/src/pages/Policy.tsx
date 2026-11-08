@@ -6,13 +6,13 @@ import { api, ApiError, type Schemas } from "../api";
 import { Mono } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { useConfirm } from "../components/ui/dialog";
+import { Drawer, useConfirm } from "../components/ui/dialog";
 import { Field, Input } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Facts, Panel } from "../components/ui/panel";
-import { EmptyState, ErrorState, Loading } from "../components/ui/state";
+import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/state";
 import { useNotify } from "../components/ui/toast";
-import { count } from "../labels";
+import { count, dateTime } from "../labels";
 import { useCan } from "../permissions";
 
 type Detector = Schemas["CustomDetector"];
@@ -36,7 +36,7 @@ function problemOf(detector: Detector): string | undefined {
 
 function View({ policy, onEdit }: { policy: Schemas["Policy"] | null; onEdit?: () => void }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
       <Panel title="Собственные детекторы" description="Дополняют встроенные категории. Совпадение ищется агентом, значения не покидают контур." actions={onEdit && <Button size="sm" onClick={onEdit}><Pencil /> Изменить</Button>} flush>
         {!policy || policy.customDetectors.length === 0 ? (
           <EmptyState title="Собственных детекторов нет">Работают только встроенные категории классификатора.</EmptyState>
@@ -84,7 +84,7 @@ function Editor({ policy, onDone }: { policy: Schemas["Policy"] | null; onDone: 
     },
     onSuccess: async (published) => {
       notify({ tone: "ok", title: `Опубликована версия ${published.version}`, description: "Агенты получат подписанную политику со следующим сигналом." });
-      await client.invalidateQueries({ queryKey: ["policy"] });
+      await Promise.all([client.invalidateQueries({ queryKey: ["policy"] }), client.invalidateQueries({ queryKey: ["policy-versions"] })]);
       onDone();
     },
   });
@@ -99,7 +99,7 @@ function Editor({ policy, onDone }: { policy: Schemas["Policy"] | null; onDone: 
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <Panel title="Собственные детекторы" description="Шаблоны — регулярные выражения RE2. Пустой шаблон не проверяется." actions={<Button size="sm" onClick={() => setDetectors([...detectors, { categoryId: "CUSTOM.", namePattern: "", valuePattern: "" }])}><Plus /> Детектор</Button>}>
         {detectors.length === 0 ? (
           <p className="text-sm text-fg-2">Детекторов нет. Добавьте, если у организации есть данные, которых нет среди встроенных категорий.</p>
@@ -162,8 +162,45 @@ export function Policy() {
       ) : editing ? (
         <Editor policy={current} onDone={() => setEditing(false)} />
       ) : (
-        <View policy={current} onEdit={can("publishPolicy") ? () => setEditing(true) : undefined} />
+        <div className="flex flex-col gap-6">
+          <View policy={current} onEdit={can("publishPolicy") ? () => setEditing(true) : undefined} />
+          {can("listPolicyVersions") && current && <History current={current.version} />}
+        </div>
       )}
     </>
+  );
+}
+
+// Every published version stays: agents may still run an older one, and an
+// auditor asks what the rules were on a given day.
+function History({ current }: { current: number }) {
+  const can = useCan();
+  const versions = useQuery({ queryKey: ["policy-versions", current], queryFn: api.policyVersions });
+  const [opened, setOpened] = useState<number | null>(null);
+  const version = useQuery({ queryKey: ["policy-version", opened], queryFn: () => api.policyVersion(opened ?? 0), enabled: opened !== null && can("getPolicyVersion") });
+  return (
+    <Panel title="История версий" description="Каждая публикация подписана и хранится; агенты принимают только версию новее своей" flush>
+      <Loadable query={versions} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Версий нет" />}>
+        {(rows) => (
+          <ul className="divide-y divide-border">
+            {rows.map((row) => (
+              <li key={row.version} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Badge tone={row.version === current ? "accent" : "neutral"}>Версия {row.version}</Badge>
+                  <span className="text-sm text-fg-2">
+                    {dateTime(row.createdAt)} · детекторов: {row.customDetectors}{row.hasScanBudget ? " · свой бюджет скана" : ""}
+                  </span>
+                  <span className="truncate text-xs text-fg-3" title={row.createdBy}>опубликовал {row.createdBy}</span>
+                </div>
+                {can("getPolicyVersion") && <Button size="sm" variant="ghost" onClick={() => setOpened(row.version)}>Открыть</Button>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Loadable>
+      <Drawer open={opened !== null} onOpenChange={(open) => { if (!open) setOpened(null); }} title={`Политика, версия ${opened ?? ""}`} description={opened === current ? "Действующая версия" : "Прежняя версия"}>
+        <Loadable query={version}>{(data) => <View policy={data} />}</Loadable>
+      </Drawer>
+    </Panel>
   );
 }

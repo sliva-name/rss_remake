@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -11,6 +12,10 @@ import (
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/gen/restapi"
 )
+
+// principalSearchWindow is how far back principals are looked for: names
+// come from events, and older ones are in reports, not in a search box.
+const principalSearchWindow = 30 * 24 * time.Hour
 
 // Search answers the global search box. A group of results is filled only when
 // the caller may open that kind of object, by the same rules as the object's
@@ -21,7 +26,23 @@ func (s *Server) Search(ctx context.Context, request restapi.SearchRequestObject
 		return nil, fmt.Errorf("%w: q must be %d..%d characters", errInvalidParameter, minSearchRunes, maxSearchRunes)
 	}
 	tenantID := tenantOf(ctx)
-	result := restapi.SearchResult{Sources: []restapi.SearchHit{}, Tables: []restapi.SearchHit{}, Columns: []restapi.SearchHit{}}
+	result := restapi.SearchResult{Sources: []restapi.SearchHit{}, Tables: []restapi.SearchHit{}, Columns: []restapi.SearchHit{}, Principals: []restapi.PrincipalHit{}}
+
+	if checkAccess(ctx, "ListAccessByPrincipal") == nil {
+		scanners, err := s.scannerAccounts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		matches, err := s.events.MatchPrincipals(ctx, tenantID, text, time.Now().Add(-principalSearchWindow), scanners, searchGroupLimit)
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range matches {
+			result.Principals = append(result.Principals, restapi.PrincipalHit{
+				DatabasePrincipal: match.DatabasePrincipal, ApplicationPrincipal: match.ApplicationPrincipal, Events: int64(match.Events),
+			})
+		}
+	}
 
 	keys := map[uuid.UUID]string{}
 	if checkAccess(ctx, "ListSources") == nil {

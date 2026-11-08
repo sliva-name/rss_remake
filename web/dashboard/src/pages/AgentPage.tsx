@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/stat
 import { ago, dateTime, engine, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
+import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 import { useRevokeAgent } from "./AgentsList";
 
 export function AgentPage() {
@@ -20,6 +21,8 @@ export function AgentPage() {
   const agent = useQuery({ queryKey: ["agent", id], queryFn: () => api.agent(id), refetchInterval: 10_000 });
   const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments, enabled: can("listEnvironments") });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+  const item: ObjectRef | undefined = agent.data && { kind: "agent", id, label: `Агент ${shortId(id)}`, context: agent.data.version };
+  useRememberVisit(item);
 
   if (agent.isPending) return <Loading rows={6} />;
   if (agent.isError) return <ErrorState error={agent.error} />;
@@ -33,9 +36,14 @@ export function AgentPage() {
         title={<>Агент <span className="font-mono">{shortId(data.id)}</span></>}
         description="Работает в контуре заказчика и открывает только источники из своего локального списка разрешённых."
         meta={<AgentState agent={data} />}
-        actions={can("revokeAgent") && data.status === "active" ? <Button variant="danger" onClick={() => void revoke(data)}><Ban /> Отозвать</Button> : undefined}
+        actions={
+          <>
+            {item && <FavoriteButton item={item} />}
+            {can("revokeAgent") && data.status === "active" && <Button variant="danger" onClick={() => void revoke(data)}><Ban /> Отозвать</Button>}
+          </>
+        }
       />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <Panel title="Агент">
           <Facts
             items={[

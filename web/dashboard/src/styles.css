@@ -25,6 +25,20 @@
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --font-mono: var(--mono);
+
+  /* A reading scale for daily work: body text at 15px, secondary at 13px. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.375rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.625rem;
+  --text-2xl--line-height: 2rem;
+  --radius-md: 0.4375rem;
+  --radius-lg: 0.625rem;
 }
 
 @layer base {
@@ -42,7 +56,7 @@
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     font-variant-numeric: tabular-nums;
   }
 

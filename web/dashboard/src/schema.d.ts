@@ -20,6 +20,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/preferences/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["PreferenceKey"];
+            };
+            cookie?: never;
+        };
+        /** @description A personal setting of the caller in the current organization. Value is null when it was never saved. */
+        get: operations["getPreference"];
+        /** @description Replaces the setting. At most 64 KiB of JSON; references and filters only, never data values. */
+        put: operations["savePreference"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants": {
         parameters: {
             query?: never;
@@ -148,6 +168,23 @@ export interface paths {
         post?: never;
         /** @description The agent stops serving the source; its inventory and access history stay. */
         delete: operations["deleteSource"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sources/{sourceId}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Saves a checked draft; the agent starts scanning it and reading its audit. A saved source is returned as is. */
+        post: operations["activateSource"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -285,6 +322,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audit/events/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The same selection as listAuditEvents as CSV, newest first, at most 100 000 rows. X-Dataguard-Truncated is true when more matched. */
+        get: operations["exportAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit/coverage": {
         parameters: {
             query?: never;
@@ -399,6 +453,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/policy/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPolicyVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/policy/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPolicyVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Heuristic signals over the last 24 hours compared with the days before. A signal is a reason to look, not a confirmed incident; each carries the rule and the numbers it was computed from. */
+        get: operations["listRiskSignals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -415,11 +518,56 @@ export interface components {
             /** @description Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010). */
             permissions: components["schemas"]["Permission"][];
         };
+        /** @enum {string} */
+        PreferenceKey: "views" | "favorites" | "recent" | "overview";
+        Preference: {
+            /** @description Whatever the dashboard keeps under the key, as JSON; null when never saved. */
+            value: unknown;
+        };
+        PolicyVersion: {
+            /** Format: int64 */
+            version: number;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            customDetectors: number;
+            hasScanBudget: boolean;
+        };
+        RiskSignal: {
+            /** @enum {string} */
+            kind: "VOLUME_SPIKE" | "NEW_CATEGORY" | "FAILED_ACCESS";
+            databasePrincipal: string;
+            applicationPrincipal: string;
+            identityConfidence: string;
+            /** @description Empty when the signal is not about one category. */
+            category: string;
+            /**
+             * Format: int64
+             * @description Events in the last 24 hours that the rule counted.
+             */
+            observed: number;
+            /**
+             * Format: double
+             * @description What the rule compared with; its meaning depends on the kind.
+             */
+            baseline: number;
+            /** Format: date-time */
+            lastSeen: string;
+        };
+        PrincipalHit: {
+            databasePrincipal: string;
+            applicationPrincipal: string;
+            /**
+             * Format: int64
+             * @description Events in the last 30 days.
+             */
+            events: number;
+        };
         /**
          * @description An operationId of this API.
          * @enum {string}
          */
-        Permission: "getCurrentUser" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
+        Permission: "getCurrentUser" | "getPreference" | "savePreference" | "exportAuditEvents" | "listPolicyVersions" | "getPolicyVersion" | "listRiskSignals" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "activateSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
         NewTenant: {
             name: string;
         };
@@ -501,6 +649,11 @@ export interface components {
         NewSource: components["schemas"]["SourceUpdate"] & {
             /** Format: uuid */
             agentId: string;
+            /**
+             * @description Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+             * @default false
+             */
+            draft: boolean;
         };
         Source: {
             /** Format: uuid */
@@ -524,6 +677,8 @@ export interface components {
             capabilities: components["schemas"]["Capability"][];
             /** Format: date-time */
             updatedAt: string;
+            /** @description A connection check that has not been saved yet. */
+            draft: boolean;
         };
         NewScan: {
             /** Format: uuid */
@@ -736,6 +891,12 @@ export interface components {
             sourceId: string;
             databasePrincipal: string;
             applicationPrincipal: string;
+            /** @description The application that signed the context, empty without one. */
+            applicationId: string;
+            clientAddress: string;
+            /** @description The engine's session number; with the source it ties statements of one connection together. */
+            sessionId: string;
+            transactionId: string;
             identityConfidence: string;
             operation: string;
             tables: string[];
@@ -800,6 +961,7 @@ export interface components {
             failedEvents: number;
         };
         SearchResult: {
+            principals: components["schemas"]["PrincipalHit"][];
             sources: components["schemas"]["SearchHit"][];
             tables: components["schemas"]["SearchHit"][];
             columns: components["schemas"]["SearchHit"][];
@@ -882,6 +1044,52 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CurrentUser"];
                 };
+            };
+        };
+    };
+    getPreference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["PreferenceKey"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The setting */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preference"];
+                };
+            };
+        };
+    };
+    savePreference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["PreferenceKey"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preference"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1171,6 +1379,28 @@ export interface operations {
             };
         };
     };
+    activateSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved source */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+        };
+    };
     listScans: {
         parameters: {
             query?: {
@@ -1370,6 +1600,8 @@ export interface operations {
                 principal?: string;
                 category?: string;
                 eventType?: string;
+                /** @description Events of one database session, as the engine numbered it. */
+                sessionId?: string;
                 /** @description Logins outnumber data access by far, so they are left out unless asked for or filtered by type. */
                 includeLogins?: boolean;
                 /** @description Reads by the agent's own scanner login are left out unless asked for. */
@@ -1392,6 +1624,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditEventPage"];
+                };
+            };
+        };
+    };
+    exportAuditEvents: {
+        parameters: {
+            query?: {
+                sourceId?: string;
+                tableId?: string;
+                columnId?: string;
+                principal?: string;
+                category?: string;
+                eventType?: string;
+                sessionId?: string;
+                includeLogins?: boolean;
+                includeScanner?: boolean;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV, UTF-8 with a byte order mark so spreadsheet programs read Cyrillic correctly */
+            200: {
+                headers: {
+                    "X-Dataguard-Truncated"?: boolean;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
         };
@@ -1576,6 +1841,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    listPolicyVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every published version, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"][];
+                };
+            };
+        };
+    };
+    getPolicyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One published version as it was signed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    listRiskSignals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signals, strongest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskSignal"][];
                 };
             };
         };

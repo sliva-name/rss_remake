@@ -44,6 +44,7 @@ var accessRules = map[string]accessRule{
 	"CreateSource":          {roles: tenantAdmins, tenantScoped: true},
 	"UpdateSource":          {roles: tenantAdmins, tenantScoped: true},
 	"DeleteSource":          {roles: tenantAdmins, tenantScoped: true},
+	"ActivateSource":        {roles: tenantAdmins, tenantScoped: true},
 	"ListScans":             {roles: tenantReaders, tenantScoped: true},
 	"RequestScan":           {roles: scanRequesters, tenantScoped: true},
 	"ListCatalogColumns":    {roles: tenantReaders, tenantScoped: true},
@@ -61,6 +62,14 @@ var accessRules = map[string]accessRule{
 	"ListAccessByCategory":  {roles: tenantReaders, tenantScoped: true},
 	"GetPolicy":             {roles: tenantReaders, tenantScoped: true},
 	"PublishPolicy":         {roles: tenantAdmins, tenantScoped: true},
+	"ListPolicyVersions":    {roles: tenantReaders, tenantScoped: true},
+	"GetPolicyVersion":      {roles: tenantReaders, tenantScoped: true},
+	"ExportAuditEvents":     {roles: tenantReaders, tenantScoped: true},
+	"ListRiskSignals":       {roles: tenantReaders, tenantScoped: true},
+	// Personal settings belong to an account inside an organization; the row
+	// policy ties every read and write to the caller.
+	"GetPreference":  {roles: tenantReaders, tenantScoped: true},
+	"SavePreference": {roles: tenantReaders, tenantScoped: true},
 }
 
 func authorize(next restapi.StrictHandlerFunc, operationID string) restapi.StrictHandlerFunc {

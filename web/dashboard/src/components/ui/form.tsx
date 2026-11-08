@@ -1,9 +1,11 @@
-import { cloneElement, isValidElement, useId, type ComponentProps, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { Check, ChevronDown } from "lucide-react";
+import { Select as Primitive } from "radix-ui";
+import { cloneElement, isValidElement, useId, type ComponentProps, type InputHTMLAttributes, type ReactNode } from "react";
 
 import { cn } from "./cn";
 
 const control =
-  "h-8 w-full min-w-0 rounded-md border border-border bg-surface px-2.5 text-sm text-fg placeholder:text-fg-3 " +
+  "h-9 w-full min-w-0 rounded-md border border-border bg-surface px-3 text-sm text-fg placeholder:text-fg-3 " +
   "transition-colors hover:border-border-strong focus:border-accent focus:outline-none focus-visible:outline-none " +
   "focus:ring-2 focus:ring-accent/20 disabled:opacity-60 aria-[invalid=true]:border-bad";
 
@@ -11,8 +13,75 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return <input className={cn(control, className)} {...props} />;
 }
 
-export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cn(control, "cursor-pointer pr-7", className)} {...props} />;
+export interface Option {
+  value: string;
+  label: ReactNode;
+  hint?: ReactNode;
+}
+
+// Radix reserves the empty string for "nothing chosen", but filters use it for
+// "all". The empty option travels under this name inside the component only.
+const emptyValue = "\u0000all";
+
+// A select with its own list: readable options with hints and a check on the
+// chosen one, the same in every browser, keyboard and screen reader included.
+export function Select({
+  value,
+  onValueChange,
+  options,
+  placeholder,
+  disabled,
+  className,
+  "aria-label": label,
+  "aria-describedby": describedBy,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Option[];
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  "aria-label"?: string;
+  "aria-describedby"?: string;
+}) {
+  const encode = (raw: string) => (raw === "" ? emptyValue : raw);
+  return (
+    <Primitive.Root value={encode(value)} onValueChange={(next) => onValueChange(next === emptyValue ? "" : next)} disabled={disabled}>
+      <Primitive.Trigger
+        aria-label={label}
+        aria-describedby={describedBy}
+        className={cn(control, "inline-flex cursor-pointer items-center justify-between gap-2 text-left data-[placeholder]:text-fg-3", className)}
+      >
+        <span className="min-w-0 truncate"><Primitive.Value placeholder={placeholder} /></span>
+        <Primitive.Icon asChild>
+          <ChevronDown aria-hidden className="size-4 shrink-0 text-fg-3" />
+        </Primitive.Icon>
+      </Primitive.Trigger>
+      <Primitive.Portal>
+        <Primitive.Content
+          position="popper"
+          sideOffset={4}
+          className="z-[70] max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-xl"
+        >
+          <Primitive.Viewport>
+            {options.map((option) => (
+              <Primitive.Item
+                key={encode(option.value)}
+                value={encode(option.value)}
+                className="relative flex cursor-pointer flex-col rounded-md py-2 pr-3 pl-8 text-sm text-fg outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-surface-2"
+              >
+                <Primitive.ItemIndicator className="absolute top-2.5 left-2.5">
+                  <Check className="size-4 text-accent" />
+                </Primitive.ItemIndicator>
+                <Primitive.ItemText>{option.label}</Primitive.ItemText>
+                {option.hint && <span className="text-xs text-fg-3">{option.hint}</span>}
+              </Primitive.Item>
+            ))}
+          </Primitive.Viewport>
+        </Primitive.Content>
+      </Primitive.Portal>
+    </Primitive.Root>
+  );
 }
 
 export function Checkbox({ className, ...props }: Omit<ComponentProps<"input">, "type">) {
@@ -25,12 +94,12 @@ export function Checkbox({ className, ...props }: Omit<ComponentProps<"input">, 
 export function Field({ label, hint, error, className, children }: { label: string; hint?: ReactNode; error?: string; className?: string; children: ReactNode }) {
   const describedBy = useId();
   const note = error ?? hint;
-  const control = note && isValidElement<{ "aria-describedby"?: string }>(children) ? cloneElement(children, { "aria-describedby": describedBy }) : children;
+  const labelled = note && isValidElement<{ "aria-describedby"?: string }>(children) ? cloneElement(children, { "aria-describedby": describedBy }) : children;
   return (
-    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
-      <label className="flex min-w-0 flex-col gap-1">
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
+      <label className="flex min-w-0 flex-col gap-1.5">
         <span className="text-xs font-medium text-fg-2">{label}</span>
-        {control}
+        {labelled}
       </label>
       {note && <span id={describedBy} className={cn("text-xs", error ? "text-bad" : "text-fg-3")}>{note}</span>}
     </div>
@@ -39,7 +108,7 @@ export function Field({ label, hint, error, className, children }: { label: stri
 
 export function CheckField({ label, className, ...props }: { label: string } & Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
   return (
-    <label className={cn("inline-flex h-8 cursor-pointer items-center gap-2 text-sm text-fg-2", className)}>
+    <label className={cn("inline-flex h-9 cursor-pointer items-center gap-2 text-sm text-fg-2", className)}>
       <Checkbox {...props} />
       {label}
     </label>

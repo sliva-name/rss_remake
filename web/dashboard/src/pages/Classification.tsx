@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
+import { Download } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { api, type Schemas } from "../api";
-import { Confidence, Mono, PeriodPicker } from "../components/domain";
+import { categoryOptions, Confidence, Mono, PeriodPicker, sourceOptions } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Field, Select } from "../components/ui/form";
@@ -15,7 +16,9 @@ import { DataTable } from "../components/ui/table";
 import { Tabs } from "../components/ui/tabs";
 import { ago, category, categoryIds, count, samplingMethod } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
+import { downloadCsv, stamp } from "../csv";
 import { useCan } from "../permissions";
+import { ViewsMenu } from "../workspace";
 
 interface CategoryRow {
   id: string;
@@ -64,7 +67,19 @@ function CategoriesTab() {
         error={inventory.error ?? access.error}
         sortable
         empty={<EmptyState title="Чувствительных данных не найдено">Запустите сканирование источников.</EmptyState>}
-        toolbar={can("listAccessByCategory") ? <PeriodPicker /> : undefined}
+        toolbar={
+          <>
+            {can("listAccessByCategory") && <PeriodPicker />}
+            <Button
+              disabled={rows.length === 0}
+              onClick={() => downloadCsv(`dataguard-categories-${stamp()}.csv`,
+                ["Категория", "Код", "Колонок", "Таблиц", `Обращений за ${period.label}`, "Пользователей", "Последнее обращение (UTC)"],
+                rows.map((row) => [category(row.id), row.id, row.columns ?? 0, row.tables ?? 0, row.events ?? 0, row.principals ?? 0, row.lastAccess ?? ""]))}
+            >
+              <Download /> CSV
+            </Button>
+          </>
+        }
       />
     </Panel>
   );
@@ -121,18 +136,12 @@ function FindingsTab() {
         toolbar={
           <>
             {can("listSources") && (
-              <Field label="Источник" className="w-44">
-                <Select value={filters.sourceId} onChange={(event) => update({ sourceId: event.target.value })}>
-                  <option value="">Все</option>
-                  {sources.data?.map((source) => <option key={source.id} value={source.id}>{source.key}</option>)}
-                </Select>
+              <Field label="Источник" className="w-52">
+                <Select value={filters.sourceId} onValueChange={(sourceId) => update({ sourceId })} options={sourceOptions(sources.data)} />
               </Field>
             )}
-            <Field label="Категория" className="w-44">
-              <Select value={filters.category} onChange={(event) => update({ category: event.target.value })}>
-                <option value="">Все</option>
-                {categoryIds.map((id) => <option key={id} value={id}>{category(id)}</option>)}
-              </Select>
+            <Field label="Категория" className="w-52">
+              <Select value={filters.category} onValueChange={(value) => update({ category: value })} options={categoryOptions("Все категории")} />
             </Field>
           </>
         }
@@ -145,7 +154,7 @@ function DetectorsTab() {
   const can = useCan();
   const policy = useQuery({ queryKey: ["policy"], queryFn: api.policy, enabled: can("getPolicy"), retry: false });
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid gap-6 lg:grid-cols-2">
       <Panel title="Встроенные категории" description="Детекторы агента: имя колонки, формат значений, контрольные суммы">
         <ul className="flex flex-wrap gap-1.5">
           {categoryIds.map((id) => <li key={id}><CategoryLink id={id}><Badge>{category(id)}</Badge></CategoryLink></li>)}
@@ -189,7 +198,7 @@ export function Classification() {
   ];
   return (
     <>
-      <PageHeader title="Классификация" description="Какие чувствительные данные найдены, где они хранятся и как часто их читают." />
+      <PageHeader title="Классификация" description="Какие чувствительные данные найдены, где они хранятся и как часто их читают." actions={<ViewsMenu />} />
       <Tabs items={tabs} />
     </>
   );

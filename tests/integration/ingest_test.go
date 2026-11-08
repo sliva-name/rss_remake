@@ -437,7 +437,7 @@ func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
 				}
 			}
 		}
-		summary, err := store.Summarize(ctx, tenantID, from, to)
+		summary, err := store.Summarize(ctx, tenantID, from, to, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -452,7 +452,7 @@ func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
 		for _, row := range principals {
 			byPrincipal += row.Events
 		}
-		categories, err := store.ByCategory(ctx, tenantID, from, to)
+		categories, err := store.ByCategory(ctx, tenantID, from, to, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

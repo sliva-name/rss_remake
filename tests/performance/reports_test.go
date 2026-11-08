@@ -27,11 +27,15 @@ const (
 	referenceDays   = 30
 	reportTarget    = time.Second
 	searchTarget    = 300 * time.Millisecond
-	storeTarget     = 2_000 // events per second
-	seedChunk       = 2_000_000
-	runs            = 10
-	storeBatch      = 1_000
-	storeBatches    = 20
+	exportTarget    = 10 * time.Second
+	// Risk signals read 31 days to compare the last day with its baseline. The
+	// server keeps the result for five minutes, so a reader waits at most once.
+	signalsTarget = 2 * time.Second
+	storeTarget   = 2_000 // events per second
+	seedChunk     = 2_000_000
+	runs          = 10
+	storeBatch    = 1_000
+	storeBatches  = 20
 )
 
 // seedEvents is synthetic: every value derives from the row number. Accounts are
@@ -82,8 +86,26 @@ func volume(t *testing.T) int {
 
 func timed(t *testing.T, name string, target time.Duration, run func() error) {
 	t.Helper()
+	timedAfter(t, name, target, func() {}, run)
+}
+
+// timedCold measures a filtered query as a user's first try. ClickHouse
+// remembers which parts of the table a filter excluded, so a repeated query
+// skips them; the cache is dropped before every run to measure without it.
+func timedCold(t *testing.T, owner clickhouse.Settings, name string, target time.Duration, run func() error) {
+	t.Helper()
+	timedAfter(t, name, target, func() {
+		if err := clickhouse.ExecAdmin(context.Background(), owner, "SYSTEM DROP QUERY CONDITION CACHE"); err != nil {
+			t.Fatalf("drop condition cache: %v", err)
+		}
+	}, run)
+}
+
+func timedAfter(t *testing.T, name string, target time.Duration, before func(), run func() error) {
+	t.Helper()
 	measured := make([]time.Duration, 0, runs)
 	for range runs {
+		before()
 		started := time.Now()
 		if err := run(); err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -149,7 +171,7 @@ func TestReportsAndSearchAtReferenceVolume(t *testing.T) {
 	to := time.Now()
 	from := to.Add(-referenceDays * 24 * time.Hour)
 
-	summary, err := store.Summarize(ctx, tenantID, from, to)
+	summary, err := store.Summarize(ctx, tenantID, from, to, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,20 +179,66 @@ func TestReportsAndSearchAtReferenceVolume(t *testing.T) {
 		t.Fatalf("summary counted %d events of %d seeded", summary.Events, events)
 	}
 
-	timed(t, "summary", reportTarget, func() error { _, err := store.Summarize(ctx, tenantID, from, to); return err })
+	// Reports leave out the scanner login of every source; a stand has five.
+	scanners := make([]audit.SourceAccount, 0, 5)
+	for account := range 5 {
+		scanners = append(scanners, audit.SourceAccount{
+			SourceID:  uuid.MustParse(fmt.Sprintf("00000000-0000-0000-0000-0000000000%02d", 10+account)),
+			Principal: fmt.Sprintf("svc_%d", 10+account),
+		})
+	}
+	timed(t, "summary", reportTarget, func() error { _, err := store.Summarize(ctx, tenantID, from, to, scanners); return err })
 	timed(t, "principals", reportTarget, func() error {
-		_, err := store.ByPrincipal(ctx, tenantID, from, to, audit.PrincipalFilter{})
+		_, err := store.ByPrincipal(ctx, tenantID, from, to, audit.PrincipalFilter{Exclude: scanners})
 		return err
 	})
-	timed(t, "timeline", reportTarget, func() error { _, err := store.Timeline(ctx, tenantID, from, to); return err })
-	timed(t, "categories", reportTarget, func() error { _, err := store.ByCategory(ctx, tenantID, from, to); return err })
+	timed(t, "timeline", reportTarget, func() error { _, err := store.Timeline(ctx, tenantID, from, to, scanners); return err })
+	timed(t, "categories", reportTarget, func() error { _, err := store.ByCategory(ctx, tenantID, from, to, scanners); return err })
 	timed(t, "coverage", reportTarget, func() error { _, err := store.Windows(ctx, tenantID, from, to); return err })
-	timed(t, "search", searchTarget, func() error {
+	timedCold(t, owner, "search", searchTarget, func() error {
 		_, _, err := store.Search(ctx, tenantID, audit.Filter{
 			From: from, To: to, Limit: 50, ExcludeType: "EVENT_TYPE_AUTHENTICATION",
 		})
 		return err
 	})
+
+	// Object pages and investigations. The seeded column IDs are random, so the
+	// column filters match nothing and read the whole window: the worst case.
+	unknownColumn := uuid.New()
+	timedCold(t, owner, "by table", searchTarget, func() error {
+		_, _, err := store.Search(ctx, tenantID, audit.Filter{
+			From: from, To: to, Limit: 50, Table: &audit.TableMatch{Names: []string{"public.t5"}, ColumnIDs: []uuid.UUID{unknownColumn}},
+		})
+		return err
+	})
+	timedCold(t, owner, "by column", searchTarget, func() error {
+		_, _, err := store.Search(ctx, tenantID, audit.Filter{From: from, To: to, Limit: 50, ColumnID: unknownColumn})
+		return err
+	})
+	weekAgo := to.Add(-7 * 24 * time.Hour)
+	timedCold(t, owner, "column read", reportTarget, func() error {
+		_, err := store.ByPrincipal(ctx, tenantID, weekAgo, to, audit.PrincipalFilter{ColumnID: unknownColumn, Exclude: scanners})
+		return err
+	})
+	timed(t, "signals", signalsTarget, func() error {
+		_, err := store.Activity(ctx, tenantID, audit.ActivityWindows{Since: to.Add(-24 * time.Hour), Week: 7 * 24 * time.Hour, Month: 30 * 24 * time.Hour}, scanners)
+		return err
+	})
+	timedCold(t, owner, "principal q", searchTarget, func() error {
+		_, err := store.MatchPrincipals(ctx, tenantID, "crm_3", from, scanners, 8)
+		return err
+	})
+	exported := 0
+	timed(t, "export 100k", exportTarget, func() error {
+		exported = 0
+		return store.Stream(ctx, tenantID, audit.Filter{From: from, To: to, ExcludeType: "EVENT_TYPE_AUTHENTICATION"}, 100_000, func(*audit.Event) error {
+			exported++
+			return nil
+		})
+	})
+	if exported != 100_000 {
+		t.Errorf("export streamed %d events, want 100000", exported)
+	}
 
 	stored, elapsed := 0, time.Duration(0)
 	for batch := range storeBatches {

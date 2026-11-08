@@ -23,15 +23,15 @@ export function Panel({
   return (
     <section className={cn("min-w-0 rounded-lg border border-border bg-surface", className)}>
       {(title || actions) && (
-        <header className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border px-4 py-2">
+        <header className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-5 py-3">
           <div className="min-w-0">
-            {title && <h2 className="text-sm font-semibold text-fg">{title}</h2>}
-            {description && <p className="text-xs text-fg-2">{description}</p>}
+            {title && <h2 className="text-base font-semibold text-fg">{title}</h2>}
+            {description && <p className="mt-0.5 text-xs text-fg-2">{description}</p>}
           </div>
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={flush ? undefined : "p-4"}>{children}</div>
+      <div className={flush ? undefined : "p-5"}>{children}</div>
     </section>
   );
 }
@@ -42,11 +42,11 @@ export function Stat({ label, value, hint, to, tone }: { label: string; value: R
   const body = (
     <>
       <span className="text-xs font-medium text-fg-2">{label}</span>
-      <span className={cn("text-2xl font-semibold tracking-tight text-fg", tone === "bad" && "text-bad", tone === "warn" && "text-warn")}>{value}</span>
-      {hint && <span className="text-xs text-fg-2">{hint}</span>}
+      <span className={cn("mt-1 text-[1.75rem] leading-9 font-semibold tracking-tight text-fg", tone === "bad" && "text-bad", tone === "warn" && "text-warn")}>{value}</span>
+      {hint && <span className="mt-0.5 text-xs text-fg-2">{hint}</span>}
     </>
   );
-  const frame = "flex min-w-0 flex-col gap-0.5 rounded-lg border border-border bg-surface px-4 py-3";
+  const frame = "flex min-w-0 flex-col rounded-lg border border-border bg-surface px-5 py-4";
   if (!to) return <div className={frame}>{body}</div>;
   return (
     <Link to={to} className={cn(frame, "transition-colors hover:border-border-strong hover:bg-surface-2/50")}>
@@ -57,7 +57,7 @@ export function Stat({ label, value, hint, to, tone }: { label: string; value: R
 
 export function Facts({ items, className }: { items: [string, ReactNode][]; className?: string }) {
   return (
-    <dl className={cn("grid grid-cols-[minmax(8rem,max-content)_minmax(0,1fr)] gap-x-6 gap-y-2 text-sm", className)}>
+    <dl className={cn("grid grid-cols-[minmax(9rem,max-content)_minmax(0,1fr)] gap-x-8 gap-y-3 text-sm", className)}>
       {items.map(([term, value]) => (
         <div key={term} className="contents">
           <dt className="text-fg-2">{term}</dt>

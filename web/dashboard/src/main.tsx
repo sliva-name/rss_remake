@@ -27,6 +27,7 @@ const Inventory = lazy(() => import("./pages/Inventory").then((module) => ({ def
 const Classification = lazy(() => import("./pages/Classification").then((module) => ({ default: module.Classification })));
 const Audit = lazy(() => import("./pages/Audit").then((module) => ({ default: module.Audit })));
 const Principals = lazy(() => import("./pages/Principals").then((module) => ({ default: module.Principals })));
+const Signals = lazy(() => import("./pages/Signals").then((module) => ({ default: module.Signals })));
 const SourcesList = lazy(() => import("./pages/SourcesList").then((module) => ({ default: module.SourcesList })));
 const AgentsList = lazy(() => import("./pages/AgentsList").then((module) => ({ default: module.AgentsList })));
 const Policy = lazy(() => import("./pages/Policy").then((module) => ({ default: module.Policy })));
@@ -44,6 +45,7 @@ const pages: Record<string, (tenantId: string) => ReactElement> = {
   "/classification": () => <Classification />,
   "/audit": () => <Audit />,
   "/principals": () => <Principals />,
+  "/signals": () => <Signals />,
   "/sources": (tenantId) => <SourcesList tenantId={tenantId} />,
   "/agents": () => <AgentsList />,
   "/policy": () => <Policy />,

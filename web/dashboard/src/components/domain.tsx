@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 
 import type { Schemas } from "../api";
-import { ago, category, coverageStatus, explain, failure, scanStatus, sourceStatus } from "../labels";
+import { ago, category, categoryIds, coverageStatus, engine, explain, failure, scanStatus, sourceStatus } from "../labels";
 import { CategoryLink, periods, usePeriod, type PeriodId } from "../links";
 import { Badge, Status, type Tone } from "./ui/badge";
 import { cn } from "./ui/cn";
+import type { Option } from "./ui/form";
 import { Tooltip } from "./ui/menu";
 
 const coverageTone: Record<string, Tone> = { OBSERVING: "ok", DEGRADED: "warn", BLIND: "bad", NOT_CONFIGURED: "bad" };
@@ -87,7 +88,7 @@ export function PeriodPicker({ fallback = "7d", allowed }: { fallback?: PeriodId
   const [period, choose] = usePeriod(fallback);
   const shown = periods.filter((item) => !allowed || allowed.includes(item.id));
   return (
-    <div role="radiogroup" aria-label="Период" className="inline-flex h-8 items-center rounded-md border border-border bg-surface p-0.5">
+    <div role="radiogroup" aria-label="Период" className="inline-flex h-9 items-center rounded-md border border-border bg-surface p-0.5">
       {shown.map((item) => (
         <button
           key={item.id}
@@ -96,7 +97,7 @@ export function PeriodPicker({ fallback = "7d", allowed }: { fallback?: PeriodId
           aria-checked={period.id === item.id}
           onClick={() => choose(item.id)}
           className={cn(
-            "h-full cursor-pointer rounded px-2.5 text-[13px] font-medium text-fg-2 transition-colors hover:text-fg",
+            "h-full cursor-pointer rounded px-3 text-xs font-medium text-fg-2 transition-colors hover:text-fg",
             period.id === item.id && "bg-surface-2 text-fg shadow-[inset_0_0_0_1px_var(--border)]",
           )}
         >
@@ -105,6 +106,15 @@ export function PeriodPicker({ fallback = "7d", allowed }: { fallback?: PeriodId
       ))}
     </div>
   );
+}
+
+// Options of the filters that every list shares, so "all" reads the same way.
+export function categoryOptions(all: string): Option[] {
+  return [{ value: "", label: all }, ...categoryIds.map((id) => ({ value: id, label: category(id) }))];
+}
+
+export function sourceOptions(sources: Schemas["Source"][] | undefined, all = "Все источники"): Option[] {
+  return [{ value: "", label: all }, ...(sources ?? []).map((source) => ({ value: source.id, label: source.key, hint: engine(source.engine) }))];
 }
 
 export function Mono({ children, className }: { children: ReactNode; className?: string }) {

@@ -15,6 +15,7 @@ import { DataTable } from "../components/ui/table";
 import { dateTime, tableKind } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
+import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
 
 // The source's name in a trail. Without permission to read the source, its
 // identifier is all the page can honestly show.
@@ -64,6 +65,8 @@ export function TablePage() {
     { id: "nullable", header: "NULL", accessorFn: (row) => row.nullable, cell: ({ row }) => <span className="text-fg-2">{row.original.nullable ? "Да" : "Нет"}</span> },
     { id: "categories", header: "Категории", accessorFn: (row) => row.categories.length, cell: ({ row }) => <Categories ids={row.original.categories} /> },
   ], []);
+  const item: ObjectRef | undefined = table.data && { kind: "table", id, label: table.data.table, context: `${table.data.database} › ${table.data.schema}` };
+  useRememberVisit(item);
 
   if (table.isPending) return <Loading rows={8} />;
   if (table.isError) return <ErrorState error={table.error} />;
@@ -82,14 +85,19 @@ export function TablePage() {
             {sensitive > 0 ? <Badge tone="warn">Чувствительных колонок: {sensitive}</Badge> : <Badge>Чувствительных данных не найдено</Badge>}
           </>
         }
-        actions={can("listAuditEvents") ? <Button asChild><Link to={paths.events({ tableId: data.id })}><ScrollText /> Обращения к таблице</Link></Button> : undefined}
+        actions={
+          <>
+            {item && <FavoriteButton item={item} />}
+            {can("listAuditEvents") && <Button asChild><Link to={paths.events({ tableId: data.id })}><ScrollText /> Обращения к таблице</Link></Button>}
+          </>
+        }
       />
       <RemovedNote status={data.status} lastSeenAt={data.lastSeenAt} />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
         <Panel title="Колонки" flush>
           <DataTable id="table-columns" columns={columns} data={data.columns} getRowId={(column) => column.id} sortable empty={<EmptyState title="Колонок нет" />} />
         </Panel>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
           <Panel title="Таблица">
             <Facts
               items={[

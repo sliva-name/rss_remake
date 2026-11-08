@@ -44,6 +44,12 @@ export function useRevokeAgent() {
   };
 }
 
+export const environmentKinds: Record<Schemas["EnvironmentKind"], string> = {
+  production: "Производственная",
+  testing: "Тестовая",
+  development: "Разработка",
+};
+
 function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const can = useCan();
   const notify = useNotify();
@@ -90,9 +96,12 @@ function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         </p>
       ) : (
         <Field label="Среда" hint="Среда группирует агентов: производственная, тестовая, разработки">
-          <Select value={selected} onChange={(event) => setEnvironmentId(event.target.value)}>
-            {environments.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </Select>
+          <Select
+            value={selected}
+            onValueChange={setEnvironmentId}
+            placeholder="Загрузка…"
+            options={(environments.data ?? []).map((item) => ({ value: item.id, label: item.name, hint: environmentKinds[item.kind] }))}
+          />
         </Field>
       )}
       {token.isError && <p role="alert" className="mt-3 text-sm text-bad">{token.error.message}</p>}

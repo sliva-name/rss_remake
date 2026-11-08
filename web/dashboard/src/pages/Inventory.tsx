@@ -4,16 +4,17 @@ import { Database } from "lucide-react";
 import { useMemo } from "react";
 
 import { api, type Schemas } from "../api";
-import { Categories, SourceState } from "../components/domain";
+import { Categories, categoryOptions, SourceState } from "../components/domain";
 import { cn } from "../components/ui/cn";
 import { CheckField, Field, Input, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
 import { DataTable } from "../components/ui/table";
-import { ago, category, categoryIds, count, engine, tableKind } from "../labels";
+import { ago, count, engine, tableKind } from "../labels";
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
+import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
 
@@ -21,10 +22,10 @@ type Table = Schemas["CatalogTable"];
 
 function SourceList({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
-  const item = (active: boolean) => cn("flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-surface-2", active && "bg-accent-bg hover:bg-accent-bg");
+  const item = (active: boolean) => cn("flex w-full cursor-pointer flex-col items-start gap-1 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-surface-2", active && "bg-accent-bg hover:bg-accent-bg");
   return (
-    <Panel title="Источники" flush className="lg:sticky lg:top-16">
-      <div className="flex flex-col gap-0.5 p-1.5">
+    <Panel title="Источники" flush className="lg:sticky lg:top-24">
+      <div className="flex flex-col gap-1 p-2">
         <button type="button" className={item(selected === "")} onClick={() => onSelect("")} aria-pressed={selected === ""}>
           <span className="text-sm font-medium text-fg">Все источники</span>
         </button>
@@ -77,8 +78,8 @@ export function Inventory() {
 
   return (
     <>
-      <PageHeader title="Инвентаризация" description="Базы, схемы и таблицы всех источников. Чувствительность определяет классификатор, значения в платформу не передаются." />
-      <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <PageHeader title="Инвентаризация" description="Базы, схемы и таблицы всех источников. Чувствительность определяет классификатор, значения в платформу не передаются." actions={<ViewsMenu />} />
+      <div className="grid gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
         {can("listSources") && <SourceList selected={filters.sourceId} onSelect={(sourceId) => update({ sourceId })} />}
         <Panel flush className={can("listSources") ? undefined : "lg:col-span-2"}>
           <DataTable
@@ -98,14 +99,11 @@ export function Inventory() {
             page={tables.data ? { offset, size: pageSize, total: tables.data.total, onChange: (next) => update({ offset: String(next) }) } : undefined}
             toolbar={
               <>
-                <Field label="Поиск" className="w-64">
+                <Field label="Поиск" className="w-72">
                   <Input type="search" value={filters.q} onChange={(event) => update({ q: event.target.value })} placeholder="Имя или база.схема.таблица" />
                 </Field>
-                <Field label="Категория" className="w-44">
-                  <Select value={filters.category} onChange={(event) => update({ category: event.target.value })}>
-                    <option value="">Любая</option>
-                    {categoryIds.map((id) => <option key={id} value={id}>{category(id)}</option>)}
-                  </Select>
+                <Field label="Категория" className="w-52">
+                  <Select value={filters.category} onValueChange={(value) => update({ category: value })} options={categoryOptions("Любая категория")} />
                 </Field>
                 <CheckField label="Только с чувствительными данными" checked={filters.sensitive !== ""} onChange={(event) => update({ sensitive: event.target.checked ? "1" : "" })} />
               </>

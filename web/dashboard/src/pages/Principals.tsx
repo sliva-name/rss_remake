@@ -1,18 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
+import { Download } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api, type Schemas } from "../api";
-import { Categories, Mono, PeriodPicker } from "../components/domain";
+import { Categories, categoryOptions, Mono, PeriodPicker } from "../components/domain";
+import { Button } from "../components/ui/button";
 import { Field, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable } from "../components/ui/table";
-import { ago, category, categoryIds, count, identity } from "../labels";
+import { downloadCsv, stamp } from "../csv";
+import { ago, category, count, identity } from "../labels";
 import { paths, usePeriod, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
+import { ViewsMenu } from "../workspace";
 
 type Row = Schemas["PrincipalAccess"];
 
@@ -46,7 +50,20 @@ export function Principals() {
       <PageHeader
         title="Пользователи СУБД"
         description="Кто обращался к данным. Подтверждённые приложением и заявленные личности показаны отдельно и не объединяются."
-        actions={<PeriodPicker />}
+        actions={
+          <>
+            <PeriodPicker />
+            <ViewsMenu />
+            <Button
+              disabled={!principals.data?.length}
+              onClick={() => downloadCsv(`dataguard-principals-${stamp()}.csv`,
+                ["Пользователь приложения", "Учётная запись СУБД", "Как установлен", filters.category ? "Обращений к категории" : "Обращений", "К чувствительным", "Категории", "Источников", "Последнее (UTC)"],
+                (principals.data ?? []).map((row) => [row.applicationPrincipal, row.databasePrincipal, identity(row.identityConfidence), row.events, row.sensitiveEvents, row.categories.map(category).join(", "), row.sources, row.lastAccess]))}
+            >
+              <Download /> CSV
+            </Button>
+          </>
+        }
       />
       <Panel flush>
         <DataTable
@@ -60,11 +77,8 @@ export function Principals() {
           onRowClick={can("listAuditEvents") ? (row) => navigate(paths.events({ principal: row.applicationPrincipal || row.databasePrincipal, category: filters.category || undefined, period: period.id === "7d" ? undefined : period.id })) : undefined}
           empty={<EmptyState title="Обращений не было">За выбранный период{filters.category ? " к этой категории" : ""} никто не обращался.</EmptyState>}
           toolbar={
-            <Field label="Категория" className="w-48">
-              <Select value={filters.category} onChange={(event) => update({ category: event.target.value })}>
-                <option value="">Все обращения</option>
-                {categoryIds.map((id) => <option key={id} value={id}>{category(id)}</option>)}
-              </Select>
+            <Field label="Категория" className="w-56">
+              <Select value={filters.category} onValueChange={(value) => update({ category: value })} options={categoryOptions("Все обращения")} />
             </Field>
           }
         />

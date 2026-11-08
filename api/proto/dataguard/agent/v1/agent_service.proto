@@ -140,6 +140,9 @@ message SourceDefinition {
   uint32 max_connections = 10;
   // Sealed to this agent's key and bound to the target; the center cannot open it.
   bytes sealed_password = 11;
+  // A draft being checked before it is saved: the agent opens it and reports
+  // what it found, but neither scans it nor reads its audit log.
+  bool probe_only = 12;
 }
 
 // SourceList is signed like a policy, addressed to one agent, and its version

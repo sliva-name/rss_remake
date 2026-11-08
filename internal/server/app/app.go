@@ -24,6 +24,7 @@ import (
 	"dataguard/internal/core/coverage"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/policy"
+	"dataguard/internal/core/preference"
 	"dataguard/internal/core/scan"
 	"dataguard/internal/core/tenant"
 	"dataguard/internal/platform/pki"
@@ -96,6 +97,7 @@ func Build(options Options) (*App, error) {
 	services := api.Services{
 		Tenants: tenants, Fleet: fleetService, Policies: policies, Scans: scans, Catalog: options.Store,
 		Events: options.Events, Coverage: coverage.NewService(fleetService, options.Store, options.Events),
+		Preferences: preference.NewService(options.Store),
 	}
 
 	apiRoutes, err := apiHandler(options, services)
