@@ -5,6 +5,7 @@ package telemetry
 
 import (
 	"errors"
+	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -48,12 +49,7 @@ type Agent struct {
 }
 
 func enumNames(names map[int32]string) []string {
-	values := make([]string, 0, len(names))
-	for _, name := range names {
-		values = append(values, name)
-	}
-	slices.Sort(values)
-	return values
+	return slices.Sorted(maps.Values(names))
 }
 
 var (

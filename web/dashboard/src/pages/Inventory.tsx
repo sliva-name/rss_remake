@@ -13,7 +13,7 @@ import { DataTable, type TableColumn } from "../components/ui/table";
 import { ago, count, engine, tableKind } from "../labels";
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
@@ -54,7 +54,7 @@ export function Inventory() {
     placeholderData: (previous) => previous,
     queryFn: () => api.tables({ sourceId: filters.sourceId, q: filters.q.trim(), sensitive: filters.sensitive ? "true" : undefined, category: filters.category, limit: pageSize, offset }),
   });
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const sources = usePermittedQuery(queries.sources());
   const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
 
   const columns = useMemo<TableColumn<Table>[]>(() => [

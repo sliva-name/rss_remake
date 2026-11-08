@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -49,7 +48,7 @@ func scannerConnection(t *testing.T, source stand.Source) *sql.DB {
 // TestScannerAccountCannotChangeData proves the agent's own login is read-only in
 // the stand, independent of the read-only transactions the connector also uses.
 func TestScannerAccountCannotChangeData(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	for _, source := range stand.AllSources(t) {
 		t.Run(source.Dialect.Name, func(t *testing.T) {
 			if err := seed.Tables(ctx, source.Admin, source.Dialect, 2, synthetic.New(1)); err != nil {

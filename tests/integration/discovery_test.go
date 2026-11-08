@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -71,7 +73,7 @@ func (p *platform) addSource(t *testing.T, enrolled enrolledAgent, definition so
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := p.app.Fleet.CreateSource(context.Background(), tenantID, fleet.Source{
+	created, err := p.app.Fleet.CreateSource(t.Context(), tenantID, fleet.Source{
 		Key: definition.Name, AgentID: agentID, Engine: definition.Engine, Host: definition.Host, Port: definition.Port,
 		Database: definition.Database, Username: definition.Username, TLS: definition.TLS,
 		AuditDirectory: definition.AuditDirectory, MaxConnections: definition.MaxConnections, SealedPassword: sealed,
@@ -123,7 +125,7 @@ func (p *platform) startAgent(t *testing.T, enrolled enrolledAgent, definitions 
 	}
 	t.Cleanup(func() { _ = events.Close() })
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	sourceSync := &runtime.SourceSync{
 		Registry: registry, Allowlist: testAllowlist(t), Key: enrolled.store.SealingKey(),
 		TenantID: enrolled.store.TenantID(), AgentID: enrolled.store.AgentID(), Logger: logger,
@@ -155,7 +157,7 @@ func waitForProbe(t *testing.T, platform *platform, tenantID, sourceID uuid.UUID
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		source, err := platform.app.Fleet.GetSource(context.Background(), tenantID, sourceID)
+		source, err := platform.app.Fleet.GetSource(t.Context(), tenantID, sourceID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -172,7 +174,7 @@ func waitForScan(t *testing.T, platform *platform, tenantID, jobID uuid.UUID) sc
 	t.Helper()
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		jobs, err := platform.app.Scans.List(context.Background(), tenantID, 50)
+		jobs, err := platform.app.Scans.List(t.Context(), tenantID, 50)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -190,7 +192,7 @@ func waitForScan(t *testing.T, platform *platform, tenantID, jobID uuid.UUID) sc
 func TestDiscoveryOnEveryEngine(t *testing.T) {
 	for _, source := range stand.AllSources(t) {
 		t.Run(source.Dialect.Name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			if err := seed.Tables(ctx, source.Admin, source.Dialect, seededRows, synthetic.New(11)); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
@@ -207,39 +209,7 @@ func TestDiscoveryOnEveryEngine(t *testing.T) {
 			if finished.Status != scan.StatusCompleted {
 				t.Fatalf("scan finished as %s (%s); logs: %s", finished.Status, finished.FailureCode, agent.logs.String())
 			}
-
-			entries, total, err := platform.store.ListCatalog(ctx, created.ID, asset.CatalogFilter{Limit: 500})
-			if err != nil {
-				t.Fatalf("ListCatalog: %v", err)
-			}
-			if total != int64(len(entries)) {
-				t.Fatalf("total %d for %d entries", total, len(entries))
-			}
-			found := map[string]asset.CatalogEntry{}
-			for _, entry := range entries {
-				found[entry.Table+"."+entry.Column+"="+entry.CategoryID] = entry
-			}
-			for _, want := range []string{
-				seed.Users + ".email=" + classifier.CategoryEmail,
-				seed.Users + ".phone=" + classifier.CategoryPhone,
-				seed.Users + ".inn=" + classifier.CategoryTaxID,
-				seed.Users + ".snils=" + classifier.CategorySNILS,
-				seed.Users + ".card_number=" + classifier.CategoryPaymentCard,
-				seed.Users + ".passport=" + classifier.CategoryPassport,
-				seed.Users + ".first_name=" + classifier.CategoryPersonName,
-			} {
-				if _, ok := found[want]; !ok {
-					t.Errorf("not classified: %s; got %v", want, keys(found))
-				}
-			}
-			for key := range found {
-				if strings.HasPrefix(key, seed.Orders+".") || strings.HasPrefix(key, seed.Users+".status") {
-					t.Errorf("false positive: %s", key)
-				}
-			}
-			if entry := found[seed.Users+".email="+classifier.CategoryEmail]; entry.RowsMatched == 0 || entry.UniqueEstimate == 0 {
-				t.Errorf("aggregates missing: %+v", entry)
-			}
+			assertSeededTablesClassified(t, platform, created.ID)
 			reports, err := platform.app.Fleet.ListSources(ctx, created.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -247,20 +217,63 @@ func TestDiscoveryOnEveryEngine(t *testing.T) {
 			if len(reports) != 1 || reports[0].EngineVersion == "" {
 				t.Fatalf("source report: %+v", reports)
 			}
-			platform.assertNoValuesInCenter(t)
-			if strings.Contains(agent.logs.String(), synthetic.CanaryMarker) {
-				t.Fatal("agent logs contain a synthetic value")
-			}
-			wire := platform.gate.recorded()
-			if len(wire) == 0 {
-				t.Fatal("nothing was recorded, the wire check proves nothing")
-			}
-			for _, value := range sourceValues(t, source) {
-				if bytes.Contains(wire, []byte(value)) {
-					t.Fatal("a source value crossed the wire")
-				}
-			}
+			assertNoSourceValueLeft(t, platform, agent, source)
 		})
+	}
+}
+
+func assertSeededTablesClassified(t *testing.T, platform *platform, tenantID uuid.UUID) {
+	t.Helper()
+	entries, total, err := platform.store.ListCatalog(t.Context(), tenantID, asset.CatalogFilter{Limit: 500})
+	if err != nil {
+		t.Fatalf("ListCatalog: %v", err)
+	}
+	if total != int64(len(entries)) {
+		t.Fatalf("total %d for %d entries", total, len(entries))
+	}
+	found := map[string]asset.CatalogEntry{}
+	for _, entry := range entries {
+		found[entry.Table+"."+entry.Column+"="+entry.CategoryID] = entry
+	}
+	for _, want := range []string{
+		seed.Users + ".email=" + classifier.CategoryEmail,
+		seed.Users + ".phone=" + classifier.CategoryPhone,
+		seed.Users + ".inn=" + classifier.CategoryTaxID,
+		seed.Users + ".snils=" + classifier.CategorySNILS,
+		seed.Users + ".card_number=" + classifier.CategoryPaymentCard,
+		seed.Users + ".passport=" + classifier.CategoryPassport,
+		seed.Users + ".first_name=" + classifier.CategoryPersonName,
+	} {
+		if _, ok := found[want]; !ok {
+			t.Errorf("not classified: %s; got %v", want, slices.Collect(maps.Keys(found)))
+		}
+	}
+	for key := range found {
+		if strings.HasPrefix(key, seed.Orders+".") || strings.HasPrefix(key, seed.Users+".status") {
+			t.Errorf("false positive: %s", key)
+		}
+	}
+	if entry := found[seed.Users+".email="+classifier.CategoryEmail]; entry.RowsMatched == 0 || entry.UniqueEstimate == 0 {
+		t.Errorf("aggregates missing: %+v", entry)
+	}
+}
+
+// assertNoSourceValueLeft looks for the source's values in the center, in the
+// agent's log and in everything the agent sent.
+func assertNoSourceValueLeft(t *testing.T, platform *platform, agent *runningAgent, source stand.Source) {
+	t.Helper()
+	platform.assertNoValuesInCenter(t)
+	if strings.Contains(agent.logs.String(), synthetic.CanaryMarker) {
+		t.Fatal("agent logs contain a synthetic value")
+	}
+	wire := platform.gate.recorded()
+	if len(wire) == 0 {
+		t.Fatal("nothing was recorded, the wire check proves nothing")
+	}
+	for _, value := range sourceValues(t, source) {
+		if bytes.Contains(wire, []byte(value)) {
+			t.Fatal("a source value crossed the wire")
+		}
 	}
 }
 
@@ -298,19 +311,11 @@ func sourceValues(t *testing.T, source stand.Source) []string {
 	return values
 }
 
-func keys(found map[string]asset.CatalogEntry) []string {
-	result := make([]string, 0, len(found))
-	for key := range found {
-		result = append(result, key)
-	}
-	return result
-}
-
 // assertNoValuesInCenter reads every column of every table as text. A marker
 // anywhere in the central database means a value crossed the boundary.
 func (p *platform) assertNoValuesInCenter(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	connection, err := pgx.Connect(ctx, p.ownerDSN)
 	if err != nil {
 		t.Fatal(err)
@@ -340,7 +345,7 @@ func (p *platform) assertNoValuesInCenter(t *testing.T) {
 }
 
 func TestRescanTracksRenameAndRemoval(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	if err := seed.Tables(ctx, source.Admin, source.Dialect, seededRows, synthetic.New(5)); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -412,7 +417,7 @@ func TestRescanTracksRenameAndRemoval(t *testing.T) {
 }
 
 func TestDuplicateResultIsRefused(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
@@ -436,7 +441,7 @@ func TestDuplicateResultIsRefused(t *testing.T) {
 }
 
 func TestFailedScanDoesNotEraseCatalog(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
@@ -479,7 +484,7 @@ func TestFailedScanDoesNotEraseCatalog(t *testing.T) {
 }
 
 func TestSkippedTableKeepsItsClassifications(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)

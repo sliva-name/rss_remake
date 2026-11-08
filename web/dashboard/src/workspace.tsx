@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, BookmarkPlus, Settings2, Star, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -11,6 +11,7 @@ import { Menu, MenuItem, MenuSeparator } from "./components/ui/menu";
 import { useNotify } from "./components/ui/toast";
 import { paths } from "./links";
 import { useCan } from "./permissions";
+import { usePermittedQuery } from "./queries";
 
 // Personal settings live in the center (ADR-0010): they follow the account to
 // another browser. They hold addresses and names, never data values.
@@ -75,7 +76,7 @@ export function usePreference<T>(key: Schemas["PreferenceKey"], fallback: T, val
   const client = useQueryClient();
   const notify = useNotify();
   const queryKey = ["preference", key];
-  const stored = useQuery({ queryKey, queryFn: () => api.preference(key), enabled: can("getPreference"), staleTime: 60_000, refetchInterval: false });
+  const stored = usePermittedQuery({ queryKey, queryFn: () => api.preference(key), meta: { needs: "getPreference" }, staleTime: 60_000, refetchInterval: false });
   const raw: unknown = stored.data?.value;
   const value = valid(raw) ? raw : fallback;
   const save = useMutation({

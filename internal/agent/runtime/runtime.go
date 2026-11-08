@@ -144,8 +144,9 @@ func (c *Control) refreshSources(ctx context.Context, latest uint64) error {
 	list, err := c.options.Identity.AcceptSources(response.GetSourceList(), response.GetSignature())
 	if err != nil {
 		// Like a bad policy: an incident, and the agent keeps the list it trusts.
-		c.options.Logger.Error("source list rejected", "reason", sourcesRejection(err))
-		c.options.Metrics.Rejected("sources", sourcesRejection(err))
+		reason := rejection(err)
+		c.options.Logger.Error("source list rejected", "reason", reason)
+		c.options.Metrics.Rejected("sources", reason)
 		return nil
 	}
 	c.options.Sources.ApplySources(ctx, list)
@@ -153,11 +154,11 @@ func (c *Control) refreshSources(ctx context.Context, latest uint64) error {
 	return nil
 }
 
-func sourcesRejection(err error) string {
+func rejection(err error) string {
 	switch {
 	case errors.Is(err, pki.ErrBadSignature):
 		return "bad_signature"
-	case errors.Is(err, identity.ErrSourcesRollback):
+	case errors.Is(err, identity.ErrPolicyRollback), errors.Is(err, identity.ErrSourcesRollback):
 		return "rollback"
 	default:
 		return "invalid"
@@ -188,8 +189,9 @@ func (c *Control) refreshPolicy(ctx context.Context, latest uint64) error {
 	if err != nil {
 		// A forged or rolled-back policy is an incident, not a retryable failure:
 		// the agent keeps working on the policy it already trusts.
-		c.options.Logger.Error("policy rejected", "reason", policyRejection(err))
-		c.options.Metrics.Rejected("policy", policyRejection(err))
+		reason := rejection(err)
+		c.options.Logger.Error("policy rejected", "reason", reason)
+		c.options.Metrics.Rejected("policy", reason)
 		return nil
 	}
 	if c.options.Policies != nil {
@@ -197,17 +199,6 @@ func (c *Control) refreshPolicy(ctx context.Context, latest uint64) error {
 	}
 	c.options.Logger.Info("policy applied", "policy_version", policy.GetVersion())
 	return nil
-}
-
-func policyRejection(err error) string {
-	switch {
-	case errors.Is(err, pki.ErrBadSignature):
-		return "bad_signature"
-	case errors.Is(err, identity.ErrPolicyRollback):
-		return "rollback"
-	default:
-		return "invalid"
-	}
 }
 
 func (c *Control) renewCertificate(ctx context.Context) error {

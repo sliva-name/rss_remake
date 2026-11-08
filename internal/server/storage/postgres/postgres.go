@@ -75,6 +75,23 @@ func (s *Store) inTenant(ctx context.Context, tenantID uuid.UUID, work func(pgx.
 	})
 }
 
+type querier interface {
+	Query(ctx context.Context, sql string, arguments ...any) (pgx.Rows, error)
+}
+
+// queryAll runs a query and decodes every row with scan.
+func queryAll[T any](ctx context.Context, db querier, scan func(pgx.Row, *T) error, query string, arguments ...any) ([]T, error) {
+	rows, err := db.Query(ctx, query, arguments...)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (T, error) {
+		var item T
+		err := scan(row, &item)
+		return item, err
+	})
+}
+
 // storageError keeps the SQLSTATE, which is value-free, and drops the message,
 // which can quote row data.
 func storageError(op string, err error) error {
@@ -82,6 +99,31 @@ func storageError(op string, err error) error {
 		op += " (" + pgError.Code + ")"
 	}
 	return safeerr.New(op, safeerr.CodeInternal, err)
+}
+
+// readError is storageError for a read whose missing row means missing.
+func readError(op string, err, missing error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, pgx.ErrNoRows):
+		return missing
+	default:
+		return storageError(op, err)
+	}
+}
+
+// writeError is storageError that lets known, raised by the transaction
+// itself, through.
+func writeError(op string, err, known error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, known):
+		return err
+	default:
+		return storageError(op, err)
+	}
 }
 
 func isUniqueViolation(err error) bool {

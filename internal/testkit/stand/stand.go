@@ -74,7 +74,7 @@ func centerDSN(user, password, database string) string {
 // of each other and of any previous run, and returns its owner and runtime DSNs.
 func CenterDatabase(t *testing.T) (ownerDSN, runtimeDSN string) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	env := Env(t)
 	admin := centerDSN("dg_owner", env["CENTER_PG_ADMIN_PASSWORD"], "dataguard")
 
@@ -124,10 +124,11 @@ func CenterBroker(t *testing.T) broker.Settings {
 		Topic: name, Group: name, Partitions: 3, Replication: 1, Retention: time.Hour,
 		User: server.User, Password: server.Password,
 	}
-	if err := broker.Ensure(context.Background(), admin, setup); err != nil {
+	if err := broker.Ensure(t.Context(), admin, setup); err != nil {
 		t.Fatalf("prepare broker topic: %v", err)
 	}
-	t.Cleanup(func() { _ = broker.Remove(context.Background(), admin, setup) })
+	// The test's context is already cancelled when cleanups run.
+	t.Cleanup(func() { _ = broker.Remove(context.WithoutCancel(t.Context()), admin, setup) })
 	return server
 }
 
@@ -136,7 +137,7 @@ func CenterBroker(t *testing.T) broker.Settings {
 func CenterEvents(t *testing.T) clickhouse.Settings {
 	t.Helper()
 	owner, runtime := EmptyCenterEvents(t)
-	if err := clickhouse.Migrate(context.Background(), owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
+	if err := clickhouse.Migrate(t.Context(), owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
 		t.Fatalf("migrate clickhouse: %v", err)
 	}
 	return runtime
@@ -153,13 +154,14 @@ func EmptyCenterEvents(t *testing.T) (owner, runtime clickhouse.Settings) {
 	}
 	name := "test_" + hex.EncodeToString(suffix)
 	admin := clickhouse.Settings{Address: centerClickHouse, Database: "default", Username: "dg_ch_admin", Password: env["CENTER_CH_ADMIN_PASSWORD"]}
-	if err := clickhouse.ExecAdmin(context.Background(), admin, "CREATE DATABASE "+name); err != nil {
+	if err := clickhouse.ExecAdmin(t.Context(), admin, "CREATE DATABASE "+name); err != nil {
 		t.Fatalf("create clickhouse database: %v", err)
 	}
 	t.Cleanup(func() {
+		ctx := context.WithoutCancel(t.Context())
 		// Row policies outlive the database they guard, so they are dropped first.
-		_ = clickhouse.ExecAdmin(context.Background(), admin, "DROP ROW POLICY IF EXISTS tenant_isolation ON "+name+".audit_events")
-		_ = clickhouse.ExecAdmin(context.Background(), admin, "DROP DATABASE "+name)
+		_ = clickhouse.ExecAdmin(ctx, admin, "DROP ROW POLICY IF EXISTS tenant_isolation ON "+name+".audit_events")
+		_ = clickhouse.ExecAdmin(ctx, admin, "DROP DATABASE "+name)
 	})
 	owner = admin
 	owner.Database = name

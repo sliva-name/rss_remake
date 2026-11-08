@@ -88,6 +88,42 @@ func storageError(op string, err error) error {
 	return safeerr.New(op, safeerr.CodeInternal, err)
 }
 
+// each runs a query in the tenant's scope and hands every row to decode. The
+// error names what was read and the step that failed: the cause is dropped.
+func (s *Store) each(ctx context.Context, tenantID uuid.UUID, what, query string, arguments []any, decode func(driver.Rows) error) error {
+	rows, err := s.conn.Query(scoped(ctx, tenantID), query, arguments...)
+	if err != nil {
+		return storageError("query "+what, err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		if err := decode(rows); err != nil {
+			return storageError("decode "+what, err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return storageError("read "+what, err)
+	}
+	return nil
+}
+
+// collect is each that gathers one T per row.
+func collect[T any](ctx context.Context, s *Store, tenantID uuid.UUID, what, query string, arguments []any, scan func(driver.Rows, *T) error) ([]T, error) {
+	var result []T
+	err := s.each(ctx, tenantID, what, query, arguments, func(rows driver.Rows) error {
+		var item T
+		if err := scan(rows, &item); err != nil {
+			return err
+		}
+		result = append(result, item)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // Insert returns after the server has written the block, so acknowledging the
 // agent afterwards cannot lose events.
 func (s *Store) Insert(ctx context.Context, events []audit.Event) error {
@@ -392,24 +428,11 @@ func (s *Store) ByPrincipal(ctx context.Context, tenantID uuid.UUID, from, to ti
 		WHERE event_type NOT IN (?, ?) AND (? = '' OR has(categories, ?))
 		GROUP BY database_principal, application_principal, identity_confidence
 		ORDER BY sumIf(events, notEmpty(categories)) DESC, sum(events) DESC`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, typeGap, typeAuth, filter.Category, filter.Category)...)
-	if err != nil {
-		return nil, storageError("group by principal", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var result []audit.PrincipalAccess
-	for rows.Next() {
-		var item audit.PrincipalAccess
-		if err := rows.Scan(&item.DatabasePrincipal, &item.ApplicationPrincipal, &item.IdentityConfidence, &item.Events,
-			&item.SensitiveEvents, &item.Categories, &item.Sources, &item.LastAccess); err != nil {
-			return nil, storageError("decode principal", err)
-		}
-		result = append(result, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, storageError("read principals", err)
-	}
-	return result, nil
+	arguments = append(arguments, typeGap, typeAuth, filter.Category, filter.Category)
+	return collect(ctx, s, tenantID, "access by principal", query, arguments, func(rows driver.Rows, item *audit.PrincipalAccess) error {
+		return rows.Scan(&item.DatabasePrincipal, &item.ApplicationPrincipal, &item.IdentityConfidence, &item.Events,
+			&item.SensitiveEvents, &item.Categories, &item.Sources, &item.LastAccess)
+	})
 }
 
 // ByCategory groups by data category.
@@ -418,23 +441,9 @@ func (s *Store) ByCategory(ctx context.Context, tenantID uuid.UUID, from, to tim
 	query := `SELECT category, sum(events), uniqExact(database_principal, application_principal), uniqExact(source_id), max(last_event)
 		FROM (` + body + `) ARRAY JOIN categories AS category
 		GROUP BY category ORDER BY sum(events) DESC`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, arguments...)
-	if err != nil {
-		return nil, storageError("group by category", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var result []audit.CategoryAccess
-	for rows.Next() {
-		var item audit.CategoryAccess
-		if err := rows.Scan(&item.Category, &item.Events, &item.Principals, &item.Sources, &item.LastAccess); err != nil {
-			return nil, storageError("decode category", err)
-		}
-		result = append(result, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, storageError("read categories", err)
-	}
-	return result, nil
+	return collect(ctx, s, tenantID, "access by category", query, arguments, func(rows driver.Rows, item *audit.CategoryAccess) error {
+		return rows.Scan(&item.Category, &item.Events, &item.Principals, &item.Sources, &item.LastAccess)
+	})
 }
 
 // Windows measures coverage per source. Logins are excluded: they name no objects,
@@ -450,29 +459,19 @@ func (s *Store) Windows(ctx context.Context, tenantID uuid.UUID, from, to time.T
 			maxIf(last_event, event_type NOT IN (?, ?))
 		FROM (` + body + `)
 		GROUP BY source_id`
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append([]any{
+	arguments = append([]any{
 		typeGap, typeAuth, typeGap, typeAuth, resolved, typeGap, typeAuth, confidenceVerified,
-		typeGap, typeAuth, confidenceUnknown, typeGap, typeGap, typeAuth}, arguments...)...)
-	if err != nil {
-		return nil, storageError("measure coverage", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var result []audit.SourceWindow
-	for rows.Next() {
-		var item audit.SourceWindow
+		typeGap, typeAuth, confidenceUnknown, typeGap, typeGap, typeAuth}, arguments...)
+	return collect(ctx, s, tenantID, "coverage", query, arguments, func(rows driver.Rows, item *audit.SourceWindow) error {
 		if err := rows.Scan(&item.SourceID, &item.Statements, &item.Resolved, &item.Verified, &item.Identified,
 			&item.Gaps, &item.LastEvent); err != nil {
-			return nil, storageError("decode coverage", err)
+			return err
 		}
 		if item.Statements == 0 {
 			item.LastEvent = time.Time{}
 		}
-		result = append(result, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, storageError("read coverage", err)
-	}
-	return result, nil
+		return nil
+	})
 }
 
 // Summarize gives the headline numbers.
@@ -507,23 +506,9 @@ func (s *Store) Timeline(ctx context.Context, tenantID uuid.UUID, from, to time.
 		)
 		GROUP BY hour ORDER BY hour`
 	arguments := append([]any{typeGap, typeAuth, statusFail, tenantID, first, last}, excludedValues...)
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, arguments...)
-	if err != nil {
-		return nil, storageError("count events per hour", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var hours []audit.Hour
-	for rows.Next() {
-		var hour audit.Hour
-		if err := rows.Scan(&hour.Start, &hour.Events, &hour.SensitiveEvents, &hour.FailedEvents); err != nil {
-			return nil, storageError("decode hour", err)
-		}
-		hours = append(hours, hour)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, storageError("read hours", err)
-	}
-	return hours, nil
+	return collect(ctx, s, tenantID, "events per hour", query, arguments, func(rows driver.Rows, hour *audit.Hour) error {
+		return rows.Scan(&hour.Start, &hour.Events, &hour.SensitiveEvents, &hour.FailedEvents)
+	})
 }
 
 // Activity counts events per principal and category in three windows at once,
@@ -557,19 +542,14 @@ func (s *Store) Activity(ctx context.Context, tenantID uuid.UUID, windows audit.
 		)
 		ARRAY JOIN arrayConcat([''], categories) AS category
 		GROUP BY database_principal, application_principal, identity_confidence, category`
-	arguments := []any{statusFail, statusFail, since, week, tenantID, month, typeGap, typeAuth}
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, excludedValues...)...)
-	if err != nil {
-		return audit.ActivityByWindow{}, storageError("measure activity", err)
-	}
-	defer func() { _ = rows.Close() }()
+	arguments := append([]any{statusFail, statusFail, since, week, tenantID, month, typeGap, typeAuth}, excludedValues...)
 	var result audit.ActivityByWindow
-	for rows.Next() {
+	err := s.each(ctx, tenantID, "activity", query, arguments, func(rows driver.Rows) error {
 		var item audit.Activity
 		var weekEvents, weekFailed, monthEvents uint64
 		if err := rows.Scan(&item.DatabasePrincipal, &item.ApplicationPrincipal, &item.IdentityConfidence, &item.Category,
 			&item.Events, &item.Failed, &item.LastEvent, &weekEvents, &weekFailed, &monthEvents); err != nil {
-			return audit.ActivityByWindow{}, storageError("decode activity", err)
+			return err
 		}
 		if item.Events > 0 {
 			result.Recent = append(result.Recent, item)
@@ -584,9 +564,10 @@ func (s *Store) Activity(ctx context.Context, tenantID uuid.UUID, windows audit.
 			before.Events, before.Failed = monthEvents, 0
 			result.Month = append(result.Month, before)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return audit.ActivityByWindow{}, storageError("read activity", err)
+		return nil
+	})
+	if err != nil {
+		return audit.ActivityByWindow{}, err
 	}
 	return result, nil
 }
@@ -606,23 +587,10 @@ func (s *Store) MatchPrincipals(ctx context.Context, tenantID uuid.UUID, text st
 		GROUP BY database_principal, application_principal
 		ORDER BY sum(events) DESC LIMIT ?`
 	arguments := append([]any{tenantID, since.UTC().Truncate(time.Hour), typeGap, typeAuth}, excludedValues...)
-	rows, err := s.conn.Query(scoped(ctx, tenantID), query, append(arguments, text, text, limit)...)
-	if err != nil {
-		return nil, storageError("match principals", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var result []audit.PrincipalMatch
-	for rows.Next() {
-		var item audit.PrincipalMatch
-		if err := rows.Scan(&item.DatabasePrincipal, &item.ApplicationPrincipal, &item.Events); err != nil {
-			return nil, storageError("decode principal match", err)
-		}
-		result = append(result, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, storageError("read principal matches", err)
-	}
-	return result, nil
+	arguments = append(arguments, text, text, limit)
+	return collect(ctx, s, tenantID, "principal matches", query, arguments, func(rows driver.Rows, item *audit.PrincipalMatch) error {
+		return rows.Scan(&item.DatabasePrincipal, &item.ApplicationPrincipal, &item.Events)
+	})
 }
 
 // ExecAdmin runs one administrative statement.

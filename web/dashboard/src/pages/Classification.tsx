@@ -17,7 +17,7 @@ import { ago, category, categoryIds, count, samplingMethod } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { downloadCsv, stamp } from "../csv";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 interface CategoryRow {
@@ -34,8 +34,8 @@ interface CategoryRow {
 function CategoriesTab() {
   const can = useCan();
   const [period] = usePeriod("7d");
-  const inventory = useQuery({ ...queries.inventory(), enabled: can("getCatalogSummary") });
-  const access = useQuery({ ...queries.categories(period), enabled: can("listAccessByCategory") });
+  const inventory = usePermittedQuery(queries.inventory());
+  const access = usePermittedQuery(queries.categories(period));
   const rows = useMemo<CategoryRow[]>(() => {
     const byId = new Map<string, CategoryRow>();
     for (const row of inventory.data ?? []) byId.set(row.category, { id: row.category, columns: row.columns, tables: row.tables });
@@ -45,16 +45,12 @@ function CategoriesTab() {
 
   const columns = useMemo<TableColumn<CategoryRow>[]>(() => [
     { id: "category", header: "Категория", enableHiding: false, accessorFn: (row) => category(row.id), cell: ({ row }) => <CategoryLink id={row.original.id} className={linkStyle}>{category(row.original.id)}</CategoryLink> },
-    ...(can("getCatalogSummary") ? [
-      { id: "columns", header: "Колонок", accessorFn: (row: CategoryRow) => row.columns ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.columns ?? 0) },
-      { id: "tables", header: "Таблиц", accessorFn: (row: CategoryRow) => row.tables ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.tables ?? 0) },
-    ] : []),
-    ...(can("listAccessByCategory") ? [
-      { id: "events", header: "Обращений", accessorFn: (row: CategoryRow) => row.events ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.events ?? 0) },
-      { id: "principals", header: "Пользователей", accessorFn: (row: CategoryRow) => row.principals ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.principals ?? 0) },
-      { id: "last", header: "Последнее обращение", accessorFn: (row: CategoryRow) => row.lastAccess ?? "", cell: ({ row }: { row: { original: CategoryRow } }) => <span className="text-fg-2">{row.original.lastAccess ? ago(row.original.lastAccess) : "—"}</span> },
-    ] : []),
-  ], [can]);
+    { id: "columns", header: "Колонок", accessorFn: (row) => row.columns ?? 0, meta: { align: "right", needs: "getCatalogSummary" }, cell: ({ row }) => count(row.original.columns ?? 0) },
+    { id: "tables", header: "Таблиц", accessorFn: (row) => row.tables ?? 0, meta: { align: "right", needs: "getCatalogSummary" }, cell: ({ row }) => count(row.original.tables ?? 0) },
+    { id: "events", header: "Обращений", accessorFn: (row) => row.events ?? 0, meta: { align: "right", needs: "listAccessByCategory" }, cell: ({ row }) => count(row.original.events ?? 0) },
+    { id: "principals", header: "Пользователей", accessorFn: (row) => row.principals ?? 0, meta: { align: "right", needs: "listAccessByCategory" }, cell: ({ row }) => count(row.original.principals ?? 0) },
+    { id: "last", header: "Последнее обращение", accessorFn: (row) => row.lastAccess ?? "", meta: { needs: "listAccessByCategory" }, cell: ({ row }) => <span className="text-fg-2">{row.original.lastAccess ? ago(row.original.lastAccess) : "—"}</span> },
+  ], []);
 
   return (
     <Panel flush>
@@ -93,7 +89,7 @@ function FindingsTab() {
   const can = useCan();
   const [filters, update] = useUrlFilters(["sourceId", "category"] as const);
   const offset = Number(filters.offset) || 0;
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const sources = usePermittedQuery(queries.sources());
   const findings = useQuery({
     queryKey: ["catalog", filters],
     placeholderData: (previous) => previous,
@@ -152,7 +148,7 @@ function FindingsTab() {
 
 function DetectorsTab() {
   const can = useCan();
-  const policy = useQuery({ ...queries.policy(), enabled: can("getPolicy") });
+  const policy = usePermittedQuery(queries.policy());
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Panel title="Встроенные категории" description="Детекторы агента: имя колонки, формат значений, контрольные суммы">
@@ -190,16 +186,16 @@ function DetectorsTab() {
 }
 
 export function Classification() {
-  const can = useCan();
-  const tabs = [
-    ...(can("getCatalogSummary") || can("listAccessByCategory") ? [{ id: "categories", label: "Категории", content: <CategoriesTab /> }] : []),
-    ...(can("listCatalogColumns") ? [{ id: "findings", label: "Находки", content: <FindingsTab /> }] : []),
-    { id: "detectors", label: "Детекторы", content: <DetectorsTab /> },
-  ];
   return (
     <>
       <PageHeader title="Классификация" description="Какие чувствительные данные найдены, где они хранятся и как часто их читают." actions={<ViewsMenu />} />
-      <Tabs items={tabs} />
+      <Tabs
+        items={[
+          { id: "categories", label: "Категории", needs: ["getCatalogSummary", "listAccessByCategory"], content: <CategoriesTab /> },
+          { id: "findings", label: "Находки", needs: "listCatalogColumns", content: <FindingsTab /> },
+          { id: "detectors", label: "Детекторы", content: <DetectorsTab /> },
+        ]}
+      />
     </>
   );
 }

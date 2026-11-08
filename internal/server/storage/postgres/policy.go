@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,15 +39,10 @@ func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy strin
 func (s *Store) History(ctx context.Context, tenantID uuid.UUID) ([]policy.Published, error) {
 	var history []policy.Published
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT version, payload, signature, created_by, created_at FROM policies ORDER BY version DESC`)
-		if err != nil {
-			return err
-		}
-		history, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.Published, error) {
-			var item policy.Published
-			err := row.Scan(&item.Version, &item.Payload, &item.Signature, &item.CreatedBy, &item.CreatedAt)
-			return item, err
-		})
+		var err error
+		history, err = queryAll(ctx, tx, func(row pgx.Row, item *policy.Published) error {
+			return row.Scan(&item.Version, &item.Payload, &item.Signature, &item.CreatedBy, &item.CreatedAt)
+		}, `SELECT version, payload, signature, created_by, created_at FROM policies ORDER BY version DESC`)
 		return err
 	})
 	if err != nil {
@@ -63,11 +57,8 @@ func (s *Store) Version(ctx context.Context, tenantID uuid.UUID, version uint64)
 		const query = `SELECT version, payload, signature FROM policies WHERE version = $1`
 		return tx.QueryRow(ctx, query, version).Scan(&signed.Version, &signed.Payload, &signed.Signature)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return policy.Signed{}, policy.ErrNotFound
-	}
-	if err != nil {
-		return policy.Signed{}, storageError("read policy version", err)
+	if err := readError("read policy version", err, policy.ErrNotFound); err != nil {
+		return policy.Signed{}, err
 	}
 	return signed, nil
 }
@@ -78,11 +69,8 @@ func (s *Store) Latest(ctx context.Context, tenantID uuid.UUID) (policy.Signed, 
 		const query = `SELECT version, payload, signature FROM policies ORDER BY version DESC LIMIT 1`
 		return tx.QueryRow(ctx, query).Scan(&signed.Version, &signed.Payload, &signed.Signature)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return policy.Signed{}, policy.ErrNotFound
-	}
-	if err != nil {
-		return policy.Signed{}, storageError("read policy", err)
+	if err := readError("read policy", err, policy.ErrNotFound); err != nil {
+		return policy.Signed{}, err
 	}
 	return signed, nil
 }

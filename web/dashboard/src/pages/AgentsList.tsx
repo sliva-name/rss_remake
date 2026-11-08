@@ -1,10 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ban, Copy, MoreHorizontal, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { api, type Schemas } from "../api";
-import { AgentState, Mono } from "../components/domain";
+import { AgentState, Mono, NoValue } from "../components/domain";
 import { Button } from "../components/ui/button";
 import { Dialog, useConfirm } from "../components/ui/dialog";
 import { Field, Select } from "../components/ui/form";
@@ -14,10 +14,10 @@ import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
-import { ago, count, dateTime, shortId } from "../labels";
+import { ago, count, dateTime, environmentKind, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 
 type Agent = Schemas["Agent"];
 
@@ -44,16 +44,10 @@ export function useRevokeAgent() {
   };
 }
 
-export const environmentKinds: Record<Schemas["EnvironmentKind"], string> = {
-  production: "Производственная",
-  testing: "Тестовая",
-  development: "Разработка",
-};
-
 function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const can = useCan();
   const notify = useNotify();
-  const environments = useQuery({ ...queries.environments(), enabled: open && can("listEnvironments") });
+  const environments = usePermittedQuery({ ...queries.environments(), enabled: open });
   const [environmentId, setEnvironmentId] = useState("");
   const token = useMutation({ mutationFn: api.createToken });
   const selected = environmentId || environments.data?.[0]?.id || "";
@@ -100,7 +94,7 @@ function Enrollment({ open, onOpenChange }: { open: boolean; onOpenChange: (open
             value={selected}
             onValueChange={setEnvironmentId}
             placeholder="Загрузка…"
-            options={(environments.data ?? []).map((item) => ({ value: item.id, label: item.name, hint: environmentKinds[item.kind] }))}
+            options={(environments.data ?? []).map((item) => ({ value: item.id, label: item.name, hint: environmentKind(item.kind) }))}
           />
         </Field>
       )}
@@ -115,16 +109,16 @@ export function AgentsList() {
   const can = useCan();
   const revoke = useRevokeAgent();
   const [enrolling, setEnrolling] = useState(false);
-  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
-  const environments = useQuery({ ...queries.environments(), enabled: can("listEnvironments") });
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
+  const agents = usePermittedQuery(queries.agents());
+  const environments = usePermittedQuery(queries.environments());
+  const sources = usePermittedQuery(queries.sources());
 
   const columns = useMemo<TableColumn<Agent>[]>(() => [
     { id: "agent", header: "Агент", enableHiding: false, accessorFn: (row) => row.id, cell: ({ row }) => <ObjectLink to={paths.agent(row.original.id)} needs="getAgent" className="font-mono text-[13px]">{row.original.id}</ObjectLink> },
     { id: "state", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <AgentState agent={row.original} /> },
-    { id: "environment", header: "Среда", accessorFn: (row) => environments.data?.find((item) => item.id === row.environmentId)?.name ?? "", cell: ({ getValue }) => (getValue() as string) || <span className="text-fg-3">—</span> },
+    { id: "environment", header: "Среда", accessorFn: (row) => environments.data?.find((item) => item.id === row.environmentId)?.name ?? "", cell: ({ getValue }) => (getValue() as string) || <NoValue /> },
     { id: "version", header: "Версия", accessorFn: (row) => row.version, cell: ({ row }) => <Mono>{row.original.version}</Mono> },
-    ...(can("listSources") ? [{ id: "sources", header: "Источников", accessorFn: (row: Agent) => sources.data?.filter((source) => source.agentId === row.id).length ?? 0, meta: { align: "right" as const }, cell: ({ getValue }: { getValue: () => unknown }) => count(getValue() as number) }] : []),
+    { id: "sources", header: "Источников", accessorFn: (row) => sources.data?.filter((source) => source.agentId === row.id).length ?? 0, meta: { align: "right", needs: "listSources" }, cell: ({ getValue }) => count(getValue() as number) },
     { id: "seen", header: "Был на связи", accessorFn: (row) => row.lastSeenAt ?? "", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{ago(row.original.lastSeenAt)}</span> },
     {
       id: "certificate", header: "Сертификат до", accessorFn: (row) => row.certificateExpires,

@@ -31,6 +31,15 @@ const sampling: Record<string, string> = {
 
 export const samplingMethod = (id: string): string => sampling[id] ?? id;
 
+const environmentKinds: Record<string, string> = {
+  production: "Производственная",
+  testing: "Тестовая",
+  development: "Разработка",
+};
+
+export const environmentKind = (id: string): string => environmentKinds[id] ?? id;
+export const environmentKindIds = Object.keys(environmentKinds);
+
 const eventTypes: Record<string, string> = {
   EVENT_TYPE_DATA_ACCESS: "Чтение",
   EVENT_TYPE_DATA_MODIFICATION: "Изменение",

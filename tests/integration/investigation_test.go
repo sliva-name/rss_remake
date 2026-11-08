@@ -4,7 +4,6 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -145,7 +144,7 @@ func TestInvestigationOnCollectedEvents(t *testing.T) {
 	t.Run("reports leave out the scanner", func(t *testing.T) {
 		// The collector reads from where it found the log, after the first
 		// scan, so a second scan is what leaves scanner reads to leave out.
-		job, err := platform.app.Scans.Request(context.Background(), tenantID, sourceID, "tester")
+		job, err := platform.app.Scans.Request(t.Context(), tenantID, sourceID, "tester")
 		if err != nil {
 			t.Fatal(err)
 		}

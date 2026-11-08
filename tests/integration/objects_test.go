@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"slices"
@@ -55,7 +54,7 @@ func awaitEventPage(t *testing.T, platform *platform, query string, want func(re
 func TestObjectsLeadFromSourceToEventsOfOneColumn(t *testing.T) {
 	for _, source := range stand.AllSources(t) {
 		t.Run(source.Dialect.Name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			// The MySQL general log names the user only at login.
 			source.Admin.SetMaxIdleConns(0)
 			platform, tenantID, sourceID, _ := scanAndAudit(t, source)

@@ -109,7 +109,7 @@ func newZoneCollector(t *testing.T, reader Reader, catalog connector.Catalog) *C
 func TestZonedReaderWaitsForTheServerZone(t *testing.T) {
 	blind := &zonedScriptedReader{batches: []Batch{{Records: []Record{statementRecord(1)}, Cursor: []byte("after")}}}
 	item := newZoneCollector(t, blind, catalogWithoutClock{})
-	item.tick(context.Background())
+	item.tick(t.Context())
 	if health := item.Health(); health.GetState() != agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED ||
 		health.GetReasonCode() != codes.LogTimeZoneUnknown {
 		t.Fatalf("health = %+v", health)
@@ -120,7 +120,7 @@ func TestZonedReaderWaitsForTheServerZone(t *testing.T) {
 
 	located := &zonedScriptedReader{}
 	item = newZoneCollector(t, located, staticCatalog{})
-	item.tick(context.Background())
+	item.tick(t.Context())
 	if located.location != time.UTC || item.Health().GetState() != agentv1.AuditSourceState_AUDIT_SOURCE_STATE_OBSERVING {
 		t.Fatalf("location = %v, health = %+v", located.location, item.Health())
 	}

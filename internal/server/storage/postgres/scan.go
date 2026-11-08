@@ -41,23 +41,16 @@ func (s *Store) CreateJob(ctx context.Context, job scan.Job) error {
 
 const jobColumns = `id, tenant_id, source_id, status, requested_by, failure_code, created_at, started_at, finished_at`
 
-func collectJobs(rows pgx.Rows) ([]scan.Job, error) {
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (scan.Job, error) {
-		var job scan.Job
-		err := row.Scan(&job.ID, &job.TenantID, &job.SourceID, &job.Status, &job.RequestedBy, &job.FailureCode,
-			&job.CreatedAt, &job.StartedAt, &job.FinishedAt)
-		return job, err
-	})
+func scanJob(row pgx.Row, job *scan.Job) error {
+	return row.Scan(&job.ID, &job.TenantID, &job.SourceID, &job.Status, &job.RequestedBy, &job.FailureCode,
+		&job.CreatedAt, &job.StartedAt, &job.FinishedAt)
 }
 
 func (s *Store) ListJobs(ctx context.Context, tenantID uuid.UUID, limit int) ([]scan.Job, error) {
 	var jobs []scan.Job
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT `+jobColumns+` FROM scan_jobs ORDER BY created_at DESC LIMIT $1`, limit)
-		if err != nil {
-			return err
-		}
-		jobs, err = collectJobs(rows)
+		var err error
+		jobs, err = queryAll(ctx, tx, scanJob, `SELECT `+jobColumns+` FROM scan_jobs ORDER BY created_at DESC LIMIT $1`, limit)
 		return err
 	})
 	if err != nil {
@@ -85,11 +78,8 @@ func (s *Store) LeaseJobs(ctx context.Context, tenantID, agentID uuid.UUID, maxJ
 				ORDER BY j.created_at
 				LIMIT $3 FOR UPDATE OF j SKIP LOCKED)
 			RETURNING ` + jobColumns
-		rows, err := tx.Query(ctx, lease, scan.LeaseDuration.Seconds(), agentID, maxJobs)
-		if err != nil {
-			return err
-		}
-		jobs, err = collectJobs(rows)
+		var err error
+		jobs, err = queryAll(ctx, tx, scanJob, lease, scan.LeaseDuration.Seconds(), agentID, maxJobs)
 		return err
 	})
 	if err != nil {
@@ -114,13 +104,7 @@ func (s *Store) Complete(ctx context.Context, tenantID, agentID, jobID uuid.UUID
 		}
 		return persistOutcome(ctx, tx, tenantID, sourceID, jobID, outcome)
 	})
-	if errors.Is(err, scan.ErrStale) {
-		return err
-	}
-	if err != nil {
-		return storageError("complete scan job", err)
-	}
-	return nil
+	return writeError("complete scan job", err, scan.ErrStale)
 }
 
 // lockRunningJob serializes completion, and rejects a late or duplicate result
@@ -141,15 +125,9 @@ func loadTables(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID) ([]asset.Tab
 			id, database_name, schema_name, table_name, kind, fingerprint, status
 		FROM asset_tables WHERE source_id = $1
 		ORDER BY database_name, schema_name, table_name, last_seen_at DESC`
-	rows, err := tx.Query(ctx, tablesQuery, sourceID)
-	if err != nil {
-		return nil, err
-	}
-	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.Table, error) {
-		var table asset.Table
-		err := row.Scan(&table.ID, &table.Database, &table.Schema, &table.Name, &table.Kind, &table.Fingerprint, &table.Status)
-		return table, err
-	})
+	tables, err := queryAll(ctx, tx, func(row pgx.Row, table *asset.Table) error {
+		return row.Scan(&table.ID, &table.Database, &table.Schema, &table.Name, &table.Kind, &table.Fingerprint, &table.Status)
+	}, tablesQuery, sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -321,19 +299,13 @@ func clearStale(ctx context.Context, tx pgx.Tx, tenantID, jobID uuid.UUID, table
 	const query = `SELECT c.column_id, c.category_id, ac.table_id FROM classifications c
 		JOIN asset_columns ac ON ac.id = c.column_id
 		WHERE c.status = 'detected' AND ac.table_id = ANY($1)`
-	rows, err := tx.Query(ctx, query, tables)
-	if err != nil {
-		return err
-	}
 	type stale struct {
 		key     columnCategory
 		tableID uuid.UUID
 	}
-	gone, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (stale, error) {
-		var item stale
-		err := row.Scan(&item.key.columnID, &item.key.category, &item.tableID)
-		return item, err
-	})
+	gone, err := queryAll(ctx, tx, func(row pgx.Row, item *stale) error {
+		return row.Scan(&item.key.columnID, &item.key.category, &item.tableID)
+	}, query, tables)
 	if err != nil {
 		return err
 	}

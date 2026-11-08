@@ -18,7 +18,7 @@ import { EmptyState, Loadable, Loading } from "../components/ui/state";
 import { ago, category, change, count, coverageStatus, failure, shortId } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod } from "../links";
 import { type Permission, useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { defaultLayout, kindNames, type OverviewLayout, pathOf, useFavorites, useOverviewLayout, useRecent } from "../workspace";
 import { observed, signalKinds } from "./Signals";
 
@@ -68,11 +68,10 @@ function issuesOf(sources: Schemas["Source"][], coverage: Schemas["CoverageRow"]
 }
 
 function Attention() {
-  const can = useCan();
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
-  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
-  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
-  const scans = useQuery({ ...queries.scans(), enabled: can("listScans") });
+  const sources = usePermittedQuery(queries.sources());
+  const coverage = usePermittedQuery(queries.coverage(24));
+  const agents = usePermittedQuery(queries.agents());
+  const scans = usePermittedQuery(queries.scans());
   const pending = [sources, coverage, agents, scans].some((query) => query.isPending && query.fetchStatus !== "idle");
   const issues = issuesOf(sources.data ?? [], coverage.data ?? [], agents.data ?? [], scans.data ?? []);
   return (
@@ -103,12 +102,12 @@ function Attention() {
 function Headline() {
   const can = useCan();
   const [period] = usePeriod("7d");
-  const summary = useQuery({ queryKey: ["summary", period.from, period.to], queryFn: () => api.summary(period), enabled: can("getAccessSummary") });
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
-  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
-  const agents = useQuery({ ...queries.agents(), enabled: can("listAgents") });
-  const inventory = useQuery({ ...queries.inventory(), enabled: can("getCatalogSummary") });
-  const sensitiveTables = useQuery({ queryKey: ["tables", "sensitive-count"], queryFn: () => api.tables({ sensitive: "true", limit: 1 }), enabled: can("listCatalogTables") });
+  const summary = usePermittedQuery({ queryKey: ["summary", period.from, period.to], queryFn: () => api.summary(period), meta: { needs: "getAccessSummary" } });
+  const sources = usePermittedQuery(queries.sources());
+  const coverage = usePermittedQuery(queries.coverage(24));
+  const agents = usePermittedQuery(queries.agents());
+  const inventory = usePermittedQuery(queries.inventory());
+  const sensitiveTables = usePermittedQuery({ queryKey: ["tables", "sensitive-count"], queryFn: () => api.tables({ sensitive: "true", limit: 1 }), meta: { needs: "listCatalogTables" } });
 
   const observing = coverage.data?.filter((row) => row.status === "OBSERVING").length ?? 0;
   const active = agents.data?.filter((agent) => agent.status === "active") ?? [];

@@ -10,6 +10,7 @@ import { SearchPalette } from "./search";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
 import { Menu, MenuItem, MenuSeparator } from "./ui/menu";
+import { groupLabel } from "./ui/panel";
 
 const themes = [
   { id: "auto", label: "Как в системе", icon: Monitor },
@@ -46,7 +47,7 @@ function Navigation({ visible, onNavigate }: { visible: readonly Section[]; onNa
     <nav aria-label="Разделы" className="flex flex-col gap-6">
       {groupSections(visible).map(({ group, sections }) => (
         <div key={group || "start"} className="flex flex-col gap-1">
-          {group && <div className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg-3 uppercase">{group}</div>}
+          {group && <div className={cn("px-3 pb-1", groupLabel)}>{group}</div>}
           {sections.map((section) => {
             const Icon = section.icon;
             const active = section === current;
@@ -83,7 +84,7 @@ function Personal({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {favorites.value.length > 0 && (
         <div className="flex flex-col gap-1">
-          <div className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg-3 uppercase">Избранное</div>
+          <div className={cn("px-3 pb-1", groupLabel)}>Избранное</div>
           {favorites.value.slice(0, 8).map((item) => (
             <Link key={`${item.kind}-${item.id}`} to={pathOf(item)} onClick={onNavigate} className={personalLink} title={`${kindNames[item.kind]} ${item.label}`}>
               <Star aria-hidden className="size-4 shrink-0 text-fg-3" />
@@ -94,7 +95,7 @@ function Personal({ onNavigate }: { onNavigate?: () => void }) {
       )}
       {views.value.length > 0 && (
         <div className="flex flex-col gap-1">
-          <div className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg-3 uppercase">Мои представления</div>
+          <div className={cn("px-3 pb-1", groupLabel)}>Мои представления</div>
           {views.value.slice(0, 8).map((view) => (
             <Link key={view.id} to={`${view.path}${view.query ? `?${view.query}` : ""}`} onClick={onNavigate} className={personalLink}>
               <Bookmark aria-hidden className="size-4 shrink-0 text-fg-3" />

@@ -231,45 +231,23 @@ func (s *Store) AcceptPolicy(payload, signature []byte) (*agentv1.Policy, error)
 	if err := pki.VerifyPolicy(s.state.PolicyPublicKey, payload, signature); err != nil {
 		return nil, err
 	}
-	policy := &agentv1.Policy{}
-	if err := proto.Unmarshal(payload, policy); err != nil {
-		return nil, fmt.Errorf("decode policy: %w", err)
+	policy, err := decode[agentv1.Policy](payload, policyDocument.name)
+	if err != nil {
+		return nil, err
 	}
 	if policy.GetTenantId() != s.state.TenantID.String() {
 		return nil, errors.New("policy belongs to another tenant")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if policy.GetVersion() < s.state.PolicyVersion {
-		return nil, ErrPolicyRollback
-	}
-	if err := writeAtomic(filepath.Join(s.directory, policyFile), payload); err != nil {
+	if err := s.apply(policyDocument, payload, policy.GetVersion()); err != nil {
 		return nil, err
 	}
-	updated := s.state
-	updated.PolicyVersion = policy.GetVersion()
-	if err := writeState(s.directory, updated); err != nil {
-		return nil, err
-	}
-	s.state = updated
 	return policy, nil
 }
 
 // LoadPolicy returns the applied policy, or nil if none was accepted yet. The
 // file was verified before it was written and the state directory is private.
 func (s *Store) LoadPolicy() (*agentv1.Policy, error) {
-	data, err := os.ReadFile(filepath.Join(filepath.Clean(s.directory), policyFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read policy: %w", err)
-	}
-	policy := &agentv1.Policy{}
-	if err := proto.Unmarshal(data, policy); err != nil {
-		return nil, fmt.Errorf("decode policy: %w", err)
-	}
-	return policy, nil
+	return load[agentv1.Policy](s.directory, policyDocument)
 }
 
 // SourcesVersion returns the version of the last accepted source list.
@@ -286,44 +264,86 @@ func (s *Store) AcceptSources(payload, signature []byte) (*agentv1.SourceList, e
 	if err := pki.VerifyPolicy(s.state.PolicyPublicKey, pki.SourceListSigningInput(payload), signature); err != nil {
 		return nil, err
 	}
-	list := &agentv1.SourceList{}
-	if err := proto.Unmarshal(payload, list); err != nil {
-		return nil, fmt.Errorf("decode source list: %w", err)
+	list, err := decode[agentv1.SourceList](payload, sourcesDocument.name)
+	if err != nil {
+		return nil, err
 	}
 	if list.GetTenantId() != s.state.TenantID.String() || list.GetAgentId() != s.state.AgentID.String() {
 		return nil, errors.New("source list is addressed to another agent")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if list.GetVersion() < s.state.SourcesVersion {
-		return nil, ErrSourcesRollback
-	}
-	if err := writeAtomic(filepath.Join(s.directory, sourcesFile), payload); err != nil {
+	if err := s.apply(sourcesDocument, payload, list.GetVersion()); err != nil {
 		return nil, err
 	}
-	updated := s.state
-	updated.SourcesVersion = list.GetVersion()
-	if err := writeState(s.directory, updated); err != nil {
-		return nil, err
-	}
-	s.state = updated
 	return list, nil
 }
 
 // LoadSources returns the applied source list, or nil if none was accepted.
 func (s *Store) LoadSources() (*agentv1.SourceList, error) {
-	data, err := os.ReadFile(filepath.Join(filepath.Clean(s.directory), sourcesFile))
+	return load[agentv1.SourceList](s.directory, sourcesDocument)
+}
+
+// signedDocument is a document the center signs for this agent. Its version
+// only grows, and the state keeps the applied one.
+type signedDocument struct {
+	file     string
+	name     string
+	rollback error
+	version  func(*persistedState) *uint64
+}
+
+var (
+	policyDocument = signedDocument{
+		file: policyFile, name: "policy", rollback: ErrPolicyRollback,
+		version: func(state *persistedState) *uint64 { return &state.PolicyVersion },
+	}
+	sourcesDocument = signedDocument{
+		file: sourcesFile, name: "source list", rollback: ErrSourcesRollback,
+		version: func(state *persistedState) *uint64 { return &state.SourcesVersion },
+	}
+)
+
+// apply stores a verified document unless it is older than the applied one.
+func (s *Store) apply(document signedDocument, payload []byte, version uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if version < *document.version(&s.state) {
+		return document.rollback
+	}
+	if err := writeAtomic(filepath.Join(s.directory, document.file), payload); err != nil {
+		return err
+	}
+	updated := s.state
+	*document.version(&updated) = version
+	if err := writeState(s.directory, updated); err != nil {
+		return err
+	}
+	s.state = updated
+	return nil
+}
+
+type message[T any] interface {
+	*T
+	proto.Message
+}
+
+// load returns the applied document, or nil if none was accepted yet.
+func load[T any, M message[T]](directory string, document signedDocument) (M, error) {
+	data, err := os.ReadFile(filepath.Join(filepath.Clean(directory), document.file))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read source list: %w", err)
+		return nil, fmt.Errorf("read %s: %w", document.name, err)
 	}
-	list := &agentv1.SourceList{}
-	if err := proto.Unmarshal(data, list); err != nil {
-		return nil, fmt.Errorf("decode source list: %w", err)
+	return decode[T, M](data, document.name)
+}
+
+func decode[T any, M message[T]](data []byte, name string) (M, error) {
+	decoded := M(new(T))
+	if err := proto.Unmarshal(data, decoded); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", name, err)
 	}
-	return list, nil
+	return decoded, nil
 }
 
 func writeState(directory string, state persistedState) error {

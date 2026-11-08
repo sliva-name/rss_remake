@@ -3,7 +3,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { api, ApiError, type Schemas } from "../api";
-import { Mono } from "../components/domain";
+import { Mono, NoValue } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Drawer, useConfirm } from "../components/ui/dialog";
@@ -14,7 +14,7 @@ import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/stat
 import { useNotify } from "../components/ui/toast";
 import { count, dateTime } from "../labels";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 
 type Detector = Schemas["CustomDetector"];
 type Budget = NonNullable<Schemas["PolicyDraft"]["scanBudget"]>;
@@ -49,8 +49,8 @@ function View({ policy, onEdit }: { policy: Schemas["Policy"] | null; onEdit?: (
                 {policy.customDetectors.map((detector) => (
                   <tr key={detector.categoryId} className="border-b border-border last:border-0">
                     <td className="px-3 py-2"><Mono>{detector.categoryId}</Mono></td>
-                    <td className="px-3 py-2">{detector.namePattern ? <Mono className="break-all">{detector.namePattern}</Mono> : <span className="text-fg-3">—</span>}</td>
-                    <td className="px-3 py-2">{detector.valuePattern ? <Mono className="break-all">{detector.valuePattern}</Mono> : <span className="text-fg-3">—</span>}</td>
+                    <td className="px-3 py-2">{detector.namePattern ? <Mono className="break-all">{detector.namePattern}</Mono> : <NoValue />}</td>
+                    <td className="px-3 py-2">{detector.valuePattern ? <Mono className="break-all">{detector.valuePattern}</Mono> : <NoValue />}</td>
                   </tr>
                 ))}
               </tbody>
@@ -178,7 +178,7 @@ function History({ current }: { current: number }) {
   const can = useCan();
   const versions = useQuery(queries.policyVersions(current));
   const [opened, setOpened] = useState<number | null>(null);
-  const version = useQuery({ ...queries.policyVersion(opened), enabled: can("getPolicyVersion") });
+  const version = usePermittedQuery(queries.policyVersion(opened));
   return (
     <Panel title="История версий" description="Каждая публикация подписана и хранится; агенты принимают только версию новее своей" flush>
       <Loadable query={versions} isEmpty={(rows) => rows.length === 0} empty={<EmptyState title="Версий нет" />}>

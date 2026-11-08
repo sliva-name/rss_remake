@@ -3,13 +3,14 @@ import { Download, Link2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { api, downloadEvents, type Schemas } from "../api";
-import { Categories, categoryOptions, FailureNote, Mono, PeriodPicker, sourceOptions } from "../components/domain";
+import { Categories, categoryOptions, FailureNote, Mono, NoValue, PeriodPicker, sourceOptions } from "../components/domain";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Drawer } from "../components/ui/dialog";
 import { CheckField, Field, Input, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
-import { Facts, Panel } from "../components/ui/panel";
+import { cn } from "../components/ui/cn";
+import { Facts, groupLabel, Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
@@ -17,7 +18,7 @@ import { stamp } from "../csv";
 import { count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
 import { ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 import { ViewsMenu } from "../workspace";
 
 const pageSize = 50;
@@ -98,7 +99,7 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
         <Badge>{resolution(event.objectResolution)}</Badge>
       </div>
       <section>
-        <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Кто</h3>
+        <h3 className={cn("mb-2", groupLabel)}>Кто</h3>
         <Facts
           items={[
             ["Пользователь", person.name],
@@ -122,7 +123,7 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
         </div>
       </section>
       <section>
-        <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">К чему</h3>
+        <h3 className={cn("mb-2", groupLabel)}>К чему</h3>
         <Facts
           items={[
             ["Источник", <ObjectLink key="source" to={paths.source(event.sourceId)} needs="getSource">{sourceKey ?? "Источник"}</ObjectLink>],
@@ -134,13 +135,13 @@ function EventDetails({ event, sourceKey, onClose, onFilter }: { event: Event; s
       </section>
       {event.type === "EVENT_TYPE_AUDIT_GAP" && (
         <section>
-          <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Потеря аудита</h3>
+          <h3 className={cn("mb-2", groupLabel)}>Потеря аудита</h3>
           <p className="mb-1 text-sm text-fg">{event.gapLostEvents === undefined ? "Сколько событий потеряно, неизвестно." : `Потеряно событий: ${count(event.gapLostEvents)}.`}</p>
           <FailureNote code={event.gapReason} />
         </section>
       )}
       <section>
-        <h3 className="mb-2 text-xs font-semibold tracking-wide text-fg-3 uppercase">Подробности</h3>
+        <h3 className={cn("mb-2", groupLabel)}>Подробности</h3>
         <Facts
           items={[
             ["Время", dateTime(event.time)],
@@ -189,9 +190,9 @@ export function Audit() {
     placeholderData: (previous) => previous,
     queryFn: () => api.events({ ...selection, limit: pageSize, offset }),
   });
-  const sources = useQuery({ ...queries.sources(), enabled: can("listSources") });
-  const table = useQuery({ ...queries.table(filters.tableId), enabled: filters.tableId !== "" && can("getCatalogTable") });
-  const column = useQuery({ ...queries.column(filters.columnId), enabled: filters.columnId !== "" && can("getCatalogColumn") });
+  const sources = usePermittedQuery(queries.sources());
+  const table = usePermittedQuery({ ...queries.table(filters.tableId), enabled: filters.tableId !== "" });
+  const column = usePermittedQuery({ ...queries.column(filters.columnId), enabled: filters.columnId !== "" });
   const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
   // The scanner is the login the agent was given for that source.
   const isScanner = (event: Event) => sources.data?.some((source) => source.id === event.sourceId && source.username === event.databasePrincipal) ?? false;
@@ -218,7 +219,7 @@ export function Audit() {
         return (
           <div className="flex min-w-0 flex-col" title={shown.join("\n")}>
             {shown.slice(0, 2).map((name) => <Mono key={name} className="truncate text-fg-2">{name}</Mono>)}
-            {shown.length === 0 && <span className="text-fg-3">—</span>}
+            {shown.length === 0 && <NoValue />}
             {shown.length > 2 && <span className="text-xs text-fg-3">и ещё {shown.length - 2}</span>}
           </div>
         );

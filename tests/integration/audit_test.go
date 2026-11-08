@@ -65,7 +65,7 @@ func startCollector(t *testing.T, source stand.Source, stateDir string, verifier
 	if item == nil {
 		t.Fatal("no collector")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	harness := &auditHarness{
 		source: source, events: events, sourceID: sourceID, cancel: cancel, done: make(chan struct{}),
 		item: item, stateDir: stateDir, registry: registry, verifier: verifier,
@@ -147,88 +147,21 @@ func readsColumn(event *agentv1.AuditEvent, table, column string) bool {
 func TestAuditOnEveryEngine(t *testing.T) {
 	for _, source := range stand.AllSources(t) {
 		t.Run(source.Dialect.Name, func(t *testing.T) {
-			ctx := context.Background()
-			if err := seed.Tables(ctx, source.Admin, source.Dialect, 5, synthetic.New(3)); err != nil {
+			if err := seed.Tables(t.Context(), source.Admin, source.Dialect, 5, synthetic.New(3)); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
 			// The MySQL general log names the user only at login, so the test connects
 			// after the collector starts. Older sessions stay unidentified on purpose.
 			source.Admin.SetMaxIdleConns(0)
 			harness := startCollector(t, source, t.TempDir(), nil)
-
-			literal := synthetic.CanaryMarker + ".literal@example.invalid"
-			statement := fmt.Sprintf(`SELECT u.email, o.note FROM %s u JOIN %s o ON o.id = u.id WHERE u.email = '%s'`,
-				seed.Users, seed.Orders, literal)
-			if _, err := source.Admin.ExecContext(ctx, statement); err != nil {
-				t.Fatalf("query: %v", err)
-			}
-			update := fmt.Sprintf(`UPDATE %s SET status = 'blocked' WHERE id = 1`, seed.Users)
-			if _, err := source.Admin.ExecContext(ctx, update); err != nil {
-				t.Fatalf("update: %v", err)
-			}
-			if _, err := source.Admin.ExecContext(ctx, `SELECT no_such_column FROM `+seed.Users); err == nil {
-				t.Fatal("expected a failing statement")
-			}
-			if _, err := source.Admin.ExecContext(ctx, `SELECT email FROM `+seed.Users); err != nil {
-				t.Fatalf("follow-up: %v", err)
-			}
+			runAuditedStatements(t, source)
 
 			read := harness.waitFor(t, "resolved join", func(event *agentv1.AuditEvent) bool {
 				return readsColumn(event, seed.Users, "email") && readsColumn(event, seed.Orders, "note")
 			})
-			if read.GetEventType() != agentv1.EventType_EVENT_TYPE_DATA_ACCESS {
-				t.Errorf("event type = %s", read.GetEventType())
-			}
-			// SQL Server writes one row per table: a join must still be one access.
-			sameQuery, identifiers := 0, map[string]bool{}
-			for _, event := range harness.all(t) {
-				if identifiers[event.GetEventId()] {
-					t.Errorf("duplicate event %s", event.GetEventId())
-				}
-				identifiers[event.GetEventId()] = true
-				if event.GetOperation().GetQueryFingerprint() == read.GetOperation().GetQueryFingerprint() {
-					sameQuery++
-				}
-			}
-			if sameQuery != 1 {
-				for _, event := range harness.all(t) {
-					if event.GetOperation().GetQueryFingerprint() == read.GetOperation().GetQueryFingerprint() {
-						t.Logf("id %s session %s tx %s time %s tables %v", event.GetEventId(), event.GetCorrelation().GetSessionId(),
-							event.GetCorrelation().GetTransactionId(), event.GetEventTime().AsTime().Format("15:04:05.000000"), event.GetOperation().GetTables())
-					}
-				}
-				t.Errorf("one join produced %d events", sameQuery)
-			}
-			if read.GetEvidence().GetObjectResolution() != agentv1.ObjectResolution_OBJECT_RESOLUTION_RESOLVED {
-				t.Errorf("resolution = %s", read.GetEvidence().GetObjectResolution())
-			}
-			if read.GetActor().GetDatabasePrincipal() != "dg_app" {
-				t.Errorf("principal = %q", read.GetActor().GetDatabasePrincipal())
-			}
-			if read.GetActor().GetIdentityConfidence() != agentv1.IdentityConfidence_IDENTITY_CONFIDENCE_DB_PRINCIPAL_ONLY {
-				t.Errorf("identity = %s", read.GetActor().GetIdentityConfidence())
-			}
-			if !strings.HasPrefix(read.GetOperation().GetQueryFingerprint(), "sha256:") {
-				t.Errorf("fingerprint = %q", read.GetOperation().GetQueryFingerprint())
-			}
-			if source.Dialect.Name == "mysql" {
-				if got := read.GetEvidence().GetLevel(); got != agentv1.EvidenceLevel_EVIDENCE_LEVEL_REFERENCED {
-					t.Errorf("the general log proves no execution, level = %s", got)
-				}
-			} else if got := read.GetEvidence().GetLevel(); got != agentv1.EvidenceLevel_EVIDENCE_LEVEL_EXECUTED {
-				t.Errorf("level = %s", got)
-			}
-
-			modification := harness.waitFor(t, "update", func(event *agentv1.AuditEvent) bool {
-				return event.GetEventType() == agentv1.EventType_EVENT_TYPE_DATA_MODIFICATION
-			})
-			written := slices.ContainsFunc(modification.GetOperation().GetColumns(), func(item *agentv1.AccessedColumn) bool {
-				return item.GetWritten() && item.GetColumn().GetColumn() == "status"
-			})
-			if !written {
-				t.Errorf("update columns = %v", modification.GetOperation().GetColumns())
-			}
-
+			assertJoinRead(t, source, read)
+			assertOneEventPerStatement(t, harness, read)
+			assertUpdateWritesStatus(t, harness)
 			// SQL Server rejects an unknown column while binding, before auditing, and
 			// the MySQL general log records no outcome. Neither can report this failure.
 			if source.Dialect.Name == "postgresql" || source.Dialect.Name == "mariadb" {
@@ -243,11 +176,100 @@ func TestAuditOnEveryEngine(t *testing.T) {
 	}
 }
 
+// runAuditedStatements runs a join that quotes a value, an update, a failing
+// statement and a plain read.
+func runAuditedStatements(t *testing.T, source stand.Source) {
+	t.Helper()
+	ctx := t.Context()
+	literal := synthetic.CanaryMarker + ".literal@example.invalid"
+	statement := fmt.Sprintf(`SELECT u.email, o.note FROM %s u JOIN %s o ON o.id = u.id WHERE u.email = '%s'`,
+		seed.Users, seed.Orders, literal)
+	if _, err := source.Admin.ExecContext(ctx, statement); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	update := fmt.Sprintf(`UPDATE %s SET status = 'blocked' WHERE id = 1`, seed.Users)
+	if _, err := source.Admin.ExecContext(ctx, update); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if _, err := source.Admin.ExecContext(ctx, `SELECT no_such_column FROM `+seed.Users); err == nil {
+		t.Fatal("expected a failing statement")
+	}
+	if _, err := source.Admin.ExecContext(ctx, `SELECT email FROM `+seed.Users); err != nil {
+		t.Fatalf("follow-up: %v", err)
+	}
+}
+
+func assertJoinRead(t *testing.T, source stand.Source, read *agentv1.AuditEvent) {
+	t.Helper()
+	if read.GetEventType() != agentv1.EventType_EVENT_TYPE_DATA_ACCESS {
+		t.Errorf("event type = %s", read.GetEventType())
+	}
+	if read.GetEvidence().GetObjectResolution() != agentv1.ObjectResolution_OBJECT_RESOLUTION_RESOLVED {
+		t.Errorf("resolution = %s", read.GetEvidence().GetObjectResolution())
+	}
+	if read.GetActor().GetDatabasePrincipal() != "dg_app" {
+		t.Errorf("principal = %q", read.GetActor().GetDatabasePrincipal())
+	}
+	if read.GetActor().GetIdentityConfidence() != agentv1.IdentityConfidence_IDENTITY_CONFIDENCE_DB_PRINCIPAL_ONLY {
+		t.Errorf("identity = %s", read.GetActor().GetIdentityConfidence())
+	}
+	if !strings.HasPrefix(read.GetOperation().GetQueryFingerprint(), "sha256:") {
+		t.Errorf("fingerprint = %q", read.GetOperation().GetQueryFingerprint())
+	}
+	if source.Dialect.Name == "mysql" {
+		if got := read.GetEvidence().GetLevel(); got != agentv1.EvidenceLevel_EVIDENCE_LEVEL_REFERENCED {
+			t.Errorf("the general log proves no execution, level = %s", got)
+		}
+	} else if got := read.GetEvidence().GetLevel(); got != agentv1.EvidenceLevel_EVIDENCE_LEVEL_EXECUTED {
+		t.Errorf("level = %s", got)
+	}
+}
+
+// assertOneEventPerStatement checks that no event repeats and that the join is
+// one access: SQL Server writes one row per table.
+func assertOneEventPerStatement(t *testing.T, harness *auditHarness, read *agentv1.AuditEvent) {
+	t.Helper()
+	fingerprint := read.GetOperation().GetQueryFingerprint()
+	sameQuery, identifiers := 0, map[string]bool{}
+	for _, event := range harness.all(t) {
+		if identifiers[event.GetEventId()] {
+			t.Errorf("duplicate event %s", event.GetEventId())
+		}
+		identifiers[event.GetEventId()] = true
+		if event.GetOperation().GetQueryFingerprint() == fingerprint {
+			sameQuery++
+		}
+	}
+	if sameQuery == 1 {
+		return
+	}
+	for _, event := range harness.all(t) {
+		if event.GetOperation().GetQueryFingerprint() == fingerprint {
+			t.Logf("id %s session %s tx %s time %s tables %v", event.GetEventId(), event.GetCorrelation().GetSessionId(),
+				event.GetCorrelation().GetTransactionId(), event.GetEventTime().AsTime().Format("15:04:05.000000"), event.GetOperation().GetTables())
+		}
+	}
+	t.Errorf("one join produced %d events", sameQuery)
+}
+
+func assertUpdateWritesStatus(t *testing.T, harness *auditHarness) {
+	t.Helper()
+	modification := harness.waitFor(t, "update", func(event *agentv1.AuditEvent) bool {
+		return event.GetEventType() == agentv1.EventType_EVENT_TYPE_DATA_MODIFICATION
+	})
+	written := slices.ContainsFunc(modification.GetOperation().GetColumns(), func(item *agentv1.AccessedColumn) bool {
+		return item.GetWritten() && item.GetColumn().GetColumn() == "status"
+	})
+	if !written {
+		t.Errorf("update columns = %v", modification.GetOperation().GetColumns())
+	}
+}
+
 // assertAuditCapabilities guards against a probe that misreads its own access: a
 // source whose events are flowing must not be reported as unaudited.
 func assertAuditCapabilities(t *testing.T, harness *auditHarness) {
 	t.Helper()
-	reports := harness.registry.Probe(context.Background())
+	reports := harness.registry.Probe(t.Context())
 	if len(reports) != 1 {
 		t.Fatalf("reports = %v", reports)
 	}
@@ -279,7 +301,7 @@ func (h *auditHarness) assertNoMarker(t *testing.T) {
 }
 
 func TestReplayAfterRestartKeepsEveryEventAndAddsNone(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	if err := seed.Tables(ctx, source.Admin, source.Dialect, 3, synthetic.New(3)); err != nil {
 		t.Fatal(err)
@@ -324,7 +346,7 @@ func TestReplayAfterRestartKeepsEveryEventAndAddsNone(t *testing.T) {
 }
 
 func TestUnparsableStatementLeavesNoTraceOfItsText(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.MariaDBSource(t)
 	harness := startCollector(t, source, t.TempDir(), nil)
 
@@ -342,7 +364,7 @@ func TestUnparsableStatementLeavesNoTraceOfItsText(t *testing.T) {
 }
 
 func TestApplicationContext(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	if err := seed.Tables(ctx, source.Admin, source.Dialect, 3, synthetic.New(3)); err != nil {
 		t.Fatal(err)

@@ -66,17 +66,7 @@ func (s *Source) Close() error { return s.db.Close() }
 
 // Probe reports discovery capabilities and the server version.
 func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus) {
-	var version string
-	if err := s.db.QueryRowContext(ctx, `SELECT VERSION()`).Scan(&version); err != nil {
-		return "", []*agentv1.CapabilityStatus{
-			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
-			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
-		}
-	}
-	return version, append([]*agentv1.CapabilityStatus{
-		connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_AVAILABLE, ""),
-		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_AVAILABLE, ""),
-	}, s.auditCapabilities(ctx)...)
+	return sqlsource.Probe(ctx, s.db, `SELECT VERSION()`, s.auditCapabilities)
 }
 
 func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilityStatus {
@@ -129,35 +119,15 @@ ORDER BY t.TABLE_NAME, c.ORDINAL_POSITION`
 // level below the database, so Schema repeats the database name, which is also
 // how the engine itself treats the two.
 func (s *Source) Tables(ctx context.Context) ([]connector.Table, error) {
-	rows, err := s.db.QueryContext(ctx, catalogQuery)
-	if err != nil {
-		return nil, safeerr.New("read catalog", safeerr.CodeQuery, err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var tables []connector.Table
-	for rows.Next() {
-		var name, kind, definition string
-		var estimate int64
+	return sqlsource.Catalog(ctx, s.db, catalogQuery, func(rows *sql.Rows) (connector.Table, connector.Column, error) {
+		table := connector.Table{Database: s.database, Schema: s.database}
+		var kind string
 		var column connector.Column
-		if err := rows.Scan(&name, &kind, &estimate, &definition, &column.Name, &column.NativeType,
-			&column.Ordinal, &column.Nullable, &column.Comment); err != nil {
-			return nil, safeerr.New("decode catalog row", safeerr.CodeQuery, err)
-		}
-		last := len(tables) - 1
-		if last < 0 || tables[last].Name != name {
-			tables = append(tables, connector.Table{
-				Database: s.database, Schema: s.database, Name: name, Kind: tableKind(kind),
-				EstimatedRows: estimate, Definition: definition,
-			})
-			last++
-		}
-		tables[last].Columns = append(tables[last].Columns, column)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, safeerr.New("read catalog", safeerr.CodeQuery, err)
-	}
-	return tables, nil
+		err := rows.Scan(&table.Name, &kind, &table.EstimatedRows, &table.Definition,
+			&column.Name, &column.NativeType, &column.Ordinal, &column.Nullable, &column.Comment)
+		table.Kind = tableKind(kind)
+		return table, column, err
+	})
 }
 
 func tableKind(kind string) agentv1.TableKind {
@@ -183,9 +153,8 @@ func (dialect) Quote(identifier string) string {
 // SampleQuery has no engine sampling to use, so it reads a prefix. The prefix
 // follows storage order and may be biased towards old rows; the result reports
 // SAMPLING_METHOD_BOUNDED_PREFIX so this stays visible.
-func (d dialect) SampleQuery(table connector.Table, quotedColumns []string, maxRows uint64) (string, agentv1.SamplingMethod) {
-	target := d.Quote(table.Schema) + "." + d.Quote(table.Name)
-	return fmt.Sprintf(`SELECT %s FROM %s LIMIT %d`, strings.Join(quotedColumns, ", "), target, maxRows),
+func (dialect) SampleQuery(target, columns string, _ int64, maxRows uint64) (string, agentv1.SamplingMethod) {
+	return fmt.Sprintf(`SELECT %s FROM %s LIMIT %d`, columns, target, maxRows),
 		agentv1.SamplingMethod_SAMPLING_METHOD_BOUNDED_PREFIX
 }
 

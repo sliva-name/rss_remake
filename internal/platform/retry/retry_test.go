@@ -26,7 +26,7 @@ func TestDelayGrows(t *testing.T) {
 }
 
 func TestSleepStopsOnCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if retry.Sleep(ctx, time.Hour) {
 		t.Fatal("Sleep must report false on a cancelled context")

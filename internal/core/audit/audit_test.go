@@ -119,7 +119,7 @@ func TestIngestStampsCategoriesFromTheCatalog(t *testing.T) {
 	}})
 	item := event(sourceID)
 
-	accepted, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{item})
+	accepted, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{item})
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestIngestStampsCategoriesFromTheCatalog(t *testing.T) {
 
 func TestIngestRefusesForeignSource(t *testing.T) {
 	service, sink := newService(t, fakeCatalog{owned: []uuid.UUID{uuid.New()}})
-	_, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{event(uuid.New())})
+	_, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{event(uuid.New())})
 	if !errors.Is(err, audit.ErrForeignSource) {
 		t.Fatalf("err = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestIngestAcknowledgesNothingWhenStorageFails(t *testing.T) {
 	sourceID := uuid.New()
 	service, sink := newService(t, fakeCatalog{owned: []uuid.UUID{sourceID}})
 	sink.err = errors.New("unavailable")
-	accepted, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{event(sourceID)})
+	accepted, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{event(sourceID)})
 	if err == nil || accepted != nil {
 		t.Fatalf("accepted = %v, err = %v", accepted, err)
 	}
@@ -167,7 +167,7 @@ func TestGapKeepsUnknownLossUnknown(t *testing.T) {
 		EventType: agentv1.EventType_EVENT_TYPE_AUDIT_GAP,
 		Gap:       &agentv1.AuditGap{Reason: agentv1.GapReason_GAP_REASON_LOG_ROTATED},
 	}
-	if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{gap}); err != nil {
+	if _, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{gap}); err != nil {
 		t.Fatal(err)
 	}
 	if sink.events[0].GapLostEvents != nil || sink.events[0].GapReason != "GAP_REASON_LOG_ROTATED" {
@@ -181,7 +181,7 @@ func TestImplausibleEventTimeIsReplaced(t *testing.T) {
 	for _, at := range []time.Time{time.Unix(0, 0), time.Now().Add(100 * 365 * 24 * time.Hour)} {
 		item := event(sourceID)
 		item.EventTime = timestamppb.New(at)
-		if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{item}); err != nil {
+		if _, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{item}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -208,7 +208,7 @@ func TestIngestReadsEachCatalogOncePerBatch(t *testing.T) {
 	catalog := &countingCatalog{owned: []uuid.UUID{first, second}, versionReads: map[uuid.UUID]int{}}
 	service, _ := newService(t, catalog)
 	batch := []*agentv1.AuditEvent{event(first), event(second), event(first), event(first), event(second)}
-	if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), batch); err != nil {
+	if _, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), batch); err != nil {
 		t.Fatal(err)
 	}
 	if catalog.versionReads[first] != 1 || catalog.versionReads[second] != 1 {
@@ -220,10 +220,10 @@ func TestRedeliveryIsAcknowledgedButStoredOnce(t *testing.T) {
 	sourceID := uuid.New()
 	service, sink := newService(t, fakeCatalog{owned: []uuid.UUID{sourceID}})
 	first, second := event(sourceID), event(sourceID)
-	if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{first}); err != nil {
+	if _, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{first}); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{first, second, second})
+	accepted, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{first, second, second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestEventTimeIsKeptToTheMicrosecond(t *testing.T) {
 	item := event(sourceID)
 	item.EventTime = timestamppb.New(time.Now().Truncate(time.Microsecond).Add(789 * time.Nanosecond))
 	for range 2 {
-		if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{item}); err != nil {
+		if _, err := service.Ingest(t.Context(), uuid.New(), uuid.New(), []*agentv1.AuditEvent{item}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -262,7 +262,7 @@ func TestStoreSeparatesAgentsAndDropsRepeats(t *testing.T) {
 	repeated := audit.Event{ID: uuid.New(), TenantID: tenantID, AgentID: first, Time: at}
 	batch := []audit.Event{repeated, {ID: uuid.New(), TenantID: tenantID, AgentID: second, Time: at}, repeated}
 	for range 2 {
-		if err := service.Store(context.Background(), batch); err != nil {
+		if err := service.Store(t.Context(), batch); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -135,11 +135,7 @@ func (s *Server) ListTenants(ctx context.Context, _ restapi.ListTenantsRequestOb
 	if err != nil {
 		return nil, err
 	}
-	response := make(restapi.ListTenants200JSONResponse, 0, len(tenants))
-	for _, item := range tenants {
-		response = append(response, toTenant(item))
-	}
-	return response, nil
+	return restapi.ListTenants200JSONResponse(convertAll(tenants, toTenant)), nil
 }
 
 func (s *Server) CreateTenant(ctx context.Context, request restapi.CreateTenantRequestObject) (restapi.CreateTenantResponseObject, error) {
@@ -155,11 +151,7 @@ func (s *Server) ListEnvironments(ctx context.Context, _ restapi.ListEnvironment
 	if err != nil {
 		return nil, err
 	}
-	response := make(restapi.ListEnvironments200JSONResponse, 0, len(environments))
-	for _, item := range environments {
-		response = append(response, toEnvironment(item))
-	}
-	return response, nil
+	return restapi.ListEnvironments200JSONResponse(convertAll(environments, toEnvironment)), nil
 }
 
 func (s *Server) CreateEnvironment(ctx context.Context, request restapi.CreateEnvironmentRequestObject) (restapi.CreateEnvironmentResponseObject, error) {
@@ -183,11 +175,7 @@ func (s *Server) ListAgents(ctx context.Context, _ restapi.ListAgentsRequestObje
 	if err != nil {
 		return nil, err
 	}
-	response := make(restapi.ListAgents200JSONResponse, 0, len(agents))
-	for _, item := range agents {
-		response = append(response, toAgent(item))
-	}
-	return response, nil
+	return restapi.ListAgents200JSONResponse(convertAll(agents, toAgent)), nil
 }
 
 func (s *Server) GetAgent(ctx context.Context, request restapi.GetAgentRequestObject) (restapi.GetAgentResponseObject, error) {
@@ -210,11 +198,7 @@ func (s *Server) ListSources(ctx context.Context, _ restapi.ListSourcesRequestOb
 	if err != nil {
 		return nil, err
 	}
-	response := make(restapi.ListSources200JSONResponse, 0, len(sources))
-	for _, item := range sources {
-		response = append(response, toSource(item))
-	}
-	return response, nil
+	return restapi.ListSources200JSONResponse(convertAll(sources, toSource)), nil
 }
 
 func (s *Server) GetSource(ctx context.Context, request restapi.GetSourceRequestObject) (restapi.GetSourceResponseObject, error) {
@@ -282,6 +266,15 @@ func sourceDraft(name, engine, host string, port int, database, username, tls st
 	return draft
 }
 
+// convertAll never returns nil, so an empty list is encoded as [], not null.
+func convertAll[T, R any](items []T, convert func(T) R) []R {
+	result := make([]R, 0, len(items))
+	for _, item := range items {
+		result = append(result, convert(item))
+	}
+	return result
+}
+
 func toTenant(item tenant.Tenant) restapi.Tenant {
 	return restapi.Tenant{Id: item.ID, Name: item.Name, CreatedAt: item.CreatedAt}
 }
@@ -303,12 +296,9 @@ func toAgent(item fleet.Agent) restapi.Agent {
 }
 
 func toSource(item fleet.Source) restapi.Source {
-	capabilities := make([]restapi.Capability, 0, len(item.Capabilities))
-	for _, capability := range item.Capabilities {
-		capabilities = append(capabilities, restapi.Capability{
-			Capability: capability.Capability, Support: capability.Support, ReasonCode: capability.ReasonCode,
-		})
-	}
+	capabilities := convertAll(item.Capabilities, func(capability fleet.Capability) restapi.Capability {
+		return restapi.Capability{Capability: capability.Capability, Support: capability.Support, ReasonCode: capability.ReasonCode}
+	})
 	return restapi.Source{
 		Id: item.ID, AgentId: item.AgentID, Key: item.Key, Engine: item.Engine,
 		Host: item.Host, Port: item.Port, Database: item.Database, Username: item.Username,

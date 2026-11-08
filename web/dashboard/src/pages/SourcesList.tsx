@@ -3,7 +3,7 @@ import { MoreHorizontal, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { api, type Schemas } from "../api";
-import { CoverageState, FailureNote, Mono, ScanState, SourceState } from "../components/domain";
+import { CoverageState, FailureNote, Mono, NoValue, ScanState, SourceState } from "../components/domain";
 import { SourceDrawer } from "../components/source-form";
 import { Badge, type Tone } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -18,7 +18,7 @@ import { useNotify } from "../components/ui/toast";
 import { ago, capability, count, dateTime, engine, failure, percent, shortId, support } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
-import { queries } from "../queries";
+import { queries, usePermittedQuery } from "../queries";
 
 type Source = Schemas["Source"];
 
@@ -75,7 +75,7 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
   const can = useCan();
   const actions = useSourceActions(tenantId);
   const sources = useQuery({ ...queries.sources(), refetchInterval: 5000 });
-  const coverage = useQuery({ ...queries.coverage(24), enabled: can("getAuditCoverage") });
+  const coverage = usePermittedQuery(queries.coverage(24));
   const coverageOf = (id: string) => coverage.data?.find((row) => row.sourceId === id);
 
   const columns = useMemo<TableColumn<Source>[]>(() => [
@@ -97,19 +97,20 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
         </div>
       ),
     },
-    ...(can("getAuditCoverage") ? [{
-      id: "audit", header: "Аудит за сутки", accessorFn: (row: Source) => coverageOf(row.id)?.status ?? "",
-      cell: ({ row }: { row: { original: Source } }) => {
+    {
+      id: "audit", header: "Аудит за сутки", meta: { needs: "getAuditCoverage" }, accessorFn: (row) => coverageOf(row.id)?.status ?? "",
+      cell: ({ row }) => {
         const state = coverageOf(row.original.id);
-        return state ? <CoverageState status={state.status} reason={state.reason} /> : <span className="text-fg-3">—</span>;
+        return state ? <CoverageState status={state.status} reason={state.reason} /> : <NoValue />;
       },
-    }, {
-      id: "scan", header: "Последний скан", accessorFn: (row: Source) => coverageOf(row.id)?.lastScanAt ?? "",
-      cell: ({ row }: { row: { original: Source } }) => {
+    },
+    {
+      id: "scan", header: "Последний скан", meta: { needs: "getAuditCoverage" }, accessorFn: (row) => coverageOf(row.id)?.lastScanAt ?? "",
+      cell: ({ row }) => {
         const state = coverageOf(row.original.id);
         return state?.lastScanStatus ? <div><ScanState status={state.lastScanStatus} /><div className="text-xs text-fg-2">{ago(state.lastScanAt)}</div></div> : <span className="text-fg-3">Не было</span>;
       },
-    }] : []),
+    },
     { id: "address", header: "Адрес", accessorFn: (row) => row.host, cell: ({ row }) => <Mono className="text-fg-2">{row.original.host}:{row.original.port}/{row.original.database}</Mono> },
     { id: "agent", header: "Агент", accessorFn: (row) => row.agentId, cell: ({ row }) => <ObjectLink to={paths.agent(row.original.agentId)} needs="getAgent" className="font-mono text-[13px]">{shortId(row.original.agentId)}</ObjectLink> },
     {
@@ -213,7 +214,7 @@ function CapabilitiesTab() {
                         const item = row.capabilities.find((entry) => entry.capability === name);
                         return (
                           <td key={row.id} className="px-3 py-2">
-                            {item ? <Badge tone={supportTone[item.support] ?? "neutral"} title={item.reasonCode || undefined}>{support(item.support)}</Badge> : <span className="text-fg-3">—</span>}
+                            {item ? <Badge tone={supportTone[item.support] ?? "neutral"} title={item.reasonCode || undefined}>{support(item.support)}</Badge> : <NoValue />}
                           </td>
                         );
                       })}
@@ -248,17 +249,17 @@ function ScansTab() {
 }
 
 export function SourcesList({ tenantId }: { tenantId: string }) {
-  const can = useCan();
-  const tabs = [
-    ...(can("listSources") ? [{ id: "sources", label: "Источники", content: <SourcesTab tenantId={tenantId} /> }] : []),
-    ...(can("getAuditCoverage") ? [{ id: "coverage", label: "Покрытие аудита", content: <CoverageTab /> }] : []),
-    ...(can("listSources") ? [{ id: "capabilities", label: "Возможности", content: <CapabilitiesTab /> }] : []),
-    ...(can("listScans") ? [{ id: "scans", label: "Сканирования", content: <ScansTab /> }] : []),
-  ];
   return (
     <>
       <PageHeader title="Источники" description="Базы данных, к которым подключаются агенты: состояние подключения, аудита и сканирования." />
-      <Tabs items={tabs} />
+      <Tabs
+        items={[
+          { id: "sources", label: "Источники", needs: "listSources", content: <SourcesTab tenantId={tenantId} /> },
+          { id: "coverage", label: "Покрытие аудита", needs: "getAuditCoverage", content: <CoverageTab /> },
+          { id: "capabilities", label: "Возможности", needs: "listSources", content: <CapabilitiesTab /> },
+          { id: "scans", label: "Сканирования", needs: "listScans", content: <ScansTab /> },
+        ]}
+      />
     </>
   );
 }

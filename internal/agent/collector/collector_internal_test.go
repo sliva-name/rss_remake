@@ -404,7 +404,7 @@ func TestFullQueueDoesNotLoseRecords(t *testing.T) {
 	reader := &scriptedReader{batches: []Batch{{Records: records, Cursor: []byte("after")}}}
 	item, events := newTestCollector(t, reader, 512)
 
-	item.tick(context.Background())
+	item.tick(t.Context())
 
 	if reader.rewinds != 1 {
 		t.Fatalf("rewinds = %d", reader.rewinds)
@@ -425,11 +425,11 @@ func TestLogLostWhileQueueWasFullIsBlamedOnTheQueue(t *testing.T) {
 	}
 	reader := &scriptedReader{batches: []Batch{{Records: records, Cursor: []byte("after")}}}
 	item, events := newTestCollector(t, reader, 512)
-	item.tick(context.Background())
+	item.tick(t.Context())
 
 	reader.batches = []Batch{{Gap: lostLogGap(), Cursor: []byte("resumed")}}
 	reader.position = 0
-	item.tick(context.Background())
+	item.tick(t.Context())
 
 	items, err := events.Peek(10, 1<<20)
 	if err != nil || len(items) != 1 {
@@ -448,7 +448,7 @@ func TestLogLostWhileQueueWasFullIsBlamedOnTheQueue(t *testing.T) {
 func TestUnparseableLinesBecomeAGap(t *testing.T) {
 	reader := &scriptedReader{batches: []Batch{{Unparseable: 3, Cursor: []byte("after")}}}
 	item, events := newTestCollector(t, reader, 1<<20)
-	item.tick(context.Background())
+	item.tick(t.Context())
 
 	items, err := events.Peek(10, 1<<20)
 	if err != nil || len(items) != 1 {
@@ -468,7 +468,7 @@ func TestSilentSourceIsObservingBrokenSourceIsNot(t *testing.T) {
 	if item.Health().GetState() == agentv1.AuditSourceState_AUDIT_SOURCE_STATE_OBSERVING {
 		t.Fatal("nothing was read yet")
 	}
-	item.tick(context.Background())
+	item.tick(t.Context())
 	health := item.Health()
 	if health.GetState() != agentv1.AuditSourceState_AUDIT_SOURCE_STATE_OBSERVING || health.GetPositionReadAt() == nil {
 		t.Fatalf("health = %+v", health)
@@ -476,7 +476,7 @@ func TestSilentSourceIsObservingBrokenSourceIsNot(t *testing.T) {
 
 	missing := filepath.Join(t.TempDir(), "absent")
 	broken, _ := newTestCollector(t, NewPostgresReader(missing), 1<<20)
-	broken.tick(context.Background())
+	broken.tick(t.Context())
 	if state := broken.Health().GetState(); state == agentv1.AuditSourceState_AUDIT_SOURCE_STATE_OBSERVING {
 		t.Fatalf("state = %s", state)
 	}
@@ -484,7 +484,7 @@ func TestSilentSourceIsObservingBrokenSourceIsNot(t *testing.T) {
 
 func TestReplayedRecordKeepsItsEventID(t *testing.T) {
 	item, _ := newTestCollector(t, &scriptedReader{}, 1<<20)
-	item.tick(context.Background())
+	item.tick(t.Context())
 	first, _ := item.event(&Record{Position: "7:100", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
 	second, _ := item.event(&Record{Position: "7:100", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
 	other, _ := item.event(&Record{Position: "7:101", Statement: NewStatement("SELECT id FROM users"), Status: agentv1.ExecutionStatus_EXECUTION_STATUS_SUCCESS})
@@ -495,7 +495,7 @@ func TestReplayedRecordKeepsItsEventID(t *testing.T) {
 
 func TestLiteralNeverReachesTheEvent(t *testing.T) {
 	item, _ := newTestCollector(t, &scriptedReader{}, 1<<20)
-	item.tick(context.Background())
+	item.tick(t.Context())
 	record := statementRecord(1)
 	event, _ := item.event(&record)
 	if event == nil {
@@ -530,14 +530,14 @@ func TestSQLServerFreshStartSkipsAllHistory(t *testing.T) {
 		})
 	}
 	reader := &sqlServerReader{source: audit, pattern: "*"}
-	first, err := reader.Read(context.Background(), nil)
+	first, err := reader.Read(t.Context(), nil)
 	if err != nil || len(first.Records) != 0 {
 		t.Fatalf("fresh start replayed history: %d records, %v", len(first.Records), err)
 	}
 	audit.rows = append(audit.rows, connector.AuditRow{
 		File: "a.sqlaudit", Offset: 4, Sequence: 1, Session: 99, UserObject: true, Statement: "SELECT id FROM users",
 	})
-	next, err := reader.Read(context.Background(), first.Cursor)
+	next, err := reader.Read(t.Context(), first.Cursor)
 	if err != nil || len(next.Records) != 1 || next.Records[0].Session != "99" {
 		t.Fatalf("records = %+v, %v", next.Records, err)
 	}
@@ -549,7 +549,7 @@ func TestSQLServerResumeInsideASharedOffsetDeliversEachRecordOnce(t *testing.T) 
 		return connector.AuditRow{File: "a.sqlaudit", Offset: 7, Sequence: 1, Session: session, UserObject: true, Statement: "SELECT id FROM users"}
 	}
 	reader := &sqlServerReader{source: audit, pattern: "*"}
-	start, err := reader.Read(context.Background(), nil)
+	start, err := reader.Read(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +557,7 @@ func TestSQLServerResumeInsideASharedOffsetDeliversEachRecordOnce(t *testing.T) 
 	delivered := map[string]bool{}
 	for step := range 4 {
 		audit.rows = append(audit.rows, row(step))
-		batch, err := reader.Read(context.Background(), cursor)
+		batch, err := reader.Read(t.Context(), cursor)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -579,7 +579,7 @@ func TestBlockedEventBecomesAGap(t *testing.T) {
 	record.Principal = "bad\nname"
 	reader := &scriptedReader{batches: []Batch{{Records: []Record{record}, Cursor: []byte("after")}}}
 	item, events := newTestCollector(t, reader, 1<<20)
-	item.tick(context.Background())
+	item.tick(t.Context())
 	items, err := events.Peek(10, 1<<20)
 	if err != nil || len(items) != 1 || items[0].Event.GetGap().GetLostEvents() != 1 {
 		t.Fatalf("items = %+v, %v", items, err)
@@ -647,16 +647,16 @@ func TestEveryGapIsCounted(t *testing.T) {
 	reader := &scriptedReader{batches: []Batch{{Unparseable: 3, Cursor: []byte("first")}, {Gap: lostLogGap(), Cursor: []byte("second")}}}
 	item, _ := newTestCollector(t, reader, 1<<20)
 	item.options.Metrics = observer
-	item.tick(context.Background())
-	item.tick(context.Background())
+	item.tick(t.Context())
+	item.tick(t.Context())
 
 	full := &scriptedReader{batches: []Batch{{Records: records, Cursor: []byte("after")}}}
 	blocked, _ := newTestCollector(t, full, 512)
 	blocked.options.Metrics = observer
-	blocked.tick(context.Background())
+	blocked.tick(t.Context())
 	full.batches = []Batch{{Gap: lostLogGap(), Cursor: []byte("resumed")}}
 	full.position = 0
-	blocked.tick(context.Background())
+	blocked.tick(t.Context())
 
 	samples, err := observer.Gather()
 	if err != nil {

@@ -39,7 +39,7 @@ func searchWindow() audit.Filter {
 
 func (p *platform) search(t *testing.T, tenantID uuid.UUID, filter audit.Filter) ([]audit.Event, uint64) {
 	t.Helper()
-	events, total, err := p.events.Search(context.Background(), tenantID, filter)
+	events, total, err := p.events.Search(t.Context(), tenantID, filter)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -49,7 +49,7 @@ func (p *platform) search(t *testing.T, tenantID uuid.UUID, filter audit.Filter)
 // scanAndAudit brings up a real agent that has classified the source.
 func scanAndAudit(t *testing.T, source stand.Source) (*platform, uuid.UUID, uuid.UUID, *runningAgent) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := seed.Tables(ctx, source.Admin, source.Dialect, 40, synthetic.New(21)); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -100,7 +100,7 @@ func awaitEvents(t *testing.T, platform *platform, tenantID uuid.UUID, want uint
 }
 
 func TestAuditReachesAnalyticsWithClassification(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	platform, tenantID, sourceID, _ := scanAndAudit(t, source)
 	platform.authn["analyst"] = api.Principal{Subject: "a", TenantID: tenantID, Roles: []string{api.RoleSecurityAnalyst}}
@@ -210,7 +210,7 @@ func assertCoverage(t *testing.T, platform *platform, sourceID uuid.UUID) {
 }
 
 func TestCenterOutageLosesNothingAndDuplicatesNothing(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	platform, tenantID, _, agent := scanAndAudit(t, source)
 	marker := func(i int) string { return fmt.Sprintf(`SELECT status, %d FROM %s`, i, seed.Users) }
@@ -324,7 +324,7 @@ func gather(t *testing.T, read func() (map[string]float64, error)) map[string]fl
 }
 
 func TestRedeliveryStoresOneRow(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
@@ -352,7 +352,7 @@ func TestRedeliveryStoresOneRow(t *testing.T) {
 // the retry can reach another server instance. The check and the insert run
 // under the agent's lock, so racing deliveries store each event once.
 func TestConcurrentRedeliveryStoresEachEventOnce(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
@@ -392,7 +392,7 @@ func TestConcurrentRedeliveryStoresEachEventOnce(t *testing.T) {
 // Reports read whole hours from the projection and the partial hours at the edges
 // from the rows. Every way of cutting the window must count what the rows hold.
 func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	store, err := clickhouse.Open(ctx, stand.CenterEvents(t))
 	if err != nil {
 		t.Fatal(err)
@@ -477,7 +477,7 @@ func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
 // The rewrite of ADR-0007 runs on live data once: replays folded by the old
 // engine must become single rows, and the row policy must keep guarding the table.
 func TestEventTableMigrationKeepsEventsOnceAndStaysIsolated(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	owner, runtime := stand.EmptyCenterEvents(t)
 	original, err := fs.ReadFile(migrations.ClickHouse, "clickhouse/0001_audit_events.sql")
 	if err != nil {
@@ -528,7 +528,7 @@ func TestEventTableMigrationKeepsEventsOnceAndStaysIsolated(t *testing.T) {
 // Databases migrated before goose list their files in schema_migrations. Applied
 // again, 0001 would fail on the existing table and 0002 would rebuild it.
 func TestMigrationAdoptsFilesAppliedBeforeGoose(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	owner, runtime := stand.EmptyCenterEvents(t)
 	if err := clickhouse.Migrate(ctx, owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
 		t.Fatal(err)
@@ -592,7 +592,7 @@ func TestMigrationAdoptsFilesAppliedBeforeGoose(t *testing.T) {
 // are still acknowledged, so their queues do not grow; the backlog waits in the
 // broker and is stored once when ClickHouse returns.
 func TestStorageOutageIsAbsorbedByTheBroker(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
@@ -647,7 +647,7 @@ func TestStorageOutageIsAbsorbedByTheBroker(t *testing.T) {
 }
 
 func TestAgentCannotReportOnAnotherAgentsSource(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	owner := platform.enroll(t, created.ID, environment.ID)
@@ -668,7 +668,7 @@ func TestAgentCannotReportOnAnotherAgentsSource(t *testing.T) {
 // user. If it passes, a query that forgets WHERE tenant_id still cannot cross
 // tenants.
 func TestRowPolicyHoldsWithoutTheApplicationFilter(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	first, firstEnvironment := platform.newTenant(t, "Acme")
 	second, secondEnvironment := platform.newTenant(t, "Globex")
@@ -711,7 +711,7 @@ func TestRowPolicyHoldsWithoutTheApplicationFilter(t *testing.T) {
 }
 
 func TestTenantsSeeOnlyTheirOwnAnalytics(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	first, environment := platform.newTenant(t, "Acme")
 	second, _ := platform.newTenant(t, "Globex")

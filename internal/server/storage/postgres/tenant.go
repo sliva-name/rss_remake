@@ -19,15 +19,9 @@ func (s *Store) CreateTenant(ctx context.Context, created tenant.Tenant) error {
 }
 
 func (s *Store) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, name, created_at FROM platform_list_tenants()`)
-	if err != nil {
-		return nil, storageError("list tenants", err)
-	}
-	tenants, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (tenant.Tenant, error) {
-		var item tenant.Tenant
-		err := row.Scan(&item.ID, &item.Name, &item.CreatedAt)
-		return item, err
-	})
+	tenants, err := queryAll(ctx, s.pool, func(row pgx.Row, item *tenant.Tenant) error {
+		return row.Scan(&item.ID, &item.Name, &item.CreatedAt)
+	}, `SELECT id, name, created_at FROM platform_list_tenants()`)
 	if err != nil {
 		return nil, storageError("list tenants", err)
 	}
@@ -47,15 +41,10 @@ func (s *Store) ListEnvironments(ctx context.Context, tenantID uuid.UUID) ([]ten
 	var environments []tenant.Environment
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		const query = `SELECT id, tenant_id, name, kind, created_at FROM environments ORDER BY name`
-		rows, err := tx.Query(ctx, query)
-		if err != nil {
-			return err
-		}
-		environments, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (tenant.Environment, error) {
-			var item tenant.Environment
-			err := row.Scan(&item.ID, &item.TenantID, &item.Name, &item.Kind, &item.CreatedAt)
-			return item, err
-		})
+		var err error
+		environments, err = queryAll(ctx, tx, func(row pgx.Row, item *tenant.Environment) error {
+			return row.Scan(&item.ID, &item.TenantID, &item.Name, &item.Kind, &item.CreatedAt)
+		}, query)
 		return err
 	})
 	if err != nil {

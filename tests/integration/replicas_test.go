@@ -106,7 +106,7 @@ func hostOf(t *testing.T, raw string) string {
 // through a balancer while connections to the instances keep breaking: deliveries
 // cut after the insert and before the acknowledgement land on the other instance.
 func TestAgentMovesBetweenInstancesWithoutLossOrDuplicates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	if err := seed.Tables(ctx, source.Admin, source.Dialect, 40, synthetic.New(21)); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -187,7 +187,7 @@ func TestAgentMovesBetweenInstancesWithoutLossOrDuplicates(t *testing.T) {
 // TestInstancesAgreeUnderConcurrentRequests sends the same request to both
 // instances at once wherever one of them answering wrongly would break a promise.
 func TestInstancesAgreeUnderConcurrentRequests(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	first := startPlatform(t)
 	second := first.secondInstance(t)
 	urls := []string{first.agents.URL, second.agents.URL}
