@@ -40,15 +40,10 @@ func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy strin
 func (s *Store) History(ctx context.Context, tenantID uuid.UUID) ([]policy.Published, error) {
 	var history []policy.Published
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT version, payload, signature, created_by, created_at FROM policies ORDER BY version DESC`)
-		if err != nil {
-			return err
-		}
-		history, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.Published, error) {
-			var item policy.Published
-			err := row.Scan(&item.Version, &item.Payload, &item.Signature, &item.CreatedBy, &item.CreatedAt)
-			return item, err
-		})
+		var err error
+		history, err = queryAll(ctx, tx, func(row pgx.Row, item *policy.Published) error {
+			return row.Scan(&item.Version, &item.Payload, &item.Signature, &item.CreatedBy, &item.CreatedAt)
+		}, `SELECT version, payload, signature, created_by, created_at FROM policies ORDER BY version DESC`)
 		return err
 	})
 	if err != nil {

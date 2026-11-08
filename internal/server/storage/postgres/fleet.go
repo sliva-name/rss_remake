@@ -69,19 +69,15 @@ func (s *Store) CreateAgent(ctx context.Context, agent fleet.Agent) error {
 
 const agentColumns = `id, tenant_id, environment_id, status, version, certificate_expires, last_seen_at, created_at, sealing_public_key`
 
-func scanAgent(row pgx.Row) (fleet.Agent, error) {
-	var agent fleet.Agent
-	err := row.Scan(&agent.ID, &agent.TenantID, &agent.EnvironmentID, &agent.Status, &agent.Version,
+func scanAgent(row pgx.Row, agent *fleet.Agent) error {
+	return row.Scan(&agent.ID, &agent.TenantID, &agent.EnvironmentID, &agent.Status, &agent.Version,
 		&agent.CertificateExpires, &agent.LastSeenAt, &agent.CreatedAt, &agent.SealingPublicKey)
-	return agent, err
 }
 
 func (s *Store) GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (fleet.Agent, error) {
 	var agent fleet.Agent
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		var err error
-		agent, err = scanAgent(tx.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents WHERE id = $1`, agentID))
-		return err
+		return scanAgent(tx.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents WHERE id = $1`, agentID), &agent)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fleet.Agent{}, fleet.ErrNotFound
@@ -95,13 +91,8 @@ func (s *Store) GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (flee
 func (s *Store) ListAgents(ctx context.Context, tenantID uuid.UUID) ([]fleet.Agent, error) {
 	var agents []fleet.Agent
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT `+agentColumns+` FROM agents ORDER BY created_at DESC`)
-		if err != nil {
-			return err
-		}
-		agents, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (fleet.Agent, error) {
-			return scanAgent(row)
-		})
+		var err error
+		agents, err = queryAll(ctx, tx, scanAgent, `SELECT `+agentColumns+` FROM agents ORDER BY created_at DESC`)
 		return err
 	})
 	if err != nil {
@@ -158,12 +149,10 @@ func (s *Store) updateAgent(ctx context.Context, tenantID uuid.UUID, op, stateme
 const sourceColumns = `id, tenant_id, agent_id, source_key, engine, host, port, database_name, username,
 	tls_mode, audit_directory, max_connections, sealed_password, engine_version, status_code, probed_at, updated_at, draft`
 
-func scanSource(row pgx.Row) (fleet.Source, error) {
-	var item fleet.Source
-	err := row.Scan(&item.ID, &item.TenantID, &item.AgentID, &item.Key, &item.Engine, &item.Host, &item.Port,
+func scanSource(row pgx.Row, item *fleet.Source) error {
+	return row.Scan(&item.ID, &item.TenantID, &item.AgentID, &item.Key, &item.Engine, &item.Host, &item.Port,
 		&item.Database, &item.Username, &item.TLS, &item.AuditDirectory, &item.MaxConnections, &item.SealedPassword,
 		&item.EngineVersion, &item.StatusCode, &item.ProbedAt, &item.UpdatedAt, &item.Draft)
-	return item, err
 }
 
 // staleDraft is the age past which a draft left behind by a closed browser is
@@ -281,12 +270,10 @@ func sourceWriteError(op string, err error) error {
 func (s *Store) GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (fleet.Source, error) {
 	var source fleet.Source
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		var err error
-		source, err = scanSource(tx.QueryRow(ctx, `SELECT `+sourceColumns+` FROM sources WHERE id = $1 AND deleted_at IS NULL`, sourceID))
-		if err != nil {
+		one := make([]fleet.Source, 1)
+		if err := scanSource(tx.QueryRow(ctx, `SELECT `+sourceColumns+` FROM sources WHERE id = $1 AND deleted_at IS NULL`, sourceID), &one[0]); err != nil {
 			return err
 		}
-		one := []fleet.Source{source}
 		if err := attachCapabilities(ctx, tx, one); err != nil {
 			return err
 		}
@@ -306,7 +293,7 @@ func (s *Store) ListSources(ctx context.Context, tenantID uuid.UUID) ([]fleet.So
 	var sources []fleet.Source
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		var err error
-		sources, err = querySources(ctx, tx, `SELECT `+sourceColumns+` FROM sources WHERE deleted_at IS NULL AND NOT draft ORDER BY source_key`)
+		sources, err = queryAll(ctx, tx, scanSource, `SELECT `+sourceColumns+` FROM sources WHERE deleted_at IS NULL AND NOT draft ORDER BY source_key`)
 		if err != nil {
 			return err
 		}
@@ -328,7 +315,7 @@ func (s *Store) AgentSourceList(ctx context.Context, tenantID, agentID uuid.UUID
 			return err
 		}
 		var err error
-		sources, err = querySources(ctx, tx, `SELECT `+sourceColumns+` FROM sources
+		sources, err = queryAll(ctx, tx, scanSource, `SELECT `+sourceColumns+` FROM sources
 			WHERE agent_id = $1 AND deleted_at IS NULL ORDER BY id`, agentID)
 		return err
 	})
@@ -339,16 +326,6 @@ func (s *Store) AgentSourceList(ctx context.Context, tenantID, agentID uuid.UUID
 		return 0, nil, storageError("agent source list", err)
 	}
 	return version, sources, nil
-}
-
-func querySources(ctx context.Context, tx pgx.Tx, query string, args ...any) ([]fleet.Source, error) {
-	rows, err := tx.Query(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (fleet.Source, error) {
-		return scanSource(row)
-	})
 }
 
 func (s *Store) RecordProbes(ctx context.Context, tenantID, agentID uuid.UUID, probes []fleet.Probe) error {

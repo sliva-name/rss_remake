@@ -34,19 +34,14 @@ func (s *Store) ListCatalog(ctx context.Context, tenantID uuid.UUID, filter asse
 			c.format_ratio, c.checksum_ratio, c.rows_inspected, c.rows_non_null, c.rows_matched,
 			c.unique_estimate, c.sampling_method, c.updated_at `
 		const order = ` ORDER BY t.schema_name, t.table_name, ac.ordinal, c.category_id LIMIT $3 OFFSET $4`
-		rows, err := tx.Query(ctx, columns+catalogFrom+order, sourceID, filter.Category, filter.Limit, filter.Offset)
-		if err != nil {
-			return err
-		}
-		entries, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.CatalogEntry, error) {
-			var entry asset.CatalogEntry
-			err := row.Scan(&entry.ColumnID, &entry.TableID, &entry.SourceID, &entry.Database, &entry.Schema,
+		var err error
+		entries, err = queryAll(ctx, tx, func(row pgx.Row, entry *asset.CatalogEntry) error {
+			return row.Scan(&entry.ColumnID, &entry.TableID, &entry.SourceID, &entry.Database, &entry.Schema,
 				&entry.Table, &entry.Column, &entry.NativeType, &entry.CategoryID, &entry.Confidence,
 				&entry.NameMatch, &entry.ContextMatch, &entry.FormatRatio, &entry.ChecksumRatio,
 				&entry.RowsInspected, &entry.RowsNonNull, &entry.RowsMatched, &entry.UniqueEstimate,
 				&entry.SamplingMethod, &entry.UpdatedAt)
-			return entry, err
-		})
+		}, columns+catalogFrom+order, sourceID, filter.Category, filter.Limit, filter.Offset)
 		return err
 	})
 	if err != nil {
@@ -64,15 +59,10 @@ func (s *Store) SummarizeCatalog(ctx context.Context, tenantID uuid.UUID) ([]ass
 			JOIN asset_tables t ON t.id = ac.table_id AND t.status = 'active'
 			WHERE c.status = 'detected'
 			GROUP BY c.category_id ORDER BY count(*) DESC`
-		rows, err := tx.Query(ctx, query)
-		if err != nil {
-			return err
-		}
-		counts, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.CategoryCount, error) {
-			var item asset.CategoryCount
-			err := row.Scan(&item.Category, &item.Columns, &item.Tables)
-			return item, err
-		})
+		var err error
+		counts, err = queryAll(ctx, tx, func(row pgx.Row, item *asset.CategoryCount) error {
+			return row.Scan(&item.Category, &item.Columns, &item.Tables)
+		}, query)
 		return err
 	})
 	if err != nil {
@@ -99,16 +89,11 @@ func (s *Store) ListHistory(ctx context.Context, tenantID uuid.UUID, filter asse
 			LEFT JOIN asset_columns ac ON ac.id = h.column_id
 			WHERE ($2::timestamptz IS NULL OR h.occurred_at >= $2) AND ($3::timestamptz IS NULL OR h.occurred_at < $3)
 			ORDER BY h.occurred_at DESC LIMIT $1`
-		rows, err := tx.Query(ctx, query, filter.Limit, from, to)
-		if err != nil {
-			return err
-		}
-		entries, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.HistoryEntry, error) {
-			var entry asset.HistoryEntry
-			err := row.Scan(&entry.OccurredAt, &entry.Kind, &entry.TableID, &entry.SourceKey, &entry.TableName, &entry.ColumnID,
+		var err error
+		entries, err = queryAll(ctx, tx, func(row pgx.Row, entry *asset.HistoryEntry) error {
+			return row.Scan(&entry.OccurredAt, &entry.Kind, &entry.TableID, &entry.SourceKey, &entry.TableName, &entry.ColumnID,
 				&entry.ColumnName, &entry.CategoryID)
-			return entry, err
-		})
+		}, query, filter.Limit, from, to)
 		return err
 	})
 	if err != nil {
@@ -147,16 +132,11 @@ func (s *Store) ListTables(ctx context.Context, tenantID uuid.UUID, filter asset
 			LEFT JOIN classifications c ON c.column_id = ac.id` + where + `
 			GROUP BY t.id
 			ORDER BY t.database_name, t.schema_name, t.table_name LIMIT @limit OFFSET @offset`
-		rows, err := tx.Query(ctx, query, arguments)
-		if err != nil {
-			return err
-		}
-		entries, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.TableEntry, error) {
-			var entry asset.TableEntry
-			err := row.Scan(&entry.ID, &entry.SourceID, &entry.Database, &entry.Schema, &entry.Name, &entry.Kind,
+		var err error
+		entries, err = queryAll(ctx, tx, func(row pgx.Row, entry *asset.TableEntry) error {
+			return row.Scan(&entry.ID, &entry.SourceID, &entry.Database, &entry.Schema, &entry.Name, &entry.Kind,
 				&entry.LastSeenAt, &entry.Columns, &entry.SensitiveColumns, &entry.Categories)
-			return entry, err
-		})
+		}, query, arguments)
 		return err
 	})
 	if err != nil {
@@ -180,15 +160,10 @@ func (s *Store) GetTable(ctx context.Context, tenantID, tableID uuid.UUID) (asse
 			LEFT JOIN classifications c ON c.column_id = ac.id
 			WHERE ac.table_id = $1 AND ac.status = 'active'
 			GROUP BY ac.id ORDER BY ac.ordinal`
-		rows, err := tx.Query(ctx, columns, tableID)
-		if err != nil {
-			return err
-		}
-		view.Columns, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.ColumnEntry, error) {
-			var column asset.ColumnEntry
-			err := row.Scan(&column.ID, &column.Name, &column.NativeType, &column.Ordinal, &column.Nullable, &column.Categories)
-			return column, err
-		})
+		var err error
+		view.Columns, err = queryAll(ctx, tx, func(row pgx.Row, column *asset.ColumnEntry) error {
+			return row.Scan(&column.ID, &column.Name, &column.NativeType, &column.Ordinal, &column.Nullable, &column.Categories)
+		}, columns, tableID)
 		if err != nil {
 			return err
 		}
@@ -221,18 +196,13 @@ func (s *Store) GetColumn(ctx context.Context, tenantID, columnID uuid.UUID) (as
 				first_seen_at, updated_at
 			FROM classifications WHERE column_id = $1
 			ORDER BY status = 'detected' DESC, confidence DESC, category_id`
-		rows, err := tx.Query(ctx, decisions, columnID)
-		if err != nil {
-			return err
-		}
-		view.Classifications, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.Decision, error) {
-			var decision asset.Decision
-			err := row.Scan(&decision.CategoryID, &decision.Detected, &decision.Confidence, &decision.NameMatch,
+		var err error
+		view.Classifications, err = queryAll(ctx, tx, func(row pgx.Row, decision *asset.Decision) error {
+			return row.Scan(&decision.CategoryID, &decision.Detected, &decision.Confidence, &decision.NameMatch,
 				&decision.ContextMatch, &decision.FormatRatio, &decision.ChecksumRatio, &decision.RowsInspected,
 				&decision.RowsNonNull, &decision.RowsMatched, &decision.UniqueEstimate, &decision.SamplingMethod,
 				&decision.FirstSeenAt, &decision.UpdatedAt)
-			return decision, err
-		})
+		}, decisions, columnID)
 		if err != nil {
 			return err
 		}
@@ -249,16 +219,10 @@ func (s *Store) GetColumn(ctx context.Context, tenantID, columnID uuid.UUID) (as
 }
 
 func renames(ctx context.Context, tx pgx.Tx, kind string, objectID uuid.UUID) ([]asset.RenameRecord, error) {
-	rows, err := tx.Query(ctx, `SELECT old_name, new_name, detected_at, detected_by FROM asset_renames
+	return queryAll(ctx, tx, func(row pgx.Row, record *asset.RenameRecord) error {
+		return row.Scan(&record.OldName, &record.NewName, &record.DetectedAt, &record.DetectedBy)
+	}, `SELECT old_name, new_name, detected_at, detected_by FROM asset_renames
 		WHERE object_kind = $1 AND object_id = $2 ORDER BY detected_at`, kind, objectID)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.RenameRecord, error) {
-		var record asset.RenameRecord
-		err := row.Scan(&record.OldName, &record.NewName, &record.DetectedAt, &record.DetectedBy)
-		return record, err
-	})
 }
 
 // Search finds active tables and columns by part of their name. Exact and
@@ -269,15 +233,10 @@ func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, text string, lim
 		const tables = `SELECT id, source_id, database_name, schema_name, table_name FROM asset_tables
 			WHERE status = 'active' AND strpos(lower(table_name), lower($1)) > 0
 			ORDER BY strpos(lower(table_name), lower($1)), length(table_name), table_name LIMIT $2`
-		rows, err := tx.Query(ctx, tables, text, limit)
-		if err != nil {
-			return err
-		}
-		matches.Tables, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.TableMatch, error) {
-			var match asset.TableMatch
-			err := row.Scan(&match.ID, &match.SourceID, &match.Database, &match.Schema, &match.Name)
-			return match, err
-		})
+		var err error
+		matches.Tables, err = queryAll(ctx, tx, func(row pgx.Row, match *asset.TableMatch) error {
+			return row.Scan(&match.ID, &match.SourceID, &match.Database, &match.Schema, &match.Name)
+		}, tables, text, limit)
 		if err != nil {
 			return err
 		}
@@ -289,15 +248,9 @@ func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, text string, lim
 			WHERE ac.status = 'active' AND strpos(lower(ac.column_name), lower($1)) > 0
 			GROUP BY ac.id, t.id
 			ORDER BY strpos(lower(ac.column_name), lower($1)), length(ac.column_name), ac.column_name, t.table_name LIMIT $2`
-		rows, err = tx.Query(ctx, columns, text, limit)
-		if err != nil {
-			return err
-		}
-		matches.Columns, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (asset.ColumnMatch, error) {
-			var match asset.ColumnMatch
-			err := row.Scan(&match.ID, &match.SourceID, &match.Schema, &match.Table, &match.Name, &match.Categories)
-			return match, err
-		})
+		matches.Columns, err = queryAll(ctx, tx, func(row pgx.Row, match *asset.ColumnMatch) error {
+			return row.Scan(&match.ID, &match.SourceID, &match.Schema, &match.Table, &match.Name, &match.Categories)
+		}, columns, text, limit)
 		return err
 	})
 	if err != nil {

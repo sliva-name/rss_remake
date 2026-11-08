@@ -126,15 +126,10 @@ func (s *Store) HealthReports(ctx context.Context, tenantID uuid.UUID) ([]covera
 	var reports []coverage.Health
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		const query = `SELECT source_id, state, reason_code, position_read_at, lost_events_total, reported_at FROM source_audit_health`
-		rows, err := tx.Query(ctx, query)
-		if err != nil {
-			return err
-		}
-		reports, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (coverage.Health, error) {
-			var item coverage.Health
-			err := row.Scan(&item.SourceID, &item.State, &item.ReasonCode, &item.PositionReadAt, &item.LostEvents, &item.ReportedAt)
-			return item, err
-		})
+		var err error
+		reports, err = queryAll(ctx, tx, func(row pgx.Row, item *coverage.Health) error {
+			return row.Scan(&item.SourceID, &item.State, &item.ReasonCode, &item.PositionReadAt, &item.LostEvents, &item.ReportedAt)
+		}, query)
 		return err
 	})
 	if err != nil {
