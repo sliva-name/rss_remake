@@ -14,6 +14,12 @@ export class ApiError extends Error {
 
 type Query = Record<string, string | number | undefined>;
 
+// A reporting window: ISO timestamps, end exclusive.
+export interface TimeWindow {
+  from: string;
+  to: string;
+}
+
 function url(path: string, query?: Query): string {
   const parameters = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
@@ -46,14 +52,19 @@ async function request<T>(method: string, path: string, query?: Query, body?: un
 
 export const api = {
   me: () => request<Schemas["CurrentUser"]>("GET", "/me"),
-  summary: () => request<Schemas["AccessSummary"]>("GET", "/analytics/summary"),
-  principals: (category?: string) => request<Schemas["PrincipalAccess"][]>("GET", "/analytics/principals", { category }),
-  categories: () => request<Schemas["CategoryAccess"][]>("GET", "/analytics/categories"),
+  summary: (window: TimeWindow) => request<Schemas["AccessSummary"]>("GET", "/analytics/summary", { ...window }),
+  timeline: (window: TimeWindow) => request<Schemas["TimelinePoint"][]>("GET", "/analytics/timeline", { ...window }),
+  principals: (window: TimeWindow, filter: { category?: string; columnId?: string } = {}) =>
+    request<Schemas["PrincipalAccess"][]>("GET", "/analytics/principals", { ...window, ...filter }),
+  categories: (window: TimeWindow) => request<Schemas["CategoryAccess"][]>("GET", "/analytics/categories", { ...window }),
   coverage: (windowHours: number) => request<Schemas["CoverageRow"][]>("GET", "/audit/coverage", { windowHours }),
   events: (query: Query) => request<Schemas["AuditEventPage"]>("GET", "/audit/events", query),
   catalog: (query: Query) => request<Schemas["CatalogPage"]>("GET", "/catalog/columns", query),
   inventory: () => request<Schemas["CategoryInventory"][]>("GET", "/catalog/summary"),
-  changes: () => request<Schemas["CatalogChange"][]>("GET", "/catalog/changes", { limit: 20 }),
+  changes: (query: Query = {}) => request<Schemas["CatalogChange"][]>("GET", "/catalog/changes", { limit: 20, ...query }),
+  search: (q: string) => request<Schemas["SearchResult"]>("GET", "/search", { q }),
+  policy: () => request<Schemas["Policy"]>("GET", "/policy"),
+  publishPolicy: (draft: Schemas["PolicyDraft"]) => request<Schemas["Policy"]>("PUT", "/policy", undefined, draft),
   sources: () => request<Schemas["Source"][]>("GET", "/sources"),
   source: (id: string) => request<Schemas["Source"]>("GET", `/sources/${id}`),
   agent: (id: string) => request<Schemas["Agent"]>("GET", `/agents/${id}`),

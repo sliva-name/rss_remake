@@ -1,0 +1,75 @@
+/* Design tokens: the only place colours are defined. The Keycloak login theme
+   carries a verbatim copy, kept in step by theme.test.ts. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f3f5;
+  --border: #e4e5e9;
+  --border-strong: #cfd2d9;
+  --text: #16181d;
+  --text-2: #5c6270;
+  --text-3: #858b97;
+  --accent: #3657d6;
+  --accent-text: #ffffff;
+  --accent-bg: #edf1fd;
+  --ok: #17784a;
+  --ok-bg: #e5f3eb;
+  --warn: #935f00;
+  --warn-bg: #fbf0d6;
+  --bad: #b42318;
+  --bad-bg: #fdeceb;
+  --neutral-bg: #eceef2;
+  --chart-1: #3657d6;
+  --chart-2: #c2660a;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115;
+    --surface: #16191f;
+    --surface-2: #1d2128;
+    --border: #272c35;
+    --border-strong: #363c47;
+    --text: #e7e9ee;
+    --text-2: #9ea5b3;
+    --text-3: #707785;
+    --accent: #7b98ff;
+    --accent-text: #0b0f1a;
+    --accent-bg: #1b2440;
+    --ok: #5cc98f;
+    --ok-bg: #11291c;
+    --warn: #e3b14d;
+    --warn-bg: #32260c;
+    --bad: #f2796e;
+    --bad-bg: #3a1714;
+    --neutral-bg: #252a33;
+    --chart-1: #5f7cec;
+    --chart-2: #cf7f22;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #16191f;
+  --surface-2: #1d2128;
+  --border: #272c35;
+  --border-strong: #363c47;
+  --text: #e7e9ee;
+  --text-2: #9ea5b3;
+  --text-3: #707785;
+  --accent: #7b98ff;
+  --accent-text: #0b0f1a;
+  --accent-bg: #1b2440;
+  --ok: #5cc98f;
+  --ok-bg: #11291c;
+  --warn: #e3b14d;
+  --warn-bg: #32260c;
+  --bad: #f2796e;
+  --bad-bg: #3a1714;
+  --neutral-bg: #252a33;
+  --chart-1: #5f7cec;
+  --chart-2: #cf7f22;
+}

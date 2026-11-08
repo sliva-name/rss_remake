@@ -246,7 +246,15 @@ func (s *Store) GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (fl
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		var err error
 		source, err = scanSource(tx.QueryRow(ctx, `SELECT `+sourceColumns+` FROM sources WHERE id = $1 AND deleted_at IS NULL`, sourceID))
-		return err
+		if err != nil {
+			return err
+		}
+		one := []fleet.Source{source}
+		if err := attachCapabilities(ctx, tx, one); err != nil {
+			return err
+		}
+		source = one[0]
+		return nil
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fleet.Source{}, fleet.ErrNotFound

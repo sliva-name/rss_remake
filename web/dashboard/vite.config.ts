@@ -1,8 +1,9 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     // The login theme test reads the Keycloak theme's copy of the colours.
     fs: { allow: [".", "../../deployments/keycloak/themes"] },

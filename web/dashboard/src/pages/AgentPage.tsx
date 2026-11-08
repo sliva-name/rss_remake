@@ -1,91 +1,74 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { Ban } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { dateTime, engine, sourceStatus } from "../labels";
-import { ObjectLink, paths, Trail } from "../links";
-import { Allowed, useCan } from "../permissions";
-import { Facts, Loadable } from "../ui";
-
-function Sources({ agentId }: { agentId: string }) {
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
-  return (
-    <section className="card">
-      <h2>Источники агента</h2>
-      <Loadable query={sources} empty="">
-        {(rows) => {
-          const own = rows.filter((row) => row.agentId === agentId);
-          if (own.length === 0) return <div className="empty">Источников у агента нет.</div>;
-          return (
-            <table>
-              <thead><tr><th>Источник</th><th>СУБД</th><th>Подключение</th></tr></thead>
-              <tbody>
-                {own.map((row) => {
-                  const status = sourceStatus(row.statusCode, row.probedAt);
-                  return (
-                    <tr key={row.id}>
-                      <td><ObjectLink to={paths.source(row.id)} needs="getSource">{row.key}</ObjectLink></td>
-                      <td className="muted">{engine(row.engine)} {row.engineVersion}</td>
-                      <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          );
-        }}
-      </Loadable>
-    </section>
-  );
-}
+import { AgentState, Mono, SourceState } from "../components/domain";
+import { Button } from "../components/ui/button";
+import { PageHeader } from "../components/ui/page";
+import { Facts, Panel } from "../components/ui/panel";
+import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/state";
+import { ago, dateTime, engine, shortId } from "../labels";
+import { ObjectLink, paths } from "../links";
+import { useCan } from "../permissions";
+import { useRevokeAgent } from "./AgentsList";
 
 export function AgentPage() {
   const { id = "" } = useParams();
   const can = useCan();
-  const client = useQueryClient();
-  const agent = useQuery({ queryKey: ["agent", id], queryFn: () => api.agent(id) });
+  const revoke = useRevokeAgent();
+  const agent = useQuery({ queryKey: ["agent", id], queryFn: () => api.agent(id), refetchInterval: 10_000 });
   const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments, enabled: can("listEnvironments") });
-  const revoke = useMutation({
-    mutationFn: api.revokeAgent,
-    onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ["agent", id] }), client.invalidateQueries({ queryKey: ["agents"] })]),
-  });
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
+
+  if (agent.isPending) return <Loading rows={6} />;
+  if (agent.isError) return <ErrorState error={agent.error} />;
+  const data = agent.data;
+  const environment = environments.data?.find((item) => item.id === data.environmentId);
+
   return (
     <>
-      <Trail>{[<ObjectLink key="infra" to="/infrastructure" needs="listAgents">Источники и агенты</ObjectLink>, "Агент"]}</Trail>
-      <Loadable query={agent} empty="">
-        {(data) => (
-          <>
-            <h1 className="mono">{data.id}</h1>
-            <p className="lead">Агент работает в контуре заказчика и открывает только источники из своего локального списка разрешённых.</p>
-            <section className="card">
-              <div className="card-head">
-                <h2>Агент</h2>
-                {can("revokeAgent") && data.status === "active" && (
-                  <button
-                    className="danger"
-                    disabled={revoke.isPending}
-                    onClick={() => { if (window.confirm("Отозвать агента? Он сразу потеряет доступ.")) revoke.mutate(data.id); }}
-                  >
-                    Отозвать
-                  </button>
-                )}
-              </div>
-              <Facts
-                items={[
-                  ["Статус", <span className={`badge ${data.status === "active" ? "ok" : "bad"}`}>{data.status === "active" ? "Активен" : "Отозван"}</span>],
-                  ["Среда", environments.data?.find((item) => item.id === data.environmentId)?.name ?? <span className="mono muted">{data.environmentId}</span>],
-                  ["Версия", <span className="mono">{data.version}</span>],
-                  ["Был на связи", dateTime(data.lastSeenAt)],
-                  ["Сертификат до", dateTime(data.certificateExpires)],
-                  ["Зарегистрирован", dateTime(data.createdAt)],
-                ]}
-              />
-              {revoke.isError && <div className="error">{revoke.error.message}</div>}
-            </section>
-            <Allowed to="listSources"><Sources agentId={data.id} /></Allowed>
-          </>
+      <PageHeader
+        breadcrumbs={[<Link key="agents" to="/agents">Агенты</Link>, shortId(data.id)]}
+        title={<>Агент <span className="font-mono">{shortId(data.id)}</span></>}
+        description="Работает в контуре заказчика и открывает только источники из своего локального списка разрешённых."
+        meta={<AgentState agent={data} />}
+        actions={can("revokeAgent") && data.status === "active" ? <Button variant="danger" onClick={() => void revoke(data)}><Ban /> Отозвать</Button> : undefined}
+      />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <Panel title="Агент">
+          <Facts
+            items={[
+              ["Идентификатор", <Mono key="id" className="break-all">{data.id}</Mono>],
+              ["Среда", environment?.name ?? <Mono key="environment" className="text-fg-3">{data.environmentId}</Mono>],
+              ["Версия", <Mono key="version">{data.version}</Mono>],
+              ["Был на связи", data.lastSeenAt ? `${ago(data.lastSeenAt)} · ${dateTime(data.lastSeenAt)}` : "ещё не выходил на связь"],
+              ["Сертификат до", dateTime(data.certificateExpires)],
+              ["Зарегистрирован", dateTime(data.createdAt)],
+              ["Ключ для паролей", data.sealingPublicKey ? "Есть: принимает запечатанные пароли" : "Нет: зарегистрируйте агента заново, чтобы добавлять источники"],
+            ]}
+          />
+        </Panel>
+        {can("listSources") && (
+          <Panel title="Источники агента" flush>
+            <Loadable query={sources} isEmpty={(rows) => !rows.some((row) => row.agentId === data.id)} empty={<EmptyState title="Источников у агента нет">Источники добавляются в разделе «Источники».</EmptyState>}>
+              {(rows) => (
+                <ul className="divide-y divide-border">
+                  {rows.filter((row) => row.agentId === data.id).map((source) => (
+                    <li key={source.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                      <div>
+                        <ObjectLink to={paths.source(source.id)} needs="getSource" className="font-medium">{source.key}</ObjectLink>
+                        <div className="text-xs text-fg-2">{engine(source.engine)} {source.engineVersion} · <Mono>{source.host}:{source.port}/{source.database}</Mono></div>
+                      </div>
+                      <SourceState statusCode={source.statusCode} probedAt={source.probedAt} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Loadable>
+          </Panel>
         )}
-      </Loadable>
+      </div>
     </>
   );
 }

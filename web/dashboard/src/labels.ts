@@ -177,6 +177,22 @@ export const dateTime = (value: string | undefined): string =>
 
 export const count = (value: number): string => value.toLocaleString("ru-RU");
 
+const relative = new Intl.RelativeTimeFormat("ru-RU", { numeric: "auto" });
+
+// "5 минут назад" for recent moments, the date for older ones.
+export const ago = (value: string | undefined, now = Date.now()): string => {
+  if (!value) return "никогда";
+  const seconds = Math.round((new Date(value).getTime() - now) / 1000);
+  const abs = Math.abs(seconds);
+  if (abs < 60) return relative.format(seconds, "second");
+  if (abs < 3600) return relative.format(Math.round(seconds / 60), "minute");
+  if (abs < 86400) return relative.format(Math.round(seconds / 3600), "hour");
+  if (abs < 86400 * 7) return relative.format(Math.round(seconds / 86400), "day");
+  return dateTime(value);
+};
+
+export const shortId = (id: string): string => id.slice(0, 8);
+
 const tableKinds: Record<string, string> = {
   TABLE_KIND_TABLE: "Таблица",
   TABLE_KIND_VIEW: "Представление",

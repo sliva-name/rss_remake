@@ -62,6 +62,10 @@ func TestObjectsLeadFromSourceToEventsOfOneColumn(t *testing.T) {
 			platform.authn["reader"] = api.Principal{Subject: "r", TenantID: tenantID, Roles: []string{api.RoleAuditor, api.RoleSecurityAnalyst}}
 
 			got := restGet[restapi.Source](t, platform, "/api/v1/sources/"+sourceID.String())
+			listed := restGet[[]restapi.Source](t, platform, "/api/v1/sources")
+			if len(got.Capabilities) == 0 || len(listed) != 1 || !slices.Equal(got.Capabilities, listed[0].Capabilities) {
+				t.Fatalf("one source has capabilities %+v, the list %+v", got.Capabilities, listed)
+			}
 			agent := restGet[restapi.Agent](t, platform, "/api/v1/agents/"+got.AgentId.String())
 			if agent.Id != got.AgentId {
 				t.Fatalf("agent = %+v", agent)

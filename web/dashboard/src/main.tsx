@@ -1,85 +1,55 @@
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { StrictMode, useEffect, useRef, useState, type ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, StrictMode, Suspense, useEffect, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
-import { api } from "./api";
-import { completeSignIn, SignInRefused, signIn, signOut } from "./auth";
-import { Access } from "./pages/Access";
+import { completeSignIn, SignInRefused, signIn } from "./auth";
+import { AppShell } from "./components/shell";
+import { Button } from "./components/ui/button";
+import { ConfirmProvider } from "./components/ui/dialog";
+import { TooltipProvider } from "./components/ui/menu";
+import { EmptyState, Loading } from "./components/ui/state";
+import { NotificationsProvider } from "./components/ui/toast";
 import { categoryNeeds } from "./links";
-import { AgentPage } from "./pages/AgentPage";
-import { CategoryPage } from "./pages/CategoryPage";
-import { Catalog } from "./pages/Catalog";
-import { ColumnPage } from "./pages/ColumnPage";
-import { Compliance } from "./pages/Compliance";
-import { Identities } from "./pages/Identities";
-import { Infrastructure } from "./pages/Infrastructure";
-import { Overview } from "./pages/Overview";
-import { SourcePage } from "./pages/SourcePage";
-import { TablePage } from "./pages/TablePage";
-import { Tenants } from "./pages/Tenants";
+import { useMe } from "./me";
 import { type Permission, PermissionsProvider } from "./permissions";
-import { groupSections, type Section, sectionOf, visibleSections } from "./sections";
+import { movedSections, visibleSections } from "./sections";
 import "./styles.css";
 
 const client = new QueryClient({
   defaultOptions: { queries: { refetchInterval: 15_000, retry: 1, staleTime: 5_000 } },
 });
 
-const themes = ["auto", "light", "dark"] as const;
-const themeNames = { auto: "Как в системе", light: "Светлая", dark: "Тёмная" };
-
-function ThemeSwitch() {
-  const [theme, setTheme] = useState<(typeof themes)[number]>(() => {
-    try {
-      return (localStorage.getItem("theme") as (typeof themes)[number]) ?? "auto";
-    } catch {
-      return "auto";
-    }
-  });
-  useEffect(() => {
-    if (theme === "auto") document.documentElement.removeAttribute("data-theme");
-    else document.documentElement.setAttribute("data-theme", theme);
-    try {
-      localStorage.setItem("theme", theme);
-    } catch {
-      // Without storage the choice lasts until reload, which is harmless.
-    }
-  }, [theme]);
-  return (
-    <button onClick={() => setTheme(themes[(themes.indexOf(theme) + 1) % themes.length] ?? "auto")}>
-      Тема: {themeNames[theme]}
-    </button>
-  );
-}
+// Each page is its own chunk: the charting library, for one, loads only with
+// the overview.
+const Overview = lazy(() => import("./pages/Overview").then((module) => ({ default: module.Overview })));
+const Inventory = lazy(() => import("./pages/Inventory").then((module) => ({ default: module.Inventory })));
+const Classification = lazy(() => import("./pages/Classification").then((module) => ({ default: module.Classification })));
+const Audit = lazy(() => import("./pages/Audit").then((module) => ({ default: module.Audit })));
+const Principals = lazy(() => import("./pages/Principals").then((module) => ({ default: module.Principals })));
+const SourcesList = lazy(() => import("./pages/SourcesList").then((module) => ({ default: module.SourcesList })));
+const AgentsList = lazy(() => import("./pages/AgentsList").then((module) => ({ default: module.AgentsList })));
+const Policy = lazy(() => import("./pages/Policy").then((module) => ({ default: module.Policy })));
+const Environments = lazy(() => import("./pages/Admin").then((module) => ({ default: module.Environments })));
+const Tenants = lazy(() => import("./pages/Admin").then((module) => ({ default: module.Tenants })));
+const SourcePage = lazy(() => import("./pages/SourcePage").then((module) => ({ default: module.SourcePage })));
+const AgentPage = lazy(() => import("./pages/AgentPage").then((module) => ({ default: module.AgentPage })));
+const TablePage = lazy(() => import("./pages/TablePage").then((module) => ({ default: module.TablePage })));
+const ColumnPage = lazy(() => import("./pages/ColumnPage").then((module) => ({ default: module.ColumnPage })));
+const CategoryPage = lazy(() => import("./pages/CategoryPage").then((module) => ({ default: module.CategoryPage })));
 
 const pages: Record<string, (tenantId: string) => ReactElement> = {
   "/overview": () => <Overview />,
-  "/catalog": () => <Catalog />,
-  "/access": () => <Access />,
-  "/identities": () => <Identities />,
-  "/compliance": () => <Compliance />,
-  "/infrastructure": (tenantId) => <Infrastructure tenantId={tenantId} />,
+  "/inventory": () => <Inventory />,
+  "/classification": () => <Classification />,
+  "/audit": () => <Audit />,
+  "/principals": () => <Principals />,
+  "/sources": (tenantId) => <SourcesList tenantId={tenantId} />,
+  "/agents": () => <AgentsList />,
+  "/policy": () => <Policy />,
+  "/environments": () => <Environments />,
   "/tenants": () => <Tenants />,
 };
-
-function Navigation({ visible }: { visible: readonly Section[] }) {
-  const current = sectionOf(useLocation().pathname);
-  return (
-    <>
-      {groupSections(visible).map(({ group, sections: items }) => (
-        <div key={group || "start"} className="nav-group">
-          {group && <div className="nav-heading">{group}</div>}
-          {items.map((section) => (
-            <NavLink key={section.path} to={section.path} className={section === current ? "active" : undefined}>
-              {section.title}
-            </NavLink>
-          ))}
-        </div>
-      ))}
-    </>
-  );
-}
 
 // Every object has an address, so any list can link to it (ADR-0010).
 const objectPages: { path: string; needs: readonly Permission[]; element: ReactElement }[] = [
@@ -90,29 +60,31 @@ const objectPages: { path: string; needs: readonly Permission[]; element: ReactE
   { path: "/categories/:id", needs: categoryNeeds, element: <CategoryPage /> },
 ];
 
-function Shell() {
-  const me = useQuery({ queryKey: ["me"], queryFn: api.me, refetchInterval: false });
-  if (me.isPending) return <div className="login">Загрузка…</div>;
-  if (me.isError) return <div className="login">Нет доступа: {me.error.message}</div>;
+// An old address opens its new place with the filters it carried.
+function Moved({ to }: { to: string }) {
+  const { search } = useLocation();
+  const [path, preset = ""] = to.split("?");
+  const merged = new URLSearchParams(preset);
+  for (const [key, value] of new URLSearchParams(search)) merged.set(key, value);
+  const query = merged.toString();
+  return <Navigate to={`${path}${query ? `?${query}` : ""}`} replace />;
+}
+
+function Workspace() {
+  const me = useMe();
+  if (me.isPending) return <div className="grid min-h-screen place-items-center text-sm text-fg-2">Загрузка…</div>;
+  if (me.isError) return <div className="grid min-h-screen place-items-center text-sm text-bad">Нет доступа: {me.error.message}</div>;
 
   const permissions = new Set(me.data.permissions);
   const visible = visibleSections((permission) => permissions.has(permission));
   const tenantId = me.data.tenantId ?? "";
   return (
     <PermissionsProvider permissions={me.data.permissions}>
-      <div className="shell">
-        <nav className="side" aria-label="Разделы">
-          <div className="brand">DataGuard</div>
-          <Navigation visible={visible} />
-          <div className="side-foot">
-            <ThemeSwitch />
-            <button onClick={() => void signOut()}>Выйти</button>
-          </div>
-        </nav>
-        <main>
-          {visible.length === 0 ? (
-            <div className="empty">Учётной записи пока не выдано ни одного разрешения. Обратитесь к администратору организации.</div>
-          ) : (
+      <AppShell visible={visible}>
+        {visible.length === 0 ? (
+          <EmptyState title="Разрешений пока нет">Учётной записи не выдано ни одного разрешения. Обратитесь к администратору организации.</EmptyState>
+        ) : (
+          <Suspense fallback={<Loading rows={6} />}>
             <Routes>
               {visible.map((section) => (
                 <Route key={section.path} path={section.path} element={pages[section.path]?.(tenantId)} />
@@ -120,11 +92,14 @@ function Shell() {
               {objectPages.filter((page) => page.needs.some((permission) => permissions.has(permission))).map((page) => (
                 <Route key={page.path} path={page.path} element={page.element} />
               ))}
+              {Object.entries(movedSections).map(([from, to]) => (
+                <Route key={from} path={from} element={<Moved to={to} />} />
+              ))}
               <Route path="*" element={<Navigate to={visible[0]?.path ?? "/"} replace />} />
             </Routes>
-          )}
-        </main>
-      </div>
+          </Suspense>
+        )}
+      </AppShell>
     </PermissionsProvider>
   );
 }
@@ -154,21 +129,27 @@ function App() {
       .catch((error: unknown) => setState({ kind: "problem", message: error instanceof SignInRefused ? refusal(error.code) : signInUnavailable }));
   }, []);
 
-  if (state.kind === "loading") return <div className="login">Переход ко входу…</div>;
+  if (state.kind === "loading") return <div className="grid min-h-screen place-items-center text-sm text-fg-2">Переход ко входу…</div>;
   if (state.kind === "problem") {
     return (
-      <div className="login">
-        <div className="card">
-          <h1>DataGuard</h1>
-          <p className="lead" role="alert">{state.message}</p>
-          <button className="primary" onClick={goSignIn}>Попробовать снова</button>
+      <div className="grid min-h-screen place-items-center px-4">
+        <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-6">
+          <h1 className="text-xl font-semibold tracking-tight text-fg">DataGuard</h1>
+          <p role="alert" className="mt-1 mb-4 text-sm text-fg-2">{state.message}</p>
+          <Button variant="primary" className="w-full justify-center" onClick={goSignIn}>Попробовать снова</Button>
         </div>
       </div>
     );
   }
   return (
     <BrowserRouter>
-      <Shell />
+      <TooltipProvider>
+        <NotificationsProvider>
+          <ConfirmProvider>
+            <Workspace />
+          </ConfirmProvider>
+        </NotificationsProvider>
+      </TooltipProvider>
     </BrowserRouter>
   );
 }

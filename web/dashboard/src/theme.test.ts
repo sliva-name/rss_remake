@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import login from "../../../deployments/keycloak/themes/dataguard/login/resources/css/login.css?raw";
-import dashboard from "./styles.css?raw";
+import dashboard from "./tokens.css?raw";
 
 // The Keycloak login pages are served by Keycloak, not built with the dashboard,
 // so they carry a copy of its colour tokens. This keeps the copy honest.

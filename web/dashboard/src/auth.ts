@@ -70,3 +70,10 @@ export async function accessToken(): Promise<string | null> {
   const user = await (await loadManager()).getUser();
   return user?.access_token ?? null;
 }
+
+// The name to show for the signed-in account. Display only: the server never
+// takes identity from the browser.
+export async function displayName(): Promise<string> {
+  const profile = (await (await loadManager()).getUser())?.profile;
+  return profile?.preferred_username ?? profile?.name ?? profile?.email ?? "";
+}

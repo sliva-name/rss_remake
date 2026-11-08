@@ -10,77 +10,39 @@ if (!credentials.api || !credentials.user || !credentials.password || !sourcePas
 const output = process.argv[2];
 
 const pages = [
-  { path: "/overview", heading: "Обзор", expect: ["Покрытие за сутки", "Изменения в инвентаре", "Наблюдается"] },
-  { path: "/catalog", heading: "Каталог данных", expect: ["ИНН", "Платёжная карта", "Уверенность"] },
-  { path: "/access", heading: "Обращения", expect: ["Доказательство", "Запрос выполнен", "Упомянуто в запросе", "dg_app"] },
-  { path: "/identities", heading: "Пользователи", expect: ["employee-123", "Подтверждено приложением", "Не идентифицирован"] },
-  { path: "/compliance", heading: "Отчёты", expect: ["Инвентарь по категориям", "Доступ по категориям"] },
-  { path: "/infrastructure", heading: "Источники и агенты", expect: ["Источники", "Подключено", "Покрытие аудита", "Возможности источников", "Нет в СУБД", "Сканировать"] },
+  { path: "/overview", heading: "Обзор", expect: ["Активность", "Требует внимания", "Что читают", "Изменения в инвентаре"] },
+  { path: "/inventory", heading: "Инвентаризация", expect: ["dg_users", "Чувствительных", "Все источники"] },
+  { path: "/classification", heading: "Классификация", expect: ["ИНН", "Платёжная карта", "Колонок"] },
+  { path: "/classification?tab=findings", heading: "Классификация", expect: ["Уверенность", "ИНН", "dg_users"] },
+  { path: "/audit", heading: "Журнал событий", expect: ["Доказательство", "Запрос выполнен", "dg_app"] },
+  { path: "/principals", heading: "Пользователи СУБД", expect: ["employee-123", "Подтверждено приложением", "Не идентифицирован"] },
+  { path: "/sources", heading: "Источники", expect: ["Подключено", "Наблюдается", "Добавить источник"] },
+  { path: "/sources?tab=coverage", heading: "Источники", expect: ["Аудит чтения", "До колонок"] },
+  { path: "/sources?tab=capabilities", heading: "Источники", expect: ["Нет в СУБД", "Аудит чтения"] },
+  { path: "/agents", heading: "Агенты", expect: ["На связи", "Подключить агента"] },
+  { path: "/policy", heading: "Политика", expect: ["Собственные детекторы", "Бюджет сканирования"] },
+  { path: "/environments", heading: "Среды", expect: ["Производственная"] },
 ];
 
 const failures = [];
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, locale: "ru-RU" });
 const page = await context.newPage();
+// A failed request is judged by its address: the browser's own console line
+// does not say which request failed. An unpublished policy answers 404 by
+// contract, and the page says so; any other failure is a defect.
+const expectedFailures = [{ path: "/api/v1/policy", status: 404 }];
 page.on("console", (message) => {
-  if (message.type() === "error") failures.push(`console: ${message.text()}`);
+  if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) failures.push(`console: ${message.text()}`);
+});
+page.on("response", (response) => {
+  const url = new URL(response.url());
+  if (response.status() < 400 || !url.pathname.startsWith("/api/")) return;
+  if (expectedFailures.some((item) => item.path === url.pathname && item.status === response.status())) return;
+  failures.push(`request: ${response.request().method()} ${url.pathname} answered ${response.status()}`);
 });
 page.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
 
-try {
-  // A link opened while signed out goes straight to the sign-in form and,
-  // after it, back to the same page with its filter.
-  await page.goto(`${credentials.api}/catalog?category=GOVERNMENT.TAX_ID`);
-  await page.locator("#username").fill(credentials.user);
-  await page.locator("#password").fill(credentials.password);
-  await page.locator("#kc-login").click();
-  await page.getByRole("heading", { name: "Каталог данных" }).waitFor();
-  if (new URL(page.url()).searchParams.get("category") !== "GOVERNMENT.TAX_ID") failures.push(`sign-in returned to ${page.url()}`);
-} catch (error) {
-  await page.screenshot({ path: `${output}/login-failure.png`, fullPage: true });
-  process.stderr.write(`login failed at ${page.url()}\n${failures.join("\n")}\n${(await page.locator("body").innerText()).slice(0, 500)}\n`);
-  throw error;
-}
-
-// A source added through the form: the browser seals the password, the agent
-// opens it and connects. The source has no audit directory, so it adds no events.
-try {
-  await page.goto(`${credentials.api}/infrastructure`);
-  await page.getByRole("button", { name: "Добавить источник" }).click();
-  const form = page.getByRole("form", { name: "Новый источник" });
-  await form.getByLabel("Имя", { exact: true }).fill("ui-postgres");
-  await form.getByLabel("Хост", { exact: true }).fill("source-postgres");
-  await form.getByLabel("База данных", { exact: true }).fill("crm");
-  await form.getByLabel("Пользователь", { exact: true }).fill("dg_scanner");
-  await form.getByLabel("Пароль", { exact: true }).fill(sourcePassword);
-  // A select's accessible name includes its chosen option, so the match is by prefix.
-  await form.getByRole("combobox", { name: /^TLS/ }).selectOption("disable");
-  await form.getByRole("button", { name: "Сохранить" }).click();
-  await page.getByRole("row", { name: /ui-postgres/ }).getByText("Подключено").waitFor({ timeout: 90_000 });
-  await page.screenshot({ path: `${output}/source-added.png`, fullPage: true });
-} catch (error) {
-  await page.screenshot({ path: `${output}/source-failure.png`, fullPage: true });
-  throw error;
-}
-
-for (const scheme of ["light", "dark"]) {
-  await page.emulateMedia({ colorScheme: scheme });
-  for (const item of pages) {
-    await page.goto(credentials.api + item.path);
-    await page.getByRole("heading", { name: item.heading, exact: true }).waitFor();
-    await page.waitForLoadState("networkidle");
-    const text = await page.locator("main").innerText();
-    for (const expected of item.expect) {
-      if (!text.includes(expected)) failures.push(`${item.path}: no "${expected}"`);
-    }
-    if (text.includes("dgcanary")) failures.push(`${item.path}: a source value is on screen`);
-    if (text.includes(sourcePassword)) failures.push(`${item.path}: a database password is on screen`);
-    if (text.includes("undefined") || text.includes("NaN")) failures.push(`${item.path}: broken value on screen`);
-    await page.screenshot({ path: `${output}/${scheme}${item.path.replace("/", "-")}.png`, fullPage: true });
-  }
-}
-
-// The chain from a source to the events of one column, by links alone (ADR-0010).
 // Links navigate inside the page, so the load state stays idle from the first
 // load: each expected text is waited for instead.
 async function expectOnPage(step, expected) {
@@ -91,70 +53,157 @@ async function expectOnPage(step, expected) {
       failures.push(`${step}: no "${item}"`);
     }
   }
-  const text = await page.locator("main").innerText();
+  const text = await page.locator("body").innerText();
   if (text.includes("undefined") || text.includes("NaN")) failures.push(`${step}: broken value on screen`);
   if (text.includes("dgcanary")) failures.push(`${step}: a source value is on screen`);
+  if (text.includes(sourcePassword)) failures.push(`${step}: a database password is on screen`);
+}
+
+async function heading(name) {
+  await page.getByRole("heading", { level: 1, name, exact: true }).waitFor();
+}
+
+async function noSidewaysScroll(step) {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (overflow > 0) failures.push(`${step}: page scrolls sideways by ${overflow}px`);
+}
+
+// A link opened while signed out goes straight to the sign-in form and, after
+// it, back to the same page with its filter, even from an address of the
+// previous navigation.
+try {
+  await page.goto(`${credentials.api}/catalog?category=GOVERNMENT.TAX_ID`);
+  await page.locator("#username").fill(credentials.user);
+  await page.locator("#password").fill(credentials.password);
+  await page.locator("#kc-login").click();
+  await heading("Классификация");
+  const landed = new URL(page.url());
+  if (landed.pathname !== "/classification" || landed.searchParams.get("category") !== "GOVERNMENT.TAX_ID" || landed.searchParams.get("tab") !== "findings") {
+    failures.push(`sign-in returned to ${page.url()}`);
+  }
+} catch (error) {
+  await page.screenshot({ path: `${output}/login-failure.png`, fullPage: true });
+  process.stderr.write(`login failed at ${page.url()}\n${failures.join("\n")}\n${(await page.locator("body").innerText()).slice(0, 500)}\n`);
+  throw error;
+}
+
+// Scenario: an administrator connects a source. The browser seals the
+// password; the panel stays open and shows whether the agent connected.
+try {
+  await page.goto(`${credentials.api}/sources`);
+  await page.getByRole("button", { name: "Добавить источник" }).first().click();
+  const form = page.getByRole("form", { name: "Новый источник" });
+  await form.getByLabel("Имя", { exact: true }).fill("ui-postgres");
+  await form.getByLabel("Хост", { exact: true }).fill("source-postgres");
+  await form.getByLabel("База данных", { exact: true }).fill("crm");
+  await form.getByLabel("Пользователь", { exact: true }).fill("dg_scanner");
+  await form.getByLabel("Пароль", { exact: true }).fill(sourcePassword);
+  // A select's accessible name includes its chosen option, so the match is by prefix.
+  await form.getByRole("combobox", { name: /^TLS/ }).selectOption("disable");
+  await form.getByRole("button", { name: "Сохранить" }).click();
+  await page.getByRole("dialog").getByText("Подключено", { exact: true }).waitFor({ timeout: 90_000 });
+  await page.screenshot({ path: `${output}/source-added.png`, fullPage: true });
+  await page.getByRole("dialog").getByRole("button", { name: "Закрыть", exact: true }).last().click();
+} catch (error) {
+  await page.screenshot({ path: `${output}/source-failure.png`, fullPage: true });
+  throw error;
+}
+
+for (const scheme of ["light", "dark"]) {
+  await page.emulateMedia({ colorScheme: scheme });
+  for (const item of pages) {
+    await page.goto(credentials.api + item.path);
+    await heading(item.heading);
+    await expectOnPage(`${scheme} ${item.path}`, item.expect);
+    await noSidewaysScroll(`${scheme} ${item.path}`);
+    await page.screenshot({ path: `${output}/${scheme}${item.path.replace(/[/?=]/g, "-")}.png`, fullPage: true });
+  }
 }
 
 await page.emulateMedia({ colorScheme: "light" });
 try {
-  await page.goto(`${credentials.api}/infrastructure`);
-  const sources = page.locator("section").filter({ has: page.getByRole("heading", { name: "Источники", exact: true }) });
-  const source = sources.getByRole("row").filter({ hasText: "PostgreSQL" }).filter({ hasText: "Подключено" }).filter({ hasNotText: "ui-postgres" }).first().getByRole("link").first();
-  const sourceName = await source.innerText();
-  await source.click();
-  await page.getByRole("heading", { name: sourceName, exact: true }).waitFor();
-  await expectOnPage("source", ["Подключение", "Агент", "Базы, схемы и таблицы", "Аудит за сутки"]);
+  // Scenario: from a source to the events of one column, by links alone.
+  await page.goto(`${credentials.api}/sources`);
+  const row = page.getByRole("row").filter({ hasText: "PostgreSQL" }).filter({ hasText: "Подключено" }).filter({ hasNotText: "ui-postgres" }).first();
+  const sourceName = await row.getByRole("link").first().innerText();
+  await row.getByRole("link").first().click();
+  await heading(sourceName);
+  await expectOnPage("source", ["Подключение", "Аудит за сутки", "Что источник позволяет видеть"]);
   await page.screenshot({ path: `${output}/object-source.png`, fullPage: true });
 
   await page.locator("main dl").getByRole("link").first().click();
-  await page.getByRole("heading", { name: "Агент", exact: true }).waitFor();
-  await expectOnPage("agent", ["Активен", "Источники агента", sourceName]);
+  await page.getByRole("heading", { level: 1, name: /^Агент/ }).waitFor();
+  await expectOnPage("agent", ["На связи", "Источники агента", sourceName]);
   await page.goBack();
 
+  await heading(sourceName);
+  await page.getByRole("tab", { name: "Таблицы" }).click();
   await page.getByRole("link", { name: "dg_users", exact: true }).click();
-  await page.getByRole("heading", { name: "dg_users", exact: true }).waitFor();
+  await heading("dg_users");
   await expectOnPage("table", ["Колонки", "email", "Email", sourceName]);
   await page.screenshot({ path: `${output}/object-table.png`, fullPage: true });
 
   await page.getByRole("link", { name: "email", exact: true }).click();
-  await page.getByRole("heading", { name: "email", exact: true }).waitFor();
-  await expectOnPage("column", ["Классификация", "Найдено", "Email", "Последние обращения", "dg_app"]);
+  await heading("email");
+  await expectOnPage("column", ["Классификация", "Найдено", "Email", "Кто читал колонку", "dg_app", "Последние обращения"]);
   await page.screenshot({ path: `${output}/object-column.png`, fullPage: true });
 
-  await page.getByRole("link", { name: "Все обращения к колонке" }).click();
-  await page.getByRole("heading", { name: "Обращения", exact: true }).waitFor();
+  await page.getByRole("link", { name: "Обращения к колонке" }).click();
+  await heading("Журнал событий");
   await expectOnPage("events of the column", ["Колонка:", "dg_app"]);
   if (!new URL(page.url()).searchParams.get("columnId")) failures.push("events of the column: the filter is not in the address");
-  await page.screenshot({ path: `${output}/object-events.png`, fullPage: true });
 
-  // A kind of data, then where it lies, who read it and what they did.
-  await page.goto(`${credentials.api}/compliance`);
+  // Scenario: from an event to its source and database objects.
+  await page.locator("main tbody tr").first().click();
+  const details = page.getByRole("dialog");
+  await details.getByText("К чему").waitFor();
+  await details.getByRole("link", { name: /dg_users\.email$/ }).first().waitFor({ timeout: 15_000 }).catch(() => failures.push("event details: the column is not a link"));
+  await page.screenshot({ path: `${output}/object-event.png`, fullPage: true });
+  await page.keyboard.press("Escape");
+
+  // Scenario: a kind of data, then where it lies, who read it and what they did.
+  await page.goto(`${credentials.api}/classification`);
   await page.locator("main").getByRole("link", { name: "ИНН", exact: true }).first().click();
-  await page.getByRole("heading", { name: "ИНН", exact: true }).waitFor();
-  await expectOnPage("category", ["Где хранятся", "dg_users", "Кто обращался за 7 дней", "dg_app", "Последние обращения"]);
+  await heading("ИНН");
+  await expectOnPage("category", ["Где хранятся", "dg_users", "Кто обращался", "dg_app", "Последние обращения"]);
   await page.screenshot({ path: `${output}/object-category.png`, fullPage: true });
   await page.locator("section").filter({ hasText: "Кто обращался" }).getByRole("link", { name: "dg_app", exact: true }).first().click();
-  await page.getByRole("heading", { name: "Обращения", exact: true }).waitFor();
+  await heading("Журнал событий");
   const filtered = new URL(page.url()).searchParams;
   if (filtered.get("principal") !== "dg_app" || filtered.get("category") !== "GOVERNMENT.TAX_ID") failures.push(`category reader: landed on ${page.url()}`);
-  await expectOnPage("reads of the category by one user", ["dg_app", "ИНН"]);
+
+  // Scenario: tables with personal data, by one filter.
+  await page.goto(`${credentials.api}/inventory?sensitive=1`);
+  await heading("Инвентаризация");
+  await expectOnPage("sensitive tables", ["dg_users"]);
+  if (await page.locator("main tbody").getByText("dg_orders", { exact: true }).count() > 0) failures.push("sensitive tables: dg_orders has no sensitive columns but is listed");
+
+  // Global search opens a table by part of its name.
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Что найти" }).fill("dg_us");
+  await page.getByRole("option").filter({ hasText: "dg_users" }).first().waitFor();
+  await page.screenshot({ path: `${output}/search.png` });
+  await page.getByRole("option").filter({ hasText: "dg_users" }).first().click();
+  await heading("dg_users");
 } catch (error) {
   await page.screenshot({ path: `${output}/object-failure.png`, fullPage: true });
   throw error;
 }
 
-await page.setViewportSize({ width: 380, height: 800 });
-await page.goto(`${credentials.api}/infrastructure`);
-await page.getByRole("heading", { name: "Источники и агенты", exact: true }).waitFor();
-await page.waitForLoadState("networkidle");
-const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-if (overflow > 0) failures.push(`phone width: page scrolls sideways by ${overflow}px`);
-await page.screenshot({ path: `${output}/phone-infrastructure.png`, fullPage: true });
+for (const [width, name] of [[380, "phone"], [900, "tablet"]]) {
+  await page.setViewportSize({ width, height: 800 });
+  for (const path of ["/overview", "/sources", "/audit"]) {
+    await page.goto(credentials.api + path);
+    await page.getByRole("heading", { level: 1 }).waitFor();
+    await page.waitForTimeout(500);
+    await noSidewaysScroll(`${name} ${path}`);
+  }
+  await page.screenshot({ path: `${output}/${name}-audit.png`, fullPage: true });
+}
 
 await browser.close();
 if (failures.length > 0) {
   process.stderr.write(`${failures.join("\n")}\n`);
   process.exit(1);
 }
-process.stdout.write(`checked ${pages.length} pages in 2 themes, the object chain and phone width\n`);
+process.stdout.write(`checked ${pages.length} pages in 2 themes, the main scenarios, phone and tablet width\n`);

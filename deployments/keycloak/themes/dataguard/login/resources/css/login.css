@@ -1,62 +1,77 @@
-/* DataGuard login pages. The colour tokens are the dashboard's own
-   (web/dashboard/src/styles.css); a dashboard test keeps the two in step. */
+/* DataGuard login pages. The colour tokens are a verbatim copy of
+   web/dashboard/src/tokens.css; a dashboard test keeps the two in step. */
 
 :root {
   color-scheme: light dark;
-  --bg: #f6f7f9;
+  --bg: #f7f7f8;
   --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #dfe3e8;
-  --text: #1a2230;
-  --text-2: #5a6578;
-  --accent: #2f5fd0;
+  --surface-2: #f2f3f5;
+  --border: #e4e5e9;
+  --border-strong: #cfd2d9;
+  --text: #16181d;
+  --text-2: #5c6270;
+  --text-3: #858b97;
+  --accent: #3657d6;
   --accent-text: #ffffff;
-  --ok: #1a7f4e;
-  --ok-bg: #e3f4ea;
-  --warn: #9a6400;
+  --accent-bg: #edf1fd;
+  --ok: #17784a;
+  --ok-bg: #e5f3eb;
+  --warn: #935f00;
   --warn-bg: #fbf0d6;
-  --bad: #b3261e;
-  --bad-bg: #fbe5e3;
-  --neutral-bg: #e8ebf0;
+  --bad: #b42318;
+  --bad-bg: #fdeceb;
+  --neutral-bg: #eceef2;
+  --chart-1: #3657d6;
+  --chart-2: #c2660a;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #12161d;
-    --surface: #1a2029;
-    --surface-2: #232a35;
-    --border: #2e3744;
-    --text: #e6e9ee;
-    --text-2: #9aa5b5;
-    --accent: #7ea2f5;
-    --accent-text: #0e1420;
-    --ok: #5fcf95;
-    --ok-bg: #143325;
-    --warn: #e5b95c;
-    --warn-bg: #3a2c0f;
-    --bad: #f28b82;
-    --bad-bg: #3f1d1b;
-    --neutral-bg: #2a323e;
+    --bg: #0f1115;
+    --surface: #16191f;
+    --surface-2: #1d2128;
+    --border: #272c35;
+    --border-strong: #363c47;
+    --text: #e7e9ee;
+    --text-2: #9ea5b3;
+    --text-3: #707785;
+    --accent: #7b98ff;
+    --accent-text: #0b0f1a;
+    --accent-bg: #1b2440;
+    --ok: #5cc98f;
+    --ok-bg: #11291c;
+    --warn: #e3b14d;
+    --warn-bg: #32260c;
+    --bad: #f2796e;
+    --bad-bg: #3a1714;
+    --neutral-bg: #252a33;
+    --chart-1: #5f7cec;
+    --chart-2: #cf7f22;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #12161d;
-  --surface: #1a2029;
-  --surface-2: #232a35;
-  --border: #2e3744;
-  --text: #e6e9ee;
-  --text-2: #9aa5b5;
-  --accent: #7ea2f5;
-  --accent-text: #0e1420;
-  --ok: #5fcf95;
-  --ok-bg: #143325;
-  --warn: #e5b95c;
-  --warn-bg: #3a2c0f;
-  --bad: #f28b82;
-  --bad-bg: #3f1d1b;
-  --neutral-bg: #2a323e;
+  --bg: #0f1115;
+  --surface: #16191f;
+  --surface-2: #1d2128;
+  --border: #272c35;
+  --border-strong: #363c47;
+  --text: #e7e9ee;
+  --text-2: #9ea5b3;
+  --text-3: #707785;
+  --accent: #7b98ff;
+  --accent-text: #0b0f1a;
+  --accent-bg: #1b2440;
+  --ok: #5cc98f;
+  --ok-bg: #11291c;
+  --warn: #e3b14d;
+  --warn-bg: #32260c;
+  --bad: #f2796e;
+  --bad-bg: #3a1714;
+  --neutral-bg: #252a33;
+  --chart-1: #5f7cec;
+  --chart-2: #cf7f22;
 }
 
 * { box-sizing: border-box; }
