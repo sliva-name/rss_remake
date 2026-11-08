@@ -612,11 +612,7 @@ func TestPlatformEndToEnd(t *testing.T) {
 		started := sample(t, scrape(t, agentMetrics), "process_start_time_seconds")
 		kill(t, "agent")
 		const statements = 20
-		for i := range statements {
-			if _, err := source.Admin.ExecContext(ctx, fmt.Sprintf(`SELECT email, %d FROM %s`, i, seed.Users)); err != nil {
-				t.Fatal(err)
-			}
-		}
+		readColumn(t, source, "email", statements)
 		startAgent(t)
 		eventually(t, "events from the outage", func() bool {
 			return s.eventTotal(t, "&principal=dg_app&category=PERSONAL.EMAIL")-before >= statements
@@ -634,11 +630,7 @@ func TestPlatformEndToEnd(t *testing.T) {
 		before := s.eventTotal(t, "&principal=dg_app&category=PERSONAL.PHONE")
 		kill(t, "server")
 		const statements = 15
-		for i := range statements {
-			if _, err := source.Admin.ExecContext(ctx, fmt.Sprintf(`SELECT phone, %d FROM %s`, i, seed.Users)); err != nil {
-				t.Fatal(err)
-			}
-		}
+		readColumn(t, source, "phone", statements)
 		time.Sleep(3 * time.Second)
 		startServer(t)
 		eventually(t, "events delivered after restart", func() bool {
@@ -655,11 +647,7 @@ func TestPlatformEndToEnd(t *testing.T) {
 		acceptedBefore := sample(t, scrape(t, serverMetrics), "dataguard_server_events_accepted_total")
 		compose(t, nil, nil, "stop", "center-clickhouse")
 		const statements = 15
-		for i := range statements {
-			if _, err := source.Admin.ExecContext(ctx, fmt.Sprintf(`SELECT email, %d FROM %s`, i, seed.Users)); err != nil {
-				t.Fatal(err)
-			}
-		}
+		readColumn(t, source, "email", statements)
 		// The center keeps acknowledging: the agent's queue drains into the broker.
 		eventually(t, "agent acknowledged during the outage", func() bool {
 			server, agent := scrape(t, serverMetrics), scrape(t, agentMetrics)
@@ -716,6 +704,15 @@ func TestPlatformEndToEnd(t *testing.T) {
 			t.Fatal("a revoked agent is still reporting")
 		}
 	})
+}
+
+func readColumn(t *testing.T, source *stand.Source, column string, statements int) {
+	t.Helper()
+	for i := range statements {
+		if _, err := source.Admin.ExecContext(t.Context(), fmt.Sprintf(`SELECT %s, %d FROM %s`, column, i, seed.Users)); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // peakLoad runs statements against every source at the reference peak and

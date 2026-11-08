@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -207,39 +209,7 @@ func TestDiscoveryOnEveryEngine(t *testing.T) {
 			if finished.Status != scan.StatusCompleted {
 				t.Fatalf("scan finished as %s (%s); logs: %s", finished.Status, finished.FailureCode, agent.logs.String())
 			}
-
-			entries, total, err := platform.store.ListCatalog(ctx, created.ID, asset.CatalogFilter{Limit: 500})
-			if err != nil {
-				t.Fatalf("ListCatalog: %v", err)
-			}
-			if total != int64(len(entries)) {
-				t.Fatalf("total %d for %d entries", total, len(entries))
-			}
-			found := map[string]asset.CatalogEntry{}
-			for _, entry := range entries {
-				found[entry.Table+"."+entry.Column+"="+entry.CategoryID] = entry
-			}
-			for _, want := range []string{
-				seed.Users + ".email=" + classifier.CategoryEmail,
-				seed.Users + ".phone=" + classifier.CategoryPhone,
-				seed.Users + ".inn=" + classifier.CategoryTaxID,
-				seed.Users + ".snils=" + classifier.CategorySNILS,
-				seed.Users + ".card_number=" + classifier.CategoryPaymentCard,
-				seed.Users + ".passport=" + classifier.CategoryPassport,
-				seed.Users + ".first_name=" + classifier.CategoryPersonName,
-			} {
-				if _, ok := found[want]; !ok {
-					t.Errorf("not classified: %s; got %v", want, keys(found))
-				}
-			}
-			for key := range found {
-				if strings.HasPrefix(key, seed.Orders+".") || strings.HasPrefix(key, seed.Users+".status") {
-					t.Errorf("false positive: %s", key)
-				}
-			}
-			if entry := found[seed.Users+".email="+classifier.CategoryEmail]; entry.RowsMatched == 0 || entry.UniqueEstimate == 0 {
-				t.Errorf("aggregates missing: %+v", entry)
-			}
+			assertSeededTablesClassified(t, platform, created.ID)
 			reports, err := platform.app.Fleet.ListSources(ctx, created.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -247,20 +217,63 @@ func TestDiscoveryOnEveryEngine(t *testing.T) {
 			if len(reports) != 1 || reports[0].EngineVersion == "" {
 				t.Fatalf("source report: %+v", reports)
 			}
-			platform.assertNoValuesInCenter(t)
-			if strings.Contains(agent.logs.String(), synthetic.CanaryMarker) {
-				t.Fatal("agent logs contain a synthetic value")
-			}
-			wire := platform.gate.recorded()
-			if len(wire) == 0 {
-				t.Fatal("nothing was recorded, the wire check proves nothing")
-			}
-			for _, value := range sourceValues(t, source) {
-				if bytes.Contains(wire, []byte(value)) {
-					t.Fatal("a source value crossed the wire")
-				}
-			}
+			assertNoSourceValueLeft(t, platform, agent, source)
 		})
+	}
+}
+
+func assertSeededTablesClassified(t *testing.T, platform *platform, tenantID uuid.UUID) {
+	t.Helper()
+	entries, total, err := platform.store.ListCatalog(t.Context(), tenantID, asset.CatalogFilter{Limit: 500})
+	if err != nil {
+		t.Fatalf("ListCatalog: %v", err)
+	}
+	if total != int64(len(entries)) {
+		t.Fatalf("total %d for %d entries", total, len(entries))
+	}
+	found := map[string]asset.CatalogEntry{}
+	for _, entry := range entries {
+		found[entry.Table+"."+entry.Column+"="+entry.CategoryID] = entry
+	}
+	for _, want := range []string{
+		seed.Users + ".email=" + classifier.CategoryEmail,
+		seed.Users + ".phone=" + classifier.CategoryPhone,
+		seed.Users + ".inn=" + classifier.CategoryTaxID,
+		seed.Users + ".snils=" + classifier.CategorySNILS,
+		seed.Users + ".card_number=" + classifier.CategoryPaymentCard,
+		seed.Users + ".passport=" + classifier.CategoryPassport,
+		seed.Users + ".first_name=" + classifier.CategoryPersonName,
+	} {
+		if _, ok := found[want]; !ok {
+			t.Errorf("not classified: %s; got %v", want, slices.Collect(maps.Keys(found)))
+		}
+	}
+	for key := range found {
+		if strings.HasPrefix(key, seed.Orders+".") || strings.HasPrefix(key, seed.Users+".status") {
+			t.Errorf("false positive: %s", key)
+		}
+	}
+	if entry := found[seed.Users+".email="+classifier.CategoryEmail]; entry.RowsMatched == 0 || entry.UniqueEstimate == 0 {
+		t.Errorf("aggregates missing: %+v", entry)
+	}
+}
+
+// assertNoSourceValueLeft looks for the source's values in the center, in the
+// agent's log and in everything the agent sent.
+func assertNoSourceValueLeft(t *testing.T, platform *platform, agent *runningAgent, source stand.Source) {
+	t.Helper()
+	platform.assertNoValuesInCenter(t)
+	if strings.Contains(agent.logs.String(), synthetic.CanaryMarker) {
+		t.Fatal("agent logs contain a synthetic value")
+	}
+	wire := platform.gate.recorded()
+	if len(wire) == 0 {
+		t.Fatal("nothing was recorded, the wire check proves nothing")
+	}
+	for _, value := range sourceValues(t, source) {
+		if bytes.Contains(wire, []byte(value)) {
+			t.Fatal("a source value crossed the wire")
+		}
 	}
 }
 
@@ -296,14 +309,6 @@ func sourceValues(t *testing.T, source stand.Source) []string {
 		t.Fatal("no values to search for")
 	}
 	return values
-}
-
-func keys(found map[string]asset.CatalogEntry) []string {
-	result := make([]string, 0, len(found))
-	for key := range found {
-		result = append(result, key)
-	}
-	return result
 }
 
 // assertNoValuesInCenter reads every column of every table as text. A marker
