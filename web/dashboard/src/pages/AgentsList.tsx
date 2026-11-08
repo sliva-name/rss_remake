@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Ban, Copy, MoreHorizontal, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -13,7 +12,7 @@ import { Menu, MenuItem } from "../components/ui/menu";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
 import { ago, count, dateTime, shortId } from "../labels";
 import { ObjectLink, paths } from "../links";
@@ -119,7 +118,7 @@ export function AgentsList() {
   const environments = useQuery({ queryKey: ["environments"], queryFn: api.environments, enabled: can("listEnvironments") });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
 
-  const columns = useMemo<ColumnDef<Agent, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Agent>[]>(() => [
     { id: "agent", header: "Агент", enableHiding: false, accessorFn: (row) => row.id, cell: ({ row }) => <ObjectLink to={paths.agent(row.original.id)} needs="getAgent" className="font-mono text-[13px]">{row.original.id}</ObjectLink> },
     { id: "state", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <AgentState agent={row.original} /> },
     { id: "environment", header: "Среда", accessorFn: (row) => environments.data?.find((item) => item.id === row.environmentId)?.name ?? "", cell: ({ getValue }) => (getValue() as string) || <span className="text-fg-3">—</span> },

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Database } from "lucide-react";
 import { useMemo } from "react";
 
@@ -10,7 +9,7 @@ import { CheckField, Field, Input, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { ago, count, engine, tableKind } from "../labels";
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useCan } from "../permissions";
@@ -57,7 +56,7 @@ export function Inventory() {
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, enabled: can("listSources") });
   const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
 
-  const columns = useMemo<ColumnDef<Table, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Table>[]>(() => [
     {
       id: "table", header: "Таблица", enableHiding: false, cell: ({ row }) => (
         <ObjectLink to={paths.table(row.original.id)} needs="getCatalogTable" className="font-mono text-[13px]">{row.original.table}</ObjectLink>

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Play, ScrollText, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -12,7 +11,7 @@ import { Input } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Facts, Panel } from "../components/ui/panel";
 import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { Tabs } from "../components/ui/tabs";
 import { ago, capability, count, dateTime, engine, percent, support, tableKind } from "../labels";
 import { ObjectLink, paths, useUrlFilters } from "../links";
@@ -87,7 +86,7 @@ function Tables({ sourceId }: { sourceId: string }) {
     placeholderData: (previous) => previous,
     queryFn: () => api.tables({ sourceId, q: filters.q.trim(), limit: pageSize, offset }),
   });
-  const columns = useMemo<ColumnDef<Schemas["CatalogTable"], unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Schemas["CatalogTable"]>[]>(() => [
     { id: "table", header: "Таблица", enableHiding: false, cell: ({ row }) => <ObjectLink to={paths.table(row.original.id)} needs="getCatalogTable" className="font-mono text-[13px]">{row.original.table}</ObjectLink> },
     { id: "place", header: "База › схема", cell: ({ row }) => <Mono className="text-fg-2">{row.original.database} › {row.original.schema}</Mono> },
     { id: "kind", header: "Вид", cell: ({ row }) => <span className="text-fg-2">{tableKind(row.original.kind)}</span> },

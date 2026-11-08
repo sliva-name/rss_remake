@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Download } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -11,7 +10,7 @@ import { Field, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { downloadCsv, stamp } from "../csv";
 import { ago, category, count, identity } from "../labels";
 import { paths, usePeriod, useUrlFilters } from "../links";
@@ -31,7 +30,7 @@ export function Principals() {
     queryFn: () => api.principals(period, { category: filters.category || undefined }),
   });
 
-  const columns = useMemo<ColumnDef<Row, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Row>[]>(() => [
     {
       id: "user", header: "Пользователь приложения", enableHiding: false, accessorFn: (row) => row.applicationPrincipal,
       cell: ({ row }) => (row.original.applicationPrincipal ? <span className="font-medium">{row.original.applicationPrincipal}</span> : <span className="text-fg-3">Не идентифицирован</span>),

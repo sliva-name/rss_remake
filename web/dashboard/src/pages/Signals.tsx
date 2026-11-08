@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Info } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -10,7 +9,7 @@ import { Badge, type Tone } from "../components/ui/badge";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { ago, category, count, identity } from "../labels";
 import { CategoryLink, linkStyle, paths } from "../links";
 import { useCan } from "../permissions";
@@ -41,7 +40,7 @@ export function Signals() {
   const navigate = useNavigate();
   const signals = useQuery({ queryKey: ["signals"], queryFn: api.signals, refetchInterval: 60_000 });
 
-  const columns = useMemo<ColumnDef<Signal, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Signal>[]>(() => [
     {
       id: "kind", header: "Сигнал", enableHiding: false, accessorFn: (row) => row.kind,
       cell: ({ row }) => <Badge tone={signalKinds[row.original.kind].tone}>{signalKinds[row.original.kind].title}</Badge>,

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Download } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -12,7 +11,7 @@ import { Field, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { Tabs } from "../components/ui/tabs";
 import { ago, category, categoryIds, count, samplingMethod } from "../labels";
 import { CategoryLink, linkStyle, ObjectLink, paths, usePeriod, useUrlFilters } from "../links";
@@ -43,7 +42,7 @@ function CategoriesTab() {
     return [...byId.values()].sort((a, b) => (b.columns ?? 0) - (a.columns ?? 0) || (b.events ?? 0) - (a.events ?? 0));
   }, [inventory.data, access.data]);
 
-  const columns = useMemo<ColumnDef<CategoryRow, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<CategoryRow>[]>(() => [
     { id: "category", header: "Категория", enableHiding: false, accessorFn: (row) => category(row.id), cell: ({ row }) => <CategoryLink id={row.original.id} className={linkStyle}>{category(row.original.id)}</CategoryLink> },
     ...(can("getCatalogSummary") ? [
       { id: "columns", header: "Колонок", accessorFn: (row: CategoryRow) => row.columns ?? 0, meta: { align: "right" as const }, cell: ({ row }: { row: { original: CategoryRow } }) => count(row.original.columns ?? 0) },
@@ -101,7 +100,7 @@ function FindingsTab() {
   });
   const sourceKey = (id: string) => sources.data?.find((source) => source.id === id)?.key;
 
-  const columns = useMemo<ColumnDef<Finding, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Finding>[]>(() => [
     {
       id: "column", header: "Колонка", enableHiding: false, cell: ({ row }) => (
         <ObjectLink to={paths.column(row.original.columnId)} needs="getCatalogColumn" className="font-mono text-[13px]">{row.original.column}</ObjectLink>

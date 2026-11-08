@@ -1,5 +1,4 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Download, Link2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
@@ -12,7 +11,7 @@ import { CheckField, Field, Input, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Facts, Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
 import { stamp } from "../csv";
 import { count, dateTime, eventType, eventTypeIds, evidenceLevel, executionStatus, identity, resolution } from "../labels";
@@ -195,7 +194,7 @@ export function Audit() {
   // The scanner is the login the agent was given for that source.
   const isScanner = (event: Event) => sources.data?.some((source) => source.id === event.sourceId && source.username === event.databasePrincipal) ?? false;
 
-  const columns = useMemo<ColumnDef<Event, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Event>[]>(() => [
     { id: "time", header: "Время", enableHiding: false, meta: { className: "whitespace-nowrap" }, cell: ({ row }) => <span className="text-fg-2">{dateTime(row.original.time)}</span> },
     { id: "type", header: "Тип", cell: ({ row }) => eventType(row.original.type) },
     {

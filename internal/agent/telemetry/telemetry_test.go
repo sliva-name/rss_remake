@@ -1,11 +1,10 @@
 package telemetry_test
 
 import (
-	"errors"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"dataguard/internal/agent/telemetry"
@@ -42,7 +41,7 @@ func (state) SourcesVersion() uint64                { return 9 }
 func TestFailuresAreVisibleInMetrics(t *testing.T) {
 	observer := telemetry.New()
 	observer.Watch(state{}, state{}, state{})
-	observer.Request("SubmitEvents", connect.NewError(connect.CodeUnavailable, errors.New("down")))
+	observer.Request("SubmitEvents", connect.NewError(connect.CodeUnavailable, "down"))
 	observer.Request("Heartbeat", nil)
 	observer.Request("SubmitEvents", egress.ErrBlocked)
 	observer.Rejected("policy", "rollback")

@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Plus } from "lucide-react";
 import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 
@@ -12,7 +11,7 @@ import { Field, Input, Select } from "../components/ui/form";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { useNotify } from "../components/ui/toast";
 import { count, dateTime } from "../labels";
 import { useCan } from "../permissions";
@@ -70,7 +69,7 @@ export function Environments() {
       await client.invalidateQueries({ queryKey: ["environments"] });
     },
   });
-  const columns = useMemo<ColumnDef<Schemas["Environment"], unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Schemas["Environment"]>[]>(() => [
     { id: "name", header: "Среда", enableHiding: false, accessorFn: (row) => row.name, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: "kind", header: "Вид", accessorFn: (row) => row.kind, cell: ({ row }) => <Badge tone={row.original.kind === "production" ? "accent" : "neutral"}>{kinds.find((item) => item.id === row.original.kind)?.label ?? row.original.kind}</Badge> },
     ...(can("listAgents") ? [{ id: "agents", header: "Агентов", meta: { align: "right" as const }, accessorFn: (row: Schemas["Environment"]) => agents.data?.filter((agent) => agent.environmentId === row.id && agent.status === "active").length ?? 0, cell: ({ getValue }: { getValue: () => unknown }) => count(getValue() as number) }] : []),
@@ -113,7 +112,7 @@ export function Tenants() {
       await client.invalidateQueries({ queryKey: ["tenants"] });
     },
   });
-  const columns = useMemo<ColumnDef<Schemas["Tenant"], unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Schemas["Tenant"]>[]>(() => [
     { id: "name", header: "Организация", enableHiding: false, accessorFn: (row) => row.name, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: "id", header: "Идентификатор", cell: ({ row }) => <Mono className="text-fg-2">{row.original.id}</Mono> },
     { id: "created", header: "Создана", accessorFn: (row) => row.createdAt, cell: ({ row }) => <span className="text-fg-2">{dateTime(row.original.createdAt)}</span> },

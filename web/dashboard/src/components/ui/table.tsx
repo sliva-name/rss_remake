@@ -1,12 +1,18 @@
 import {
   type ColumnDef,
+  type ColumnVisibilityState,
+  columnVisibilityFeature,
+  createSortedRowModel,
   flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
+  metaHelper,
+  type RowData,
+  rowSelectionFeature,
   type RowSelectionState,
+  rowSortingFeature,
+  sortFns,
   type SortingState,
-  useReactTable,
-  type VisibilityState,
+  tableFeatures,
+  useTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Rows3 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -18,14 +24,25 @@ import { Checkbox } from "./form";
 import { Menu, MenuCheckbox, MenuSeparator } from "./menu";
 import { ErrorState, Loading } from "./state";
 
-declare module "@tanstack/react-table" {
-  interface ColumnMeta<TData, TValue> {
-    align?: "right";
-    // The name in the column settings menu when the header is not plain text.
-    label?: string;
-    className?: string;
-  }
+interface ColumnMeta {
+  align?: "right";
+  // The name in the column settings menu when the header is not plain text.
+  label?: string;
+  className?: string;
 }
+
+const features = tableFeatures({
+  rowSortingFeature,
+  columnVisibilityFeature,
+  rowSelectionFeature,
+  sortedRowModel: createSortedRowModel(),
+  sortFns,
+  columnMeta: metaHelper<ColumnMeta>(),
+});
+
+export type TableColumn<T extends RowData> = ColumnDef<typeof features, T, unknown>;
+
+const noRows: never[] = [];
 
 type Density = "comfortable" | "compact";
 
@@ -57,10 +74,10 @@ export interface Page {
   onChange: (offset: number) => void;
 }
 
-export interface DataTableProps<T> {
+export interface DataTableProps<T extends RowData> {
   // Names the table's saved column choice.
   id: string;
-  columns: ColumnDef<T, unknown>[];
+  columns: TableColumn<T>[];
   data: T[] | undefined;
   getRowId: (row: T) => string;
   loading?: boolean;
@@ -78,7 +95,7 @@ export interface DataTableProps<T> {
   defaultHidden?: string[];
 }
 
-export function DataTable<T>({
+export function DataTable<T extends RowData>({
   id,
   columns,
   data,
@@ -95,7 +112,7 @@ export function DataTable<T>({
   defaultHidden = [],
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [visibility, setVisibility] = useState<VisibilityState>(() =>
+  const [visibility, setVisibility] = useState<ColumnVisibilityState>(() =>
     stored(`table:${id}:columns`, Object.fromEntries(defaultHidden.map((column) => [column, false]))),
   );
   const [density, setDensity] = useState<Density>(() => stored("table:density", "comfortable"));
@@ -106,8 +123,9 @@ export function DataTable<T>({
   useEffect(() => setSelection({}), [data]);
 
   const selectable = bulkActions !== undefined;
-  const table = useReactTable({
-    data: data ?? [],
+  const table = useTable({
+    features,
+    data: data ?? noRows,
     columns: selectable ? [selectColumn<T>(), ...columns] : columns,
     getRowId,
     state: { sorting, columnVisibility: visibility, rowSelection: selection },
@@ -116,8 +134,6 @@ export function DataTable<T>({
     onRowSelectionChange: setSelection,
     enableSorting: sortable === true,
     enableRowSelection: selectable,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: sortable ? getSortedRowModel() : undefined,
   });
 
   const chosen = table.getSelectedRowModel().rows.map((row) => row.original);
@@ -237,7 +253,7 @@ export function DataTable<T>({
   );
 }
 
-function selectColumn<T>(): ColumnDef<T, unknown> {
+function selectColumn<T extends RowData>(): TableColumn<T> {
   return {
     id: "select",
     enableHiding: false,
@@ -247,7 +263,7 @@ function selectColumn<T>(): ColumnDef<T, unknown> {
       <Checkbox
         aria-label="Выбрать все на странице"
         checked={table.getIsAllRowsSelected()}
-        ref={(element) => { if (element) element.indeterminate = table.getIsSomeRowsSelected(); }}
+        ref={(element) => { if (element) element.indeterminate = table.getIsSomeRowsSelected() && !table.getIsAllRowsSelected(); }}
         onChange={table.getToggleAllRowsSelectedHandler()}
       />
     ),

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { ScrollText } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -11,7 +10,7 @@ import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page";
 import { Facts, Panel } from "../components/ui/panel";
 import { EmptyState, ErrorState, Loading } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { dateTime, tableKind } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
@@ -58,7 +57,7 @@ export function TablePage() {
   const { id = "" } = useParams();
   const can = useCan();
   const table = useQuery({ queryKey: ["table", id], queryFn: () => api.table(id) });
-  const columns = useMemo<ColumnDef<Column, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Column>[]>(() => [
     { id: "ordinal", header: "№", accessorFn: (row) => row.ordinal, meta: { align: "right", className: "w-12" }, cell: ({ row }) => <span className="text-fg-3">{row.original.ordinal}</span> },
     { id: "name", header: "Колонка", enableHiding: false, accessorFn: (row) => row.name, cell: ({ row }) => <ObjectLink to={paths.column(row.original.id)} needs="getCatalogColumn" className="font-mono text-[13px]">{row.original.name}</ObjectLink> },
     { id: "type", header: "Тип", accessorFn: (row) => row.nativeType, cell: ({ row }) => <Mono className="text-fg-2">{row.original.nativeType}</Mono> },

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"dataguard/internal/platform/metrics"
 )
@@ -134,22 +134,22 @@ func (s *Server) Ingested(stored, duplicates int, delays []time.Duration) {
 
 // AgentInterceptor counts agent RPC. It must be the outermost interceptor, so a
 // call refused by authorization is counted too.
-func (s *Server) AgentInterceptor() connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
-			if s == nil {
-				return next(ctx, request)
-			}
+func (s *Server) AgentInterceptor() connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		if s == nil {
+			return next
+		}
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
 			started := time.Now()
-			response, err := next(ctx, request)
-			procedure := path.Base(request.Spec().Procedure)
+			err := next(ctx, spec, stream)
+			procedure := path.Base(spec.Procedure)
 			code := "ok"
 			if err != nil {
 				code = connect.CodeOf(err).String()
 			}
 			s.agentRequests.Inc(procedure, code)
 			s.agentDuration.Observe(time.Since(started).Seconds(), procedure)
-			return response, err
+			return err
 		}
 	}
 }

@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
 import { MoreHorizontal, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -13,7 +12,7 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/menu";
 import { PageHeader } from "../components/ui/page";
 import { Panel } from "../components/ui/panel";
 import { EmptyState, Loadable } from "../components/ui/state";
-import { DataTable } from "../components/ui/table";
+import { DataTable, type TableColumn } from "../components/ui/table";
 import { Tabs } from "../components/ui/tabs";
 import { useNotify } from "../components/ui/toast";
 import { ago, capability, count, dateTime, engine, failure, percent, shortId, support } from "../labels";
@@ -78,7 +77,7 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
   const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24), enabled: can("getAuditCoverage") });
   const coverageOf = (id: string) => coverage.data?.find((row) => row.sourceId === id);
 
-  const columns = useMemo<ColumnDef<Source, unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Source>[]>(() => [
     {
       id: "name", header: "Источник", enableHiding: false, accessorFn: (row) => row.key,
       cell: ({ row }) => (
@@ -158,7 +157,7 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
 
 function CoverageTab() {
   const coverage = useQuery({ queryKey: ["coverage", 24], queryFn: () => api.coverage(24) });
-  const columns = useMemo<ColumnDef<Schemas["CoverageRow"], unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Schemas["CoverageRow"]>[]>(() => [
     { id: "source", header: "Источник", enableHiding: false, accessorFn: (row) => row.sourceKey, cell: ({ row }) => <div><ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{row.original.sourceKey}</ObjectLink><div className="text-xs text-fg-2">{engine(row.original.engine)}</div></div> },
     { id: "status", header: "Состояние", accessorFn: (row) => row.status, cell: ({ row }) => <div className="flex flex-col gap-0.5"><CoverageState status={row.original.status} reason={row.original.reason} />{row.original.reason && <FailureNote code={row.original.reason} className="max-w-xs" />}</div> },
     { id: "reads", header: "Аудит чтения", accessorFn: (row) => row.readsAudited, cell: ({ row }) => (row.original.readsAudited ? "Да" : <Badge tone="bad">Нет</Badge>) },
@@ -233,7 +232,7 @@ function ScansTab() {
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   const keyOf = (id: string) => sources.data?.find((source) => source.id === id)?.key ?? shortId(id);
-  const columns = useMemo<ColumnDef<Schemas["Scan"], unknown>[]>(() => [
+  const columns = useMemo<TableColumn<Schemas["Scan"]>[]>(() => [
     { id: "source", header: "Источник", enableHiding: false, cell: ({ row }) => <ObjectLink to={paths.source(row.original.sourceId)} needs="getSource">{keyOf(row.original.sourceId)}</ObjectLink> },
     { id: "status", header: "Статус", cell: ({ row }) => <ScanState status={row.original.status} /> },
     { id: "created", header: "Запущено", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{dateTime(row.original.createdAt)}</span> },

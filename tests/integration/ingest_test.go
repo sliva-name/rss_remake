@@ -15,7 +15,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	chdriver "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
