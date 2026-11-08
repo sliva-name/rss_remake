@@ -115,7 +115,7 @@ func bringUp(t *testing.T) *stack {
 		"source-postgres", "source-mysql", "source-mariadb", "source-mssql")
 	directory := root(t)
 	// The test's context is already cancelled when cleanups run.
-	t.Cleanup(func() { _, _ = composeOutput(context.Background(), directory, nil, nil, "stop", "agent") })
+	t.Cleanup(func() { _, _ = composeOutput(context.WithoutCancel(t.Context()), directory, nil, nil, "stop", "agent") })
 	waitReady(t)
 	return &stack{}
 }
@@ -165,7 +165,7 @@ func startServer(t *testing.T) {
 // createUser replaces any user left by a previous run.
 func createUser(t *testing.T, name, role, tenantID string) string {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	admin, err := keycloak.Connect(ctx, stand.Env(t)["KEYCLOAK_ADMIN_PASSWORD"])
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func hexToken(t *testing.T) string {
 
 func login(t *testing.T, name, password string) string {
 	t.Helper()
-	token, err := keycloak.Login(context.Background(), name, password)
+	token, err := keycloak.Login(t.Context(), name, password)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func sensitiveValues(t *testing.T, source *stand.Source) []string {
 // dumpPostgres reads the center database as its owner, past row-level security.
 func dumpPostgres(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	dsn := url.URL{
 		Scheme: "postgres", User: url.UserPassword("dg_owner", stand.Env(t)["CENTER_PG_ADMIN_PASSWORD"]),
 		Host: "127.0.0.1:25442", Path: "/dataguard", RawQuery: "sslmode=disable",
@@ -384,7 +384,7 @@ func dumpPostgres(t *testing.T) string {
 
 func dumpClickHouse(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	admin := stand.Env(t)["CENTER_CH_ADMIN_PASSWORD"]
 	connection, err := chdriver.Open(&chdriver.Options{
 		Addr: []string{"127.0.0.1:25900"},
@@ -474,7 +474,7 @@ func assertAbsent(t *testing.T, where, haystack string, values []string) {
 }
 
 func TestPlatformEndToEnd(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	s := bringUp(t)
 	s.onboard(t)
 	// Measured before seeding, which takes long enough to hide a slow start.

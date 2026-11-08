@@ -72,7 +72,7 @@ func (d *delays) snapshot() (int, []time.Duration) {
 // through the whole server path: validation, broker, consumer, duplicate check
 // and ClickHouse.
 func TestIngestThroughTheBrokerKeepsUpWithTheTarget(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	_, runtimeDSN := stand.CenterDatabase(t)
 	locks, err := postgres.Open(ctx, runtimeDSN)
 	if err != nil {

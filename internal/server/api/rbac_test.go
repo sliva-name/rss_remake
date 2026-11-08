@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"reflect"
 	"slices"
 	"testing"
@@ -44,7 +43,7 @@ var samplePrincipals = map[string]Principal{
 func TestPermissionsAreExactlyWhatTheAPIAllows(t *testing.T) {
 	for label, principal := range samplePrincipals {
 		permissions := permissionsOf(principal)
-		ctx := withPrincipal(context.Background(), principal)
+		ctx := withPrincipal(t.Context(), principal)
 		for operationID := range accessRules {
 			allowed := checkAccess(ctx, operationID) == nil
 			listed := slices.Contains(permissions, restapi.Permission(contractName(operationID)))

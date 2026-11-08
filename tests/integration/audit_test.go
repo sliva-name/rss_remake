@@ -65,7 +65,7 @@ func startCollector(t *testing.T, source stand.Source, stateDir string, verifier
 	if item == nil {
 		t.Fatal("no collector")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	harness := &auditHarness{
 		source: source, events: events, sourceID: sourceID, cancel: cancel, done: make(chan struct{}),
 		item: item, stateDir: stateDir, registry: registry, verifier: verifier,
@@ -147,7 +147,7 @@ func readsColumn(event *agentv1.AuditEvent, table, column string) bool {
 func TestAuditOnEveryEngine(t *testing.T) {
 	for _, source := range stand.AllSources(t) {
 		t.Run(source.Dialect.Name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			if err := seed.Tables(ctx, source.Admin, source.Dialect, 5, synthetic.New(3)); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
@@ -247,7 +247,7 @@ func TestAuditOnEveryEngine(t *testing.T) {
 // source whose events are flowing must not be reported as unaudited.
 func assertAuditCapabilities(t *testing.T, harness *auditHarness) {
 	t.Helper()
-	reports := harness.registry.Probe(context.Background())
+	reports := harness.registry.Probe(t.Context())
 	if len(reports) != 1 {
 		t.Fatalf("reports = %v", reports)
 	}
@@ -279,7 +279,7 @@ func (h *auditHarness) assertNoMarker(t *testing.T) {
 }
 
 func TestReplayAfterRestartKeepsEveryEventAndAddsNone(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	if err := seed.Tables(ctx, source.Admin, source.Dialect, 3, synthetic.New(3)); err != nil {
 		t.Fatal(err)
@@ -324,7 +324,7 @@ func TestReplayAfterRestartKeepsEveryEventAndAddsNone(t *testing.T) {
 }
 
 func TestUnparsableStatementLeavesNoTraceOfItsText(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.MariaDBSource(t)
 	harness := startCollector(t, source, t.TempDir(), nil)
 
@@ -342,7 +342,7 @@ func TestUnparsableStatementLeavesNoTraceOfItsText(t *testing.T) {
 }
 
 func TestApplicationContext(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	if err := seed.Tables(ctx, source.Admin, source.Dialect, 3, synthetic.New(3)); err != nil {
 		t.Fatal(err)

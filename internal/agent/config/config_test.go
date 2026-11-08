@@ -109,7 +109,7 @@ func TestAllowlistLimitsWhereTheCenterCanPointTheAgent(t *testing.T) {
 	}
 	allowlist := loaded.Allowlist()
 	for host, want := range cases {
-		if got := allowlist.PermitsHost(context.Background(), host, resolve); got != want {
+		if got := allowlist.PermitsHost(t.Context(), host, resolve); got != want {
 			t.Errorf("%s: permitted = %v, want %v", host, got, want)
 		}
 	}

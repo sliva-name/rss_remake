@@ -215,7 +215,7 @@ func TestEmptyBudgetIsNeverUnbounded(t *testing.T) {
 func TestExpiredDeadlineSkipsRemainingTables(t *testing.T) {
 	engine := classifier.NewEngine(classifier.Custom{})
 	source := &fakeSource{tables: []connector.Table{table("users")}, rows: 1}
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 	defer cancel()
 	job := &agentv1.ScanJob{JobId: jobID, SourceId: sourceID}
 

@@ -21,6 +21,8 @@ linters:
     - unconvert
     - unparam
     - unused
+    # Tests take t.Context(), so a timed-out test stops what it started.
+    - usetesting
   settings:
     depguard:
       rules:
@@ -51,6 +53,9 @@ linters:
       rules:
         - name: exported
           disabled: true
+    usetesting:
+      context-background: true
+      context-todo: true
   exclusions:
     paths:
       - internal/gen

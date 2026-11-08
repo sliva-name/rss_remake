@@ -49,7 +49,7 @@ func percentile(values []time.Duration, share float64) time.Duration {
 }
 
 func TestScanStaysWithinBudgetAndBarelyTouchesLatency(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	for _, statement := range []string{
 		`DROP TABLE IF EXISTS dg_load`,

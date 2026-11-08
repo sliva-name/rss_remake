@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -30,7 +29,7 @@ import (
 )
 
 func TestSourceListIsSignedAddressedAndOnlyGrows(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)
@@ -111,7 +110,7 @@ func TestSourceListIsSignedAddressedAndOnlyGrows(t *testing.T) {
 // points the agent outside its allowlist, and moves a sealed password to
 // another allowed target behind the API's back.
 func TestAgentRefusesWhatTheCenterShouldNotAsk(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	enrolled := platform.enroll(t, created.ID, environment.ID)
@@ -152,7 +151,7 @@ func TestAgentRefusesWhatTheCenterShouldNotAsk(t *testing.T) {
 }
 
 func TestSourcesAreTenantScoped(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	first, firstEnvironment := platform.newTenant(t, "Acme")
 	second, _ := platform.newTenant(t, "Globex")
@@ -183,7 +182,7 @@ func TestSourcesAreTenantScoped(t *testing.T) {
 // A connection check before saving runs on a draft: the agent opens it and
 // reports, but nothing else happens to it until the administrator saves it.
 func TestDraftIsProbedButNotScannedUntilActivated(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	source := stand.PostgresSource(t)
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
@@ -233,7 +232,7 @@ func TestDraftIsProbedButNotScannedUntilActivated(t *testing.T) {
 }
 
 func TestDeletedSourceIsNoLongerServed(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)
@@ -316,7 +315,7 @@ func TestSourceManagementOverREST(t *testing.T) {
 }
 
 func TestScannerReadsAreHiddenUnlessAsked(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)

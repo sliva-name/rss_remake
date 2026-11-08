@@ -80,12 +80,12 @@ func TestTokenEmbedsTenantAndIsOnlyStoredHashed(t *testing.T) {
 	service := fleet.NewService(repository, fakeIssuer{}, fakeSigner{})
 	tenantID := uuid.New()
 
-	token, _, err := service.CreateEnrollmentToken(context.Background(), tenantID, uuid.New())
+	token, _, err := service.CreateEnrollmentToken(t.Context(), tenantID, uuid.New())
 	if err != nil {
 		t.Fatalf("CreateEnrollmentToken: %v", err)
 	}
 
-	enrollment, err := service.Enroll(context.Background(), token, []byte("csr"), sealingKey(t), "1.0")
+	enrollment, err := service.Enroll(t.Context(), token, []byte("csr"), sealingKey(t), "1.0")
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestTokenEmbedsTenantAndIsOnlyStoredHashed(t *testing.T) {
 func TestEnrollRejectsMalformedToken(t *testing.T) {
 	service := fleet.NewService(&fakeRepository{}, fakeIssuer{}, fakeSigner{})
 	for _, token := range []string{"", "no-separator", "nothex_secret"} {
-		if _, err := service.Enroll(context.Background(), token, nil, sealingKey(t), ""); !errors.Is(err, fleet.ErrInvalidToken) {
+		if _, err := service.Enroll(t.Context(), token, nil, sealingKey(t), ""); !errors.Is(err, fleet.ErrInvalidToken) {
 			t.Errorf("token %q: err = %v", token, err)
 		}
 	}
@@ -114,7 +114,7 @@ func TestEnrollDoesNotCreateAgentWhenCSRIsRejected(t *testing.T) {
 	service := fleet.NewService(repository, fakeIssuer{err: errors.New("bad csr")}, fakeSigner{})
 	token := uuid.New().String() + "_secret"
 
-	if _, err := service.Enroll(context.Background(), token, nil, sealingKey(t), ""); !errors.Is(err, fleet.ErrInvalid) {
+	if _, err := service.Enroll(t.Context(), token, nil, sealingKey(t), ""); !errors.Is(err, fleet.ErrInvalid) {
 		t.Fatalf("err = %v", err)
 	}
 	if len(repository.createdWith) != 0 {
@@ -125,7 +125,7 @@ func TestEnrollDoesNotCreateAgentWhenCSRIsRejected(t *testing.T) {
 func TestAuthorizeRejectsRevokedAgent(t *testing.T) {
 	repository := &fakeRepository{agent: fleet.Agent{Status: fleet.StatusRevoked}}
 	service := fleet.NewService(repository, fakeIssuer{}, fakeSigner{})
-	err := service.Authorize(context.Background(), uuid.New(), uuid.New())
+	err := service.Authorize(t.Context(), uuid.New(), uuid.New())
 	if !errors.Is(err, fleet.ErrNotActive) {
 		t.Fatalf("err = %v", err)
 	}
@@ -134,11 +134,11 @@ func TestAuthorizeRejectsRevokedAgent(t *testing.T) {
 func TestEnrollRejectsAMissingSealingKey(t *testing.T) {
 	repository := &fakeRepository{}
 	service := fleet.NewService(repository, fakeIssuer{}, fakeSigner{})
-	token, _, err := service.CreateEnrollmentToken(context.Background(), uuid.New(), uuid.New())
+	token, _, err := service.CreateEnrollmentToken(t.Context(), uuid.New(), uuid.New())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Enroll(context.Background(), token, []byte("csr"), []byte("not a key"), "1.0"); !errors.Is(err, fleet.ErrInvalid) {
+	if _, err := service.Enroll(t.Context(), token, []byte("csr"), []byte("not a key"), "1.0"); !errors.Is(err, fleet.ErrInvalid) {
 		t.Fatalf("err = %v", err)
 	}
 	if len(repository.createdWith) != 0 {
@@ -181,7 +181,7 @@ func TestCreateSourceValidatesTheDefinition(t *testing.T) {
 			service := fleet.NewService(repository, fakeIssuer{}, fakeSigner{})
 			source := draft()
 			change(&source)
-			if _, err := service.CreateSource(context.Background(), uuid.New(), source); !errors.Is(err, fleet.ErrInvalid) {
+			if _, err := service.CreateSource(t.Context(), uuid.New(), source); !errors.Is(err, fleet.ErrInvalid) {
 				t.Fatalf("err = %v", err)
 			}
 			if len(repository.saved) != 0 {
@@ -198,7 +198,7 @@ func TestCreateSourceNeedsAnAgentThatCanOpenPasswords(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			service := fleet.NewService(&fakeRepository{agent: agent}, fakeIssuer{}, fakeSigner{})
-			if _, err := service.CreateSource(context.Background(), uuid.New(), draft()); !errors.Is(err, fleet.ErrInvalid) {
+			if _, err := service.CreateSource(t.Context(), uuid.New(), draft()); !errors.Is(err, fleet.ErrInvalid) {
 				t.Fatalf("err = %v", err)
 			}
 		})
@@ -213,7 +213,7 @@ func TestUpdateSourceAsksForThePasswordWhenTheTargetChanges(t *testing.T) {
 
 	renamed := draft()
 	renamed.Key, renamed.SealedPassword = "crm-main", nil
-	updated, err := service.UpdateSource(context.Background(), uuid.New(), current.ID, renamed)
+	updated, err := service.UpdateSource(t.Context(), uuid.New(), current.ID, renamed)
 	if err != nil {
 		t.Fatalf("rename: %v", err)
 	}
@@ -223,13 +223,13 @@ func TestUpdateSourceAsksForThePasswordWhenTheTargetChanges(t *testing.T) {
 
 	moved := draft()
 	moved.Host, moved.SealedPassword = "attacker.example.invalid", nil
-	if _, err := service.UpdateSource(context.Background(), uuid.New(), current.ID, moved); !errors.Is(err, fleet.ErrInvalid) {
+	if _, err := service.UpdateSource(t.Context(), uuid.New(), current.ID, moved); !errors.Is(err, fleet.ErrInvalid) {
 		t.Fatalf("a new host without a new password: %v", err)
 	}
 
 	otherEngine := draft()
 	otherEngine.Engine = "mysql"
-	if _, err := service.UpdateSource(context.Background(), uuid.New(), current.ID, otherEngine); !errors.Is(err, fleet.ErrInvalid) {
+	if _, err := service.UpdateSource(t.Context(), uuid.New(), current.ID, otherEngine); !errors.Is(err, fleet.ErrInvalid) {
 		t.Fatalf("engine change: %v", err)
 	}
 }

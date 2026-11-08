@@ -48,7 +48,7 @@ func report(t *testing.T, source fleet.Source, health []coverage.Health, windows
 	service := coverage.NewService(
 		fleet.NewService(fakeFleet{sources: []fleet.Source{source}}, nil, nil),
 		fakeStore{health: health}, fakeEvents{windows: windows})
-	rows, err := service.Report(context.Background(), uuid.New(), time.Hour)
+	rows, err := service.Report(t.Context(), uuid.New(), time.Hour)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows = %+v, %v", rows, err)
 	}

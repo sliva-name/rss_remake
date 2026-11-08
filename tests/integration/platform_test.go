@@ -111,7 +111,7 @@ func (o *outage) recorded() []byte {
 
 func startPlatform(t *testing.T) *platform {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	ownerDSN, runtimeDSN := stand.CenterDatabase(t)
 	store, err := postgres.Open(ctx, runtimeDSN)
 	if err != nil {
@@ -177,7 +177,7 @@ func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir
 	}
 	consumer := broker.NewConsumer(settings, write, metrics, safelog.Discard())
 	metrics.WatchLag(consumer.Lag)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -208,7 +208,7 @@ func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir
 // the first: pools, caches and metrics are its own.
 func (p *platform) secondInstance(t *testing.T) instance {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	store, err := postgres.Open(ctx, p.runtimeDSN)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -224,7 +224,7 @@ func (p *platform) secondInstance(t *testing.T) instance {
 
 func (p *platform) newTenant(t *testing.T, name string) (tenant.Tenant, tenant.Environment) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	created, err := p.app.Tenants.CreateTenant(ctx, name)
 	if err != nil {
 		t.Fatalf("CreateTenant: %v", err)
@@ -251,7 +251,7 @@ func (p *platform) enroll(t *testing.T, tenantID, environmentID uuid.UUID) enrol
 // enrollThrough registers an agent that talks to the center at url.
 func (p *platform) enrollThrough(t *testing.T, tenantID, environmentID uuid.UUID, url string) enrolledAgent {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	token, _, err := p.app.Fleet.CreateEnrollmentToken(ctx, tenantID, environmentID)
 	if err != nil {
 		t.Fatalf("CreateEnrollmentToken: %v", err)
@@ -275,14 +275,14 @@ func (p *platform) enrollThrough(t *testing.T, tenantID, environmentID uuid.UUID
 
 func TestRuntimeRoleMustNotBypassRowSecurity(t *testing.T) {
 	ownerDSN, _ := stand.CenterDatabase(t)
-	if store, err := postgres.Open(context.Background(), ownerDSN); err == nil {
+	if store, err := postgres.Open(t.Context(), ownerDSN); err == nil {
 		store.Close()
 		t.Fatal("a role that bypasses row security must be refused at startup")
 	}
 }
 
 func TestAgentLifecycle(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)
@@ -324,7 +324,7 @@ func TestAgentLifecycle(t *testing.T) {
 }
 
 func TestEnrollmentTokenWorksOnce(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	token, _, err := platform.app.Fleet.CreateEnrollmentToken(ctx, created.ID, environment.ID)
@@ -346,7 +346,7 @@ func TestEnrollmentTokenWorksOnce(t *testing.T) {
 }
 
 func TestRevokedAgentIsRefusedImmediately(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)
@@ -378,7 +378,7 @@ func rawClient(t *testing.T, platform *platform, certificate *tls.Certificate) a
 }
 
 func TestAgentServiceRequiresPlatformCertificate(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 
 	t.Run("no certificate", func(t *testing.T) {
@@ -417,7 +417,7 @@ func TestAgentServiceRequiresPlatformCertificate(t *testing.T) {
 }
 
 func TestEnvelopeCannotClaimAnotherTenant(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	first, firstEnvironment := platform.newTenant(t, "Acme")
 	second, _ := platform.newTenant(t, "Globex")
@@ -449,7 +449,7 @@ func TestEnvelopeCannotClaimAnotherTenant(t *testing.T) {
 }
 
 func TestServerRejectsMessageBreakingTheContract(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)
@@ -471,7 +471,7 @@ func TestServerRejectsMessageBreakingTheContract(t *testing.T) {
 }
 
 func TestTenantsCannotSeeEachOther(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	first, firstEnvironment := platform.newTenant(t, "Acme")
 	second, secondEnvironment := platform.newTenant(t, "Globex")
@@ -494,7 +494,7 @@ func TestTenantsCannotSeeEachOther(t *testing.T) {
 }
 
 func TestPolicyDeliveryAndRollbackProtection(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)
@@ -543,7 +543,7 @@ func TestPolicyDeliveryAndRollbackProtection(t *testing.T) {
 }
 
 func TestOutboundGuardBlocksBeforeTheWire(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	platform := startPlatform(t)
 	created, environment := platform.newTenant(t, "Acme")
 	agent := platform.enroll(t, created.ID, environment.ID)

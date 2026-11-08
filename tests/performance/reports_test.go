@@ -3,7 +3,6 @@
 package performance_test
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"slices"
@@ -95,7 +94,7 @@ func timed(t *testing.T, name string, target time.Duration, run func() error) {
 func timedCold(t *testing.T, owner clickhouse.Settings, name string, target time.Duration, run func() error) {
 	t.Helper()
 	timedAfter(t, name, target, func() {
-		if err := clickhouse.ExecAdmin(context.Background(), owner, "SYSTEM DROP QUERY CONDITION CACHE"); err != nil {
+		if err := clickhouse.ExecAdmin(t.Context(), owner, "SYSTEM DROP QUERY CONDITION CACHE"); err != nil {
 			t.Fatalf("drop condition cache: %v", err)
 		}
 	}, run)
@@ -133,7 +132,7 @@ func logStorage(t *testing.T, owner clickhouse.Settings) {
 	}
 	defer func() { _ = connection.Close() }()
 	var rows, projectionRows, bytes, projectionBytes uint64
-	err = connection.QueryRow(context.Background(), `SELECT
+	err = connection.QueryRow(t.Context(), `SELECT
 			(SELECT sum(rows) FROM system.parts WHERE database = currentDatabase() AND table = 'audit_events' AND active),
 			(SELECT sum(rows) FROM system.projection_parts WHERE database = currentDatabase() AND table = 'audit_events' AND active),
 			(SELECT sum(data_compressed_bytes) FROM system.parts WHERE database = currentDatabase() AND table = 'audit_events' AND active),
@@ -146,7 +145,7 @@ func logStorage(t *testing.T, owner clickhouse.Settings) {
 }
 
 func TestReportsAndSearchAtReferenceVolume(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	events := volume(t)
 	owner, runtime := stand.EmptyCenterEvents(t)
 	if err := clickhouse.Migrate(ctx, owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {

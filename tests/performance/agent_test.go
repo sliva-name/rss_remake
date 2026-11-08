@@ -135,7 +135,7 @@ func collect(t *testing.T, repeated float64) (float64, queue.Stats) {
 	t.Cleanup(func() { _ = events.Close() })
 
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
-	ctx, stop := context.WithCancel(context.Background())
+	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
 	item := collector.New(collector.Options{
 		SourceKey: "crm", SourceID: "0190a8c4-7b1e-7c3d-9f10-2a4b6c8d0e1f",
