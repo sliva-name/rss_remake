@@ -8,6 +8,7 @@ import (
 
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/connector"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/query/frontend/postgres"
@@ -106,11 +107,11 @@ func newZoneCollector(t *testing.T, reader Reader, catalog connector.Catalog) *C
 }
 
 func TestZonedReaderWaitsForTheServerZone(t *testing.T) {
-	blind := &zonedScriptedReader{scriptedReader: scriptedReader{batches: []Batch{{Records: []Record{statementRecord(1)}, Cursor: []byte("after")}}}}
+	blind := &zonedScriptedReader{batches: []Batch{{Records: []Record{statementRecord(1)}, Cursor: []byte("after")}}}
 	item := newZoneCollector(t, blind, catalogWithoutClock{})
 	item.tick(context.Background())
 	if health := item.Health(); health.GetState() != agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED ||
-		health.GetReasonCode() != reasonTimeZoneUnknown {
+		health.GetReasonCode() != codes.LogTimeZoneUnknown {
 		t.Fatalf("health = %+v", health)
 	}
 	if blind.position != 0 {

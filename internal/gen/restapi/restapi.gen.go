@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -20,16 +21,16 @@ import (
 
 // Defines values for AgentStatus.
 const (
-	Active  AgentStatus = "active"
-	Revoked AgentStatus = "revoked"
+	AgentStatusActive  AgentStatus = "active"
+	AgentStatusRevoked AgentStatus = "revoked"
 )
 
 // Valid indicates whether the value is a known member of the AgentStatus enum.
 func (e AgentStatus) Valid() bool {
 	switch e {
-	case Active:
+	case AgentStatusActive:
 		return true
-	case Revoked:
+	case AgentStatusRevoked:
 		return true
 	default:
 		return false
@@ -75,6 +76,195 @@ func (e EnvironmentKind) Valid() bool {
 	case Production:
 		return true
 	case Testing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ObjectStatus.
+const (
+	ObjectStatusActive  ObjectStatus = "active"
+	ObjectStatusRemoved ObjectStatus = "removed"
+)
+
+// Valid indicates whether the value is a known member of the ObjectStatus enum.
+func (e ObjectStatus) Valid() bool {
+	switch e {
+	case ObjectStatusActive:
+		return true
+	case ObjectStatusRemoved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Permission.
+const (
+	ActivateSource        Permission = "activateSource"
+	CreateEnrollmentToken Permission = "createEnrollmentToken"
+	CreateEnvironment     Permission = "createEnvironment"
+	CreateSource          Permission = "createSource"
+	CreateTenant          Permission = "createTenant"
+	DeleteSource          Permission = "deleteSource"
+	ExportAuditEvents     Permission = "exportAuditEvents"
+	GetAccessSummary      Permission = "getAccessSummary"
+	GetAccessTimeline     Permission = "getAccessTimeline"
+	GetAgent              Permission = "getAgent"
+	GetAuditCoverage      Permission = "getAuditCoverage"
+	GetCatalogColumn      Permission = "getCatalogColumn"
+	GetCatalogSummary     Permission = "getCatalogSummary"
+	GetCatalogTable       Permission = "getCatalogTable"
+	GetCurrentUser        Permission = "getCurrentUser"
+	GetPolicy             Permission = "getPolicy"
+	GetPolicyVersion      Permission = "getPolicyVersion"
+	GetPreference         Permission = "getPreference"
+	GetSource             Permission = "getSource"
+	ListAccessByCategory  Permission = "listAccessByCategory"
+	ListAccessByPrincipal Permission = "listAccessByPrincipal"
+	ListAgents            Permission = "listAgents"
+	ListAuditEvents       Permission = "listAuditEvents"
+	ListCatalogChanges    Permission = "listCatalogChanges"
+	ListCatalogColumns    Permission = "listCatalogColumns"
+	ListCatalogTables     Permission = "listCatalogTables"
+	ListEnvironments      Permission = "listEnvironments"
+	ListPolicyVersions    Permission = "listPolicyVersions"
+	ListRiskSignals       Permission = "listRiskSignals"
+	ListScans             Permission = "listScans"
+	ListSources           Permission = "listSources"
+	ListTenants           Permission = "listTenants"
+	PublishPolicy         Permission = "publishPolicy"
+	RequestScan           Permission = "requestScan"
+	RevokeAgent           Permission = "revokeAgent"
+	SavePreference        Permission = "savePreference"
+	Search                Permission = "search"
+	UpdateSource          Permission = "updateSource"
+)
+
+// Valid indicates whether the value is a known member of the Permission enum.
+func (e Permission) Valid() bool {
+	switch e {
+	case ActivateSource:
+		return true
+	case CreateEnrollmentToken:
+		return true
+	case CreateEnvironment:
+		return true
+	case CreateSource:
+		return true
+	case CreateTenant:
+		return true
+	case DeleteSource:
+		return true
+	case ExportAuditEvents:
+		return true
+	case GetAccessSummary:
+		return true
+	case GetAccessTimeline:
+		return true
+	case GetAgent:
+		return true
+	case GetAuditCoverage:
+		return true
+	case GetCatalogColumn:
+		return true
+	case GetCatalogSummary:
+		return true
+	case GetCatalogTable:
+		return true
+	case GetCurrentUser:
+		return true
+	case GetPolicy:
+		return true
+	case GetPolicyVersion:
+		return true
+	case GetPreference:
+		return true
+	case GetSource:
+		return true
+	case ListAccessByCategory:
+		return true
+	case ListAccessByPrincipal:
+		return true
+	case ListAgents:
+		return true
+	case ListAuditEvents:
+		return true
+	case ListCatalogChanges:
+		return true
+	case ListCatalogColumns:
+		return true
+	case ListCatalogTables:
+		return true
+	case ListEnvironments:
+		return true
+	case ListPolicyVersions:
+		return true
+	case ListRiskSignals:
+		return true
+	case ListScans:
+		return true
+	case ListSources:
+		return true
+	case ListTenants:
+		return true
+	case PublishPolicy:
+		return true
+	case RequestScan:
+		return true
+	case RevokeAgent:
+		return true
+	case SavePreference:
+		return true
+	case Search:
+		return true
+	case UpdateSource:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PreferenceKey.
+const (
+	Favorites PreferenceKey = "favorites"
+	Overview  PreferenceKey = "overview"
+	Recent    PreferenceKey = "recent"
+	Views     PreferenceKey = "views"
+)
+
+// Valid indicates whether the value is a known member of the PreferenceKey enum.
+func (e PreferenceKey) Valid() bool {
+	switch e {
+	case Favorites:
+		return true
+	case Overview:
+		return true
+	case Recent:
+		return true
+	case Views:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RiskSignalKind.
+const (
+	FAILEDACCESS RiskSignalKind = "FAILED_ACCESS"
+	NEWCATEGORY  RiskSignalKind = "NEW_CATEGORY"
+	VOLUMESPIKE  RiskSignalKind = "VOLUME_SPIKE"
+)
+
+// Valid indicates whether the value is a known member of the RiskSignalKind enum.
+func (e RiskSignalKind) Valid() bool {
+	switch e {
+	case FAILEDACCESS:
+		return true
+	case NEWCATEGORY:
+		return true
+	case VOLUMESPIKE:
 		return true
 	default:
 		return false
@@ -184,8 +374,11 @@ type AgentStatus string
 
 // AuditEvent defines model for AuditEvent.
 type AuditEvent struct {
+	// ApplicationId The application that signed the context, empty without one.
+	ApplicationId        string             `json:"applicationId"`
 	ApplicationPrincipal string             `json:"applicationPrincipal"`
 	Categories           []string           `json:"categories"`
+	ClientAddress        string             `json:"clientAddress"`
 	Columns              []string           `json:"columns"`
 	DatabasePrincipal    string             `json:"databasePrincipal"`
 	ErrorCode            string             `json:"errorCode"`
@@ -198,10 +391,14 @@ type AuditEvent struct {
 	ObjectResolution     string             `json:"objectResolution"`
 	Operation            string             `json:"operation"`
 	QueryFingerprint     string             `json:"queryFingerprint"`
-	SourceId             openapi_types.UUID `json:"sourceId"`
-	Tables               []string           `json:"tables"`
-	Time                 time.Time          `json:"time"`
-	Type                 string             `json:"type"`
+
+	// SessionId The engine's session number; with the source it ties statements of one connection together.
+	SessionId     string             `json:"sessionId"`
+	SourceId      openapi_types.UUID `json:"sourceId"`
+	Tables        []string           `json:"tables"`
+	Time          time.Time          `json:"time"`
+	TransactionId string             `json:"transactionId"`
+	Type          string             `json:"type"`
 }
 
 // AuditEventPage defines model for AuditEventPage.
@@ -256,10 +453,64 @@ type CatalogColumn struct {
 	UpdatedAt      time.Time          `json:"updatedAt"`
 }
 
+// CatalogColumnDetail defines model for CatalogColumnDetail.
+type CatalogColumnDetail struct {
+	Classifications []Classification   `json:"classifications"`
+	Database        string             `json:"database"`
+	FirstSeenAt     time.Time          `json:"firstSeenAt"`
+	Id              openapi_types.UUID `json:"id"`
+	LastSeenAt      time.Time          `json:"lastSeenAt"`
+	Name            string             `json:"name"`
+	NativeType      string             `json:"nativeType"`
+	Nullable        bool               `json:"nullable"`
+	Ordinal         int32              `json:"ordinal"`
+	Renames         []Rename           `json:"renames"`
+	Schema          string             `json:"schema"`
+	SourceId        openapi_types.UUID `json:"sourceId"`
+	Status          ObjectStatus       `json:"status"`
+	Table           string             `json:"table"`
+	TableId         openapi_types.UUID `json:"tableId"`
+}
+
 // CatalogPage defines model for CatalogPage.
 type CatalogPage struct {
 	Items []CatalogColumn `json:"items"`
 	Total int64           `json:"total"`
+}
+
+// CatalogTable defines model for CatalogTable.
+type CatalogTable struct {
+	Categories       []string           `json:"categories"`
+	Columns          int64              `json:"columns"`
+	Database         string             `json:"database"`
+	Id               openapi_types.UUID `json:"id"`
+	Kind             string             `json:"kind"`
+	LastSeenAt       time.Time          `json:"lastSeenAt"`
+	Schema           string             `json:"schema"`
+	SensitiveColumns int64              `json:"sensitiveColumns"`
+	SourceId         openapi_types.UUID `json:"sourceId"`
+	Table            string             `json:"table"`
+}
+
+// CatalogTableDetail defines model for CatalogTableDetail.
+type CatalogTableDetail struct {
+	Columns     []TableColumn      `json:"columns"`
+	Database    string             `json:"database"`
+	FirstSeenAt time.Time          `json:"firstSeenAt"`
+	Id          openapi_types.UUID `json:"id"`
+	Kind        string             `json:"kind"`
+	LastSeenAt  time.Time          `json:"lastSeenAt"`
+	Renames     []Rename           `json:"renames"`
+	Schema      string             `json:"schema"`
+	SourceId    openapi_types.UUID `json:"sourceId"`
+	Status      ObjectStatus       `json:"status"`
+	Table       string             `json:"table"`
+}
+
+// CatalogTablePage defines model for CatalogTablePage.
+type CatalogTablePage struct {
+	Items []CatalogTable `json:"items"`
+	Total int64          `json:"total"`
 }
 
 // CategoryAccess defines model for CategoryAccess.
@@ -276,6 +527,26 @@ type CategoryInventory struct {
 	Category string `json:"category"`
 	Columns  int64  `json:"columns"`
 	Tables   int64  `json:"tables"`
+}
+
+// Classification defines model for Classification.
+type Classification struct {
+	CategoryId    string   `json:"categoryId"`
+	ChecksumRatio *float64 `json:"checksumRatio,omitempty"`
+	Confidence    float64  `json:"confidence"`
+	ContextMatch  bool     `json:"contextMatch"`
+
+	// Detected False when the classifier looked and decided the category is absent.
+	Detected       bool      `json:"detected"`
+	FirstSeenAt    time.Time `json:"firstSeenAt"`
+	FormatRatio    float64   `json:"formatRatio"`
+	NameMatch      bool      `json:"nameMatch"`
+	RowsInspected  int64     `json:"rowsInspected"`
+	RowsMatched    int64     `json:"rowsMatched"`
+	RowsNonNull    int64     `json:"rowsNonNull"`
+	SamplingMethod string    `json:"samplingMethod"`
+	UniqueEstimate int64     `json:"uniqueEstimate"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 // CoverageRow Shares are absent when nothing was measured; absent never means zero.
@@ -303,9 +574,11 @@ type CoverageRowStatus string
 
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
-	Roles    []string            `json:"roles"`
-	Subject  string              `json:"subject"`
-	TenantId *openapi_types.UUID `json:"tenantId,omitempty"`
+	// Permissions Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010).
+	Permissions []Permission        `json:"permissions"`
+	Roles       []string            `json:"roles"`
+	Subject     string              `json:"subject"`
+	TenantId    *openapi_types.UUID `json:"tenantId,omitempty"`
 }
 
 // CustomDetector defines model for CustomDetector.
@@ -353,11 +626,14 @@ type NewSource struct {
 	AgentId        openapi_types.UUID `json:"agentId"`
 	AuditDirectory *string            `json:"auditDirectory,omitempty"`
 	Database       string             `json:"database"`
-	Engine         SourceEngine       `json:"engine"`
-	Host           string             `json:"host"`
-	MaxConnections *int               `json:"maxConnections,omitempty"`
-	Name           string             `json:"name"`
-	Port           int                `json:"port"`
+
+	// Draft Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+	Draft          *bool        `json:"draft,omitempty"`
+	Engine         SourceEngine `json:"engine"`
+	Host           string       `json:"host"`
+	MaxConnections *int         `json:"maxConnections,omitempty"`
+	Name           string       `json:"name"`
+	Port           int          `json:"port"`
 
 	// SealedPassword Omit to keep the current password; required when the binding changes.
 	SealedPassword []byte  `json:"sealedPassword"`
@@ -369,6 +645,12 @@ type NewSource struct {
 type NewTenant struct {
 	Name string `json:"name"`
 }
+
+// ObjectStatus defines model for ObjectStatus.
+type ObjectStatus string
+
+// Permission An operationId of this API.
+type Permission string
 
 // Policy defines model for Policy.
 type Policy struct {
@@ -383,6 +665,24 @@ type PolicyDraft struct {
 	ScanBudget      *ScanBudget      `json:"scanBudget,omitempty"`
 }
 
+// PolicyVersion defines model for PolicyVersion.
+type PolicyVersion struct {
+	CreatedAt       time.Time `json:"createdAt"`
+	CreatedBy       string    `json:"createdBy"`
+	CustomDetectors int       `json:"customDetectors"`
+	HasScanBudget   bool      `json:"hasScanBudget"`
+	Version         int64     `json:"version"`
+}
+
+// Preference defines model for Preference.
+type Preference struct {
+	// Value Whatever the dashboard keeps under the key, as JSON; null when never saved.
+	Value interface{} `json:"value"`
+}
+
+// PreferenceKey defines model for PreferenceKey.
+type PreferenceKey string
+
 // PrincipalAccess defines model for PrincipalAccess.
 type PrincipalAccess struct {
 	ApplicationPrincipal string    `json:"applicationPrincipal"`
@@ -395,11 +695,49 @@ type PrincipalAccess struct {
 	Sources              int64     `json:"sources"`
 }
 
+// PrincipalHit defines model for PrincipalHit.
+type PrincipalHit struct {
+	ApplicationPrincipal string `json:"applicationPrincipal"`
+	DatabasePrincipal    string `json:"databasePrincipal"`
+
+	// Events Events in the last 30 days.
+	Events int64 `json:"events"`
+}
+
 // Problem defines model for Problem.
 type Problem struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
+
+// Rename defines model for Rename.
+type Rename struct {
+	DetectedAt time.Time `json:"detectedAt"`
+	DetectedBy string    `json:"detectedBy"`
+	NewName    string    `json:"newName"`
+	OldName    string    `json:"oldName"`
+}
+
+// RiskSignal defines model for RiskSignal.
+type RiskSignal struct {
+	ApplicationPrincipal string `json:"applicationPrincipal"`
+
+	// Baseline What the rule compared with; its meaning depends on the kind.
+	Baseline float64 `json:"baseline"`
+
+	// Category Empty when the signal is not about one category.
+	Category           string         `json:"category"`
+	DatabasePrincipal  string         `json:"databasePrincipal"`
+	IdentityConfidence string         `json:"identityConfidence"`
+	Kind               RiskSignalKind `json:"kind"`
+	LastSeen           time.Time      `json:"lastSeen"`
+
+	// Observed Events in the last 24 hours that the rule counted.
+	Observed int64 `json:"observed"`
+}
+
+// RiskSignalKind defines model for RiskSignal.Kind.
+type RiskSignalKind string
 
 // Scan defines model for Scan.
 type Scan struct {
@@ -425,12 +763,33 @@ type ScanBudget struct {
 	MaxRowsPerTable    *int64 `json:"maxRowsPerTable,omitempty"`
 }
 
+// SearchHit defines model for SearchHit.
+type SearchHit struct {
+	Categories *[]string `json:"categories,omitempty"`
+
+	// Context Where the object is, such as the source and schema of a table.
+	Context string             `json:"context"`
+	Id      openapi_types.UUID `json:"id"`
+	Name    string             `json:"name"`
+}
+
+// SearchResult defines model for SearchResult.
+type SearchResult struct {
+	Columns    []SearchHit    `json:"columns"`
+	Principals []PrincipalHit `json:"principals"`
+	Sources    []SearchHit    `json:"sources"`
+	Tables     []SearchHit    `json:"tables"`
+}
+
 // Source defines model for Source.
 type Source struct {
 	AgentId        openapi_types.UUID `json:"agentId"`
 	AuditDirectory string             `json:"auditDirectory"`
 	Capabilities   []Capability       `json:"capabilities"`
 	Database       string             `json:"database"`
+
+	// Draft A connection check that has not been saved yet.
+	Draft          bool               `json:"draft"`
 	Engine         string             `json:"engine"`
 	EngineVersion  string             `json:"engineVersion"`
 	Host           string             `json:"host"`
@@ -466,11 +825,30 @@ type SourceUpdate struct {
 	Username       string  `json:"username"`
 }
 
+// TableColumn defines model for TableColumn.
+type TableColumn struct {
+	// Categories Detected categories only.
+	Categories []string           `json:"categories"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       string             `json:"name"`
+	NativeType string             `json:"nativeType"`
+	Nullable   bool               `json:"nullable"`
+	Ordinal    int32              `json:"ordinal"`
+}
+
 // Tenant defines model for Tenant.
 type Tenant struct {
 	CreatedAt time.Time          `json:"createdAt"`
 	Id        openapi_types.UUID `json:"id"`
 	Name      string             `json:"name"`
+}
+
+// TimelinePoint defines model for TimelinePoint.
+type TimelinePoint struct {
+	Events          int64     `json:"events"`
+	FailedEvents    int64     `json:"failedEvents"`
+	Hour            time.Time `json:"hour"`
+	SensitiveEvents int64     `json:"sensitiveEvents"`
 }
 
 // TlsMode defines model for TlsMode.
@@ -484,12 +862,23 @@ type ListAccessByCategoryParams struct {
 
 // ListAccessByPrincipalParams defines parameters for ListAccessByPrincipal.
 type ListAccessByPrincipalParams struct {
-	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
-	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
+	// Category Count only the events that touched this category.
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// ColumnId Count only the events that read this column. Read from the events themselves, not the hourly aggregate.
+	ColumnId *openapi_types.UUID `form:"columnId,omitempty" json:"columnId,omitempty"`
+	From     *time.Time          `form:"from,omitempty" json:"from,omitempty"`
+	To       *time.Time          `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // GetAccessSummaryParams defines parameters for GetAccessSummary.
 type GetAccessSummaryParams struct {
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// GetAccessTimelineParams defines parameters for GetAccessTimeline.
+type GetAccessTimelineParams struct {
 	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
 	To   *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
@@ -501,10 +890,17 @@ type GetAuditCoverageParams struct {
 
 // ListAuditEventsParams defines parameters for ListAuditEvents.
 type ListAuditEventsParams struct {
-	SourceId  *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
+	SourceId *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
+
+	// TableId Events that name the table or read any of its columns, also under names it had before a rename.
+	TableId   *openapi_types.UUID `form:"tableId,omitempty" json:"tableId,omitempty"`
+	ColumnId  *openapi_types.UUID `form:"columnId,omitempty" json:"columnId,omitempty"`
 	Principal *string             `form:"principal,omitempty" json:"principal,omitempty"`
 	Category  *string             `form:"category,omitempty" json:"category,omitempty"`
 	EventType *string             `form:"eventType,omitempty" json:"eventType,omitempty"`
+
+	// SessionId Events of one database session, as the engine numbered it.
+	SessionId *string `form:"sessionId,omitempty" json:"sessionId,omitempty"`
 
 	// IncludeLogins Logins outnumber data access by far, so they are left out unless asked for or filtered by type.
 	IncludeLogins *bool `form:"includeLogins,omitempty" json:"includeLogins,omitempty"`
@@ -517,9 +913,26 @@ type ListAuditEventsParams struct {
 	Offset         *int       `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ExportAuditEventsParams defines parameters for ExportAuditEvents.
+type ExportAuditEventsParams struct {
+	SourceId       *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
+	TableId        *openapi_types.UUID `form:"tableId,omitempty" json:"tableId,omitempty"`
+	ColumnId       *openapi_types.UUID `form:"columnId,omitempty" json:"columnId,omitempty"`
+	Principal      *string             `form:"principal,omitempty" json:"principal,omitempty"`
+	Category       *string             `form:"category,omitempty" json:"category,omitempty"`
+	EventType      *string             `form:"eventType,omitempty" json:"eventType,omitempty"`
+	SessionId      *string             `form:"sessionId,omitempty" json:"sessionId,omitempty"`
+	IncludeLogins  *bool               `form:"includeLogins,omitempty" json:"includeLogins,omitempty"`
+	IncludeScanner *bool               `form:"includeScanner,omitempty" json:"includeScanner,omitempty"`
+	From           *time.Time          `form:"from,omitempty" json:"from,omitempty"`
+	To             *time.Time          `form:"to,omitempty" json:"to,omitempty"`
+}
+
 // ListCatalogChangesParams defines parameters for ListCatalogChanges.
 type ListCatalogChangesParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
+	From  *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To    *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // ListCatalogColumnsParams defines parameters for ListCatalogColumns.
@@ -530,9 +943,30 @@ type ListCatalogColumnsParams struct {
 	Offset   *int                `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ListCatalogTablesParams defines parameters for ListCatalogTables.
+type ListCatalogTablesParams struct {
+	SourceId *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
+
+	// Q Part of the database, schema or table name, case-insensitive.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Category Only tables with a column of this category.
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// Sensitive Only tables with at least one sensitive column.
+	Sensitive *bool `form:"sensitive,omitempty" json:"sensitive,omitempty"`
+	Limit     *int  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset    *int  `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // ListScansParams defines parameters for ListScans.
 type ListScansParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SearchParams defines parameters for Search.
+type SearchParams struct {
+	Q string `form:"q" json:"q"`
 }
 
 // CreateEnrollmentTokenJSONRequestBody defines body for CreateEnrollmentToken for application/json ContentType.
@@ -543,6 +977,9 @@ type CreateEnvironmentJSONRequestBody = NewEnvironment
 
 // PublishPolicyJSONRequestBody defines body for PublishPolicy for application/json ContentType.
 type PublishPolicyJSONRequestBody = PolicyDraft
+
+// SavePreferenceJSONRequestBody defines body for SavePreference for application/json ContentType.
+type SavePreferenceJSONRequestBody = Preference
 
 // RequestScanJSONRequestBody defines body for RequestScan for application/json ContentType.
 type RequestScanJSONRequestBody = NewScan
@@ -562,6 +999,9 @@ type ServerInterface interface {
 	// (GET /agents)
 	ListAgents(w http.ResponseWriter, r *http.Request)
 
+	// (GET /agents/{agentId})
+	GetAgent(w http.ResponseWriter, r *http.Request, agentId openapi_types.UUID)
+
 	// (POST /agents/{agentId}/revoke)
 	RevokeAgent(w http.ResponseWriter, r *http.Request, agentId openapi_types.UUID)
 
@@ -571,8 +1011,14 @@ type ServerInterface interface {
 	// (GET /analytics/principals)
 	ListAccessByPrincipal(w http.ResponseWriter, r *http.Request, params ListAccessByPrincipalParams)
 
+	// (GET /analytics/signals)
+	ListRiskSignals(w http.ResponseWriter, r *http.Request)
+
 	// (GET /analytics/summary)
 	GetAccessSummary(w http.ResponseWriter, r *http.Request, params GetAccessSummaryParams)
+
+	// (GET /analytics/timeline)
+	GetAccessTimeline(w http.ResponseWriter, r *http.Request, params GetAccessTimelineParams)
 
 	// (GET /audit/coverage)
 	GetAuditCoverage(w http.ResponseWriter, r *http.Request, params GetAuditCoverageParams)
@@ -580,14 +1026,26 @@ type ServerInterface interface {
 	// (GET /audit/events)
 	ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams)
 
+	// (GET /audit/events/export)
+	ExportAuditEvents(w http.ResponseWriter, r *http.Request, params ExportAuditEventsParams)
+
 	// (GET /catalog/changes)
 	ListCatalogChanges(w http.ResponseWriter, r *http.Request, params ListCatalogChangesParams)
 
 	// (GET /catalog/columns)
 	ListCatalogColumns(w http.ResponseWriter, r *http.Request, params ListCatalogColumnsParams)
 
+	// (GET /catalog/columns/{columnId})
+	GetCatalogColumn(w http.ResponseWriter, r *http.Request, columnId openapi_types.UUID)
+
 	// (GET /catalog/summary)
 	GetCatalogSummary(w http.ResponseWriter, r *http.Request)
+
+	// (GET /catalog/tables)
+	ListCatalogTables(w http.ResponseWriter, r *http.Request, params ListCatalogTablesParams)
+
+	// (GET /catalog/tables/{tableId})
+	GetCatalogTable(w http.ResponseWriter, r *http.Request, tableId openapi_types.UUID)
 
 	// (POST /enrollment-tokens)
 	CreateEnrollmentToken(w http.ResponseWriter, r *http.Request)
@@ -607,11 +1065,26 @@ type ServerInterface interface {
 	// (PUT /policy)
 	PublishPolicy(w http.ResponseWriter, r *http.Request)
 
+	// (GET /policy/versions)
+	ListPolicyVersions(w http.ResponseWriter, r *http.Request)
+
+	// (GET /policy/versions/{version})
+	GetPolicyVersion(w http.ResponseWriter, r *http.Request, version int64)
+
+	// (GET /preferences/{key})
+	GetPreference(w http.ResponseWriter, r *http.Request, key PreferenceKey)
+
+	// (PUT /preferences/{key})
+	SavePreference(w http.ResponseWriter, r *http.Request, key PreferenceKey)
+
 	// (GET /scans)
 	ListScans(w http.ResponseWriter, r *http.Request, params ListScansParams)
 
 	// (POST /scans)
 	RequestScan(w http.ResponseWriter, r *http.Request)
+
+	// (GET /search)
+	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
 
 	// (GET /sources)
 	ListSources(w http.ResponseWriter, r *http.Request)
@@ -622,8 +1095,14 @@ type ServerInterface interface {
 	// (DELETE /sources/{sourceId})
 	DeleteSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
 
+	// (GET /sources/{sourceId})
+	GetSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+
 	// (PUT /sources/{sourceId})
 	UpdateSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+
+	// (POST /sources/{sourceId}/activate)
+	ActivateSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
 
 	// (GET /tenants)
 	ListTenants(w http.ResponseWriter, r *http.Request)
@@ -646,6 +1125,32 @@ func (siw *ServerInterfaceWrapper) ListAgents(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAgents(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgent operation middleware
+func (siw *ServerInterfaceWrapper) GetAgent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgent(w, r, agentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -736,6 +1241,32 @@ func (siw *ServerInterfaceWrapper) ListAccessByPrincipal(w http.ResponseWriter, 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListAccessByPrincipalParams
 
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "columnId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "columnId", r.URL.Query(), &params.ColumnId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "columnId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "columnId", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "from" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
@@ -764,6 +1295,20 @@ func (siw *ServerInterfaceWrapper) ListAccessByPrincipal(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAccessByPrincipal(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRiskSignals operation middleware
+func (siw *ServerInterfaceWrapper) ListRiskSignals(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRiskSignals(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -810,6 +1355,52 @@ func (siw *ServerInterfaceWrapper) GetAccessSummary(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAccessSummary(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAccessTimeline operation middleware
+func (siw *ServerInterfaceWrapper) GetAccessTimeline(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAccessTimelineParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAccessTimeline(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -874,6 +1465,32 @@ func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// ------------- Optional query parameter "tableId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tableId", r.URL.Query(), &params.TableId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tableId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tableId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "columnId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "columnId", r.URL.Query(), &params.ColumnId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "columnId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "columnId", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "principal" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "principal", r.URL.Query(), &params.Principal, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -909,6 +1526,19 @@ func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *htt
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "eventType"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "eventType", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sessionId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sessionId", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sessionId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
 		}
 		return
 	}
@@ -1002,6 +1632,169 @@ func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// ExportAuditEvents operation middleware
+func (siw *ServerInterfaceWrapper) ExportAuditEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportAuditEventsParams
+
+	// ------------- Optional query parameter "sourceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sourceId", r.URL.Query(), &params.SourceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sourceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "tableId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tableId", r.URL.Query(), &params.TableId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tableId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tableId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "columnId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "columnId", r.URL.Query(), &params.ColumnId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "columnId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "columnId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "principal" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "principal", r.URL.Query(), &params.Principal, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "principal"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "principal", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "eventType" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "eventType", r.URL.Query(), &params.EventType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "eventType"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "eventType", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sessionId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sessionId", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sessionId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "includeLogins" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "includeLogins", r.URL.Query(), &params.IncludeLogins, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "includeLogins"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "includeLogins", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "includeScanner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "includeScanner", r.URL.Query(), &params.IncludeScanner, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "includeScanner"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "includeScanner", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExportAuditEvents(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListCatalogChanges operation middleware
 func (siw *ServerInterfaceWrapper) ListCatalogChanges(w http.ResponseWriter, r *http.Request) {
 
@@ -1020,6 +1813,32 @@ func (siw *ServerInterfaceWrapper) ListCatalogChanges(w http.ResponseWriter, r *
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
 		}
 		return
 	}
@@ -1107,11 +1926,161 @@ func (siw *ServerInterfaceWrapper) ListCatalogColumns(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// GetCatalogColumn operation middleware
+func (siw *ServerInterfaceWrapper) GetCatalogColumn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "columnId" -------------
+	var columnId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "columnId", r.PathValue("columnId"), &columnId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "columnId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCatalogColumn(w, r, columnId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetCatalogSummary operation middleware
 func (siw *ServerInterfaceWrapper) GetCatalogSummary(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCatalogSummary(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCatalogTables operation middleware
+func (siw *ServerInterfaceWrapper) ListCatalogTables(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCatalogTablesParams
+
+	// ------------- Optional query parameter "sourceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sourceId", r.URL.Query(), &params.SourceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sourceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sensitive" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sensitive", r.URL.Query(), &params.Sensitive, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sensitive"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sensitive", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCatalogTables(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCatalogTable operation middleware
+func (siw *ServerInterfaceWrapper) GetCatalogTable(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tableId" -------------
+	var tableId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tableId", r.PathValue("tableId"), &tableId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tableId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCatalogTable(w, r, tableId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1205,6 +2174,98 @@ func (siw *ServerInterfaceWrapper) PublishPolicy(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListPolicyVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListPolicyVersions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPolicyVersions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPolicyVersion operation middleware
+func (siw *ServerInterfaceWrapper) GetPolicyVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "version" -------------
+	var version int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version", r.PathValue("version"), &version, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPolicyVersion(w, r, version)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPreference operation middleware
+func (siw *ServerInterfaceWrapper) GetPreference(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key PreferenceKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPreference(w, r, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SavePreference operation middleware
+func (siw *ServerInterfaceWrapper) SavePreference(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key PreferenceKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SavePreference(w, r, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListScans operation middleware
 func (siw *ServerInterfaceWrapper) ListScans(w http.ResponseWriter, r *http.Request) {
 
@@ -1243,6 +2304,39 @@ func (siw *ServerInterfaceWrapper) RequestScan(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RequestScan(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Search operation middleware
+func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchParams
+
+	// ------------- Required query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Search(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1306,6 +2400,32 @@ func (siw *ServerInterfaceWrapper) DeleteSource(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetSource operation middleware
+func (siw *ServerInterfaceWrapper) GetSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", r.PathValue("sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSource(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // UpdateSource operation middleware
 func (siw *ServerInterfaceWrapper) UpdateSource(w http.ResponseWriter, r *http.Request) {
 
@@ -1323,6 +2443,32 @@ func (siw *ServerInterfaceWrapper) UpdateSource(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateSource(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ActivateSource operation middleware
+func (siw *ServerInterfaceWrapper) ActivateSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", r.PathValue("sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ActivateSource(w, r, sourceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1481,29 +2627,43 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me", wrapper.GetCurrentUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/preferences/{key}", wrapper.GetPreference)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/preferences/{key}", wrapper.SavePreference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants", wrapper.ListTenants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants", wrapper.CreateTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/environments", wrapper.ListEnvironments)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/environments", wrapper.CreateEnvironment)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/enrollment-tokens", wrapper.CreateEnrollmentToken)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/agents", wrapper.ListAgents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/agents/{agentId}", wrapper.GetAgent)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/agents/{agentId}/revoke", wrapper.RevokeAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sources", wrapper.ListSources)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sources", wrapper.CreateSource)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/sources/{sourceId}", wrapper.DeleteSource)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sources/{sourceId}", wrapper.GetSource)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/sources/{sourceId}", wrapper.UpdateSource)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sources/{sourceId}/activate", wrapper.ActivateSource)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/scans", wrapper.ListScans)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scans", wrapper.RequestScan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/columns", wrapper.ListCatalogColumns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/columns/{columnId}", wrapper.GetCatalogColumn)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/tables", wrapper.ListCatalogTables)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/tables/{tableId}", wrapper.GetCatalogTable)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/summary", wrapper.GetCatalogSummary)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/changes", wrapper.ListCatalogChanges)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/audit/events", wrapper.ListAuditEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/audit/events/export", wrapper.ExportAuditEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/audit/coverage", wrapper.GetAuditCoverage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/summary", wrapper.GetAccessSummary)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/principals", wrapper.ListAccessByPrincipal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/categories", wrapper.ListAccessByCategory)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/timeline", wrapper.GetAccessTimeline)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search", wrapper.Search)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy", wrapper.GetPolicy)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/policy", wrapper.PublishPolicy)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy/versions", wrapper.ListPolicyVersions)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy/versions/{version}", wrapper.GetPolicyVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/signals", wrapper.ListRiskSignals)
 
 	return m
 }
@@ -1518,6 +2678,28 @@ type ListAgentsResponseObject interface {
 type ListAgents200JSONResponse []Agent
 
 func (response ListAgents200JSONResponse) VisitListAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentRequestObject struct {
+	AgentId openapi_types.UUID `json:"agentId"`
+}
+
+type GetAgentResponseObject interface {
+	VisitGetAgentResponse(w http.ResponseWriter) error
+}
+
+type GetAgent200JSONResponse Agent
+
+func (response GetAgent200JSONResponse) VisitGetAgentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1589,6 +2771,27 @@ func (response ListAccessByPrincipal200JSONResponse) VisitListAccessByPrincipalR
 	return err
 }
 
+type ListRiskSignalsRequestObject struct {
+}
+
+type ListRiskSignalsResponseObject interface {
+	VisitListRiskSignalsResponse(w http.ResponseWriter) error
+}
+
+type ListRiskSignals200JSONResponse []RiskSignal
+
+func (response ListRiskSignals200JSONResponse) VisitListRiskSignalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetAccessSummaryRequestObject struct {
 	Params GetAccessSummaryParams
 }
@@ -1600,6 +2803,28 @@ type GetAccessSummaryResponseObject interface {
 type GetAccessSummary200JSONResponse AccessSummary
 
 func (response GetAccessSummary200JSONResponse) VisitGetAccessSummaryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAccessTimelineRequestObject struct {
+	Params GetAccessTimelineParams
+}
+
+type GetAccessTimelineResponseObject interface {
+	VisitGetAccessTimelineResponse(w http.ResponseWriter) error
+}
+
+type GetAccessTimeline200JSONResponse []TimelinePoint
+
+func (response GetAccessTimeline200JSONResponse) VisitGetAccessTimelineResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1655,6 +2880,42 @@ func (response ListAuditEvents200JSONResponse) VisitListAuditEventsResponse(w ht
 	return err
 }
 
+type ExportAuditEventsRequestObject struct {
+	Params ExportAuditEventsParams
+}
+
+type ExportAuditEventsResponseObject interface {
+	VisitExportAuditEventsResponse(w http.ResponseWriter) error
+}
+
+type ExportAuditEvents200ResponseHeaders struct {
+	XDataguardTruncated *bool
+}
+
+type ExportAuditEvents200TextcsvResponse struct {
+	Body          io.Reader
+	Headers       ExportAuditEvents200ResponseHeaders
+	ContentLength int64
+}
+
+func (response ExportAuditEvents200TextcsvResponse) VisitExportAuditEventsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/csv")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.XDataguardTruncated != nil {
+		w.Header().Set("X-Dataguard-Truncated", fmt.Sprint(*response.Headers.XDataguardTruncated))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
 type ListCatalogChangesRequestObject struct {
 	Params ListCatalogChangesParams
 }
@@ -1699,6 +2960,28 @@ func (response ListCatalogColumns200JSONResponse) VisitListCatalogColumnsRespons
 	return err
 }
 
+type GetCatalogColumnRequestObject struct {
+	ColumnId openapi_types.UUID `json:"columnId"`
+}
+
+type GetCatalogColumnResponseObject interface {
+	VisitGetCatalogColumnResponse(w http.ResponseWriter) error
+}
+
+type GetCatalogColumn200JSONResponse CatalogColumnDetail
+
+func (response GetCatalogColumn200JSONResponse) VisitGetCatalogColumnResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetCatalogSummaryRequestObject struct {
 }
 
@@ -1709,6 +2992,50 @@ type GetCatalogSummaryResponseObject interface {
 type GetCatalogSummary200JSONResponse []CategoryInventory
 
 func (response GetCatalogSummary200JSONResponse) VisitGetCatalogSummaryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCatalogTablesRequestObject struct {
+	Params ListCatalogTablesParams
+}
+
+type ListCatalogTablesResponseObject interface {
+	VisitListCatalogTablesResponse(w http.ResponseWriter) error
+}
+
+type ListCatalogTables200JSONResponse CatalogTablePage
+
+func (response ListCatalogTables200JSONResponse) VisitListCatalogTablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogTableRequestObject struct {
+	TableId openapi_types.UUID `json:"tableId"`
+}
+
+type GetCatalogTableResponseObject interface {
+	VisitGetCatalogTableResponse(w http.ResponseWriter) error
+}
+
+type GetCatalogTable200JSONResponse CatalogTableDetail
+
+func (response GetCatalogTable200JSONResponse) VisitGetCatalogTableResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1849,6 +3176,88 @@ func (response PublishPolicy201JSONResponse) VisitPublishPolicyResponse(w http.R
 	return err
 }
 
+type ListPolicyVersionsRequestObject struct {
+}
+
+type ListPolicyVersionsResponseObject interface {
+	VisitListPolicyVersionsResponse(w http.ResponseWriter) error
+}
+
+type ListPolicyVersions200JSONResponse []PolicyVersion
+
+func (response ListPolicyVersions200JSONResponse) VisitListPolicyVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPolicyVersionRequestObject struct {
+	Version int64 `json:"version"`
+}
+
+type GetPolicyVersionResponseObject interface {
+	VisitGetPolicyVersionResponse(w http.ResponseWriter) error
+}
+
+type GetPolicyVersion200JSONResponse Policy
+
+func (response GetPolicyVersion200JSONResponse) VisitGetPolicyVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreferenceRequestObject struct {
+	Key PreferenceKey `json:"key"`
+}
+
+type GetPreferenceResponseObject interface {
+	VisitGetPreferenceResponse(w http.ResponseWriter) error
+}
+
+type GetPreference200JSONResponse Preference
+
+func (response GetPreference200JSONResponse) VisitGetPreferenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SavePreferenceRequestObject struct {
+	Key  PreferenceKey `json:"key"`
+	Body *SavePreferenceJSONRequestBody
+}
+
+type SavePreferenceResponseObject interface {
+	VisitSavePreferenceResponse(w http.ResponseWriter) error
+}
+
+type SavePreference204Response struct {
+}
+
+func (response SavePreference204Response) VisitSavePreferenceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
 type ListScansRequestObject struct {
 	Params ListScansParams
 }
@@ -1889,6 +3298,28 @@ func (response RequestScan201JSONResponse) VisitRequestScanResponse(w http.Respo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchRequestObject struct {
+	Params SearchParams
+}
+
+type SearchResponseObject interface {
+	VisitSearchResponse(w http.ResponseWriter) error
+}
+
+type Search200JSONResponse SearchResult
+
+func (response Search200JSONResponse) VisitSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -1952,6 +3383,28 @@ func (response DeleteSource204Response) VisitDeleteSourceResponse(w http.Respons
 	return nil
 }
 
+type GetSourceRequestObject struct {
+	SourceId openapi_types.UUID `json:"sourceId"`
+}
+
+type GetSourceResponseObject interface {
+	VisitGetSourceResponse(w http.ResponseWriter) error
+}
+
+type GetSource200JSONResponse Source
+
+func (response GetSource200JSONResponse) VisitGetSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateSourceRequestObject struct {
 	SourceId openapi_types.UUID `json:"sourceId"`
 	Body     *UpdateSourceJSONRequestBody
@@ -1964,6 +3417,28 @@ type UpdateSourceResponseObject interface {
 type UpdateSource200JSONResponse Source
 
 func (response UpdateSource200JSONResponse) VisitUpdateSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ActivateSourceRequestObject struct {
+	SourceId openapi_types.UUID `json:"sourceId"`
+}
+
+type ActivateSourceResponseObject interface {
+	VisitActivateSourceResponse(w http.ResponseWriter) error
+}
+
+type ActivateSource200JSONResponse Source
+
+func (response ActivateSource200JSONResponse) VisitActivateSourceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2024,6 +3499,9 @@ type StrictServerInterface interface {
 	// (GET /agents)
 	ListAgents(ctx context.Context, request ListAgentsRequestObject) (ListAgentsResponseObject, error)
 
+	// (GET /agents/{agentId})
+	GetAgent(ctx context.Context, request GetAgentRequestObject) (GetAgentResponseObject, error)
+
 	// (POST /agents/{agentId}/revoke)
 	RevokeAgent(ctx context.Context, request RevokeAgentRequestObject) (RevokeAgentResponseObject, error)
 
@@ -2033,8 +3511,14 @@ type StrictServerInterface interface {
 	// (GET /analytics/principals)
 	ListAccessByPrincipal(ctx context.Context, request ListAccessByPrincipalRequestObject) (ListAccessByPrincipalResponseObject, error)
 
+	// (GET /analytics/signals)
+	ListRiskSignals(ctx context.Context, request ListRiskSignalsRequestObject) (ListRiskSignalsResponseObject, error)
+
 	// (GET /analytics/summary)
 	GetAccessSummary(ctx context.Context, request GetAccessSummaryRequestObject) (GetAccessSummaryResponseObject, error)
+
+	// (GET /analytics/timeline)
+	GetAccessTimeline(ctx context.Context, request GetAccessTimelineRequestObject) (GetAccessTimelineResponseObject, error)
 
 	// (GET /audit/coverage)
 	GetAuditCoverage(ctx context.Context, request GetAuditCoverageRequestObject) (GetAuditCoverageResponseObject, error)
@@ -2042,14 +3526,26 @@ type StrictServerInterface interface {
 	// (GET /audit/events)
 	ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error)
 
+	// (GET /audit/events/export)
+	ExportAuditEvents(ctx context.Context, request ExportAuditEventsRequestObject) (ExportAuditEventsResponseObject, error)
+
 	// (GET /catalog/changes)
 	ListCatalogChanges(ctx context.Context, request ListCatalogChangesRequestObject) (ListCatalogChangesResponseObject, error)
 
 	// (GET /catalog/columns)
 	ListCatalogColumns(ctx context.Context, request ListCatalogColumnsRequestObject) (ListCatalogColumnsResponseObject, error)
 
+	// (GET /catalog/columns/{columnId})
+	GetCatalogColumn(ctx context.Context, request GetCatalogColumnRequestObject) (GetCatalogColumnResponseObject, error)
+
 	// (GET /catalog/summary)
 	GetCatalogSummary(ctx context.Context, request GetCatalogSummaryRequestObject) (GetCatalogSummaryResponseObject, error)
+
+	// (GET /catalog/tables)
+	ListCatalogTables(ctx context.Context, request ListCatalogTablesRequestObject) (ListCatalogTablesResponseObject, error)
+
+	// (GET /catalog/tables/{tableId})
+	GetCatalogTable(ctx context.Context, request GetCatalogTableRequestObject) (GetCatalogTableResponseObject, error)
 
 	// (POST /enrollment-tokens)
 	CreateEnrollmentToken(ctx context.Context, request CreateEnrollmentTokenRequestObject) (CreateEnrollmentTokenResponseObject, error)
@@ -2069,11 +3565,26 @@ type StrictServerInterface interface {
 	// (PUT /policy)
 	PublishPolicy(ctx context.Context, request PublishPolicyRequestObject) (PublishPolicyResponseObject, error)
 
+	// (GET /policy/versions)
+	ListPolicyVersions(ctx context.Context, request ListPolicyVersionsRequestObject) (ListPolicyVersionsResponseObject, error)
+
+	// (GET /policy/versions/{version})
+	GetPolicyVersion(ctx context.Context, request GetPolicyVersionRequestObject) (GetPolicyVersionResponseObject, error)
+
+	// (GET /preferences/{key})
+	GetPreference(ctx context.Context, request GetPreferenceRequestObject) (GetPreferenceResponseObject, error)
+
+	// (PUT /preferences/{key})
+	SavePreference(ctx context.Context, request SavePreferenceRequestObject) (SavePreferenceResponseObject, error)
+
 	// (GET /scans)
 	ListScans(ctx context.Context, request ListScansRequestObject) (ListScansResponseObject, error)
 
 	// (POST /scans)
 	RequestScan(ctx context.Context, request RequestScanRequestObject) (RequestScanResponseObject, error)
+
+	// (GET /search)
+	Search(ctx context.Context, request SearchRequestObject) (SearchResponseObject, error)
 
 	// (GET /sources)
 	ListSources(ctx context.Context, request ListSourcesRequestObject) (ListSourcesResponseObject, error)
@@ -2084,8 +3595,14 @@ type StrictServerInterface interface {
 	// (DELETE /sources/{sourceId})
 	DeleteSource(ctx context.Context, request DeleteSourceRequestObject) (DeleteSourceResponseObject, error)
 
+	// (GET /sources/{sourceId})
+	GetSource(ctx context.Context, request GetSourceRequestObject) (GetSourceResponseObject, error)
+
 	// (PUT /sources/{sourceId})
 	UpdateSource(ctx context.Context, request UpdateSourceRequestObject) (UpdateSourceResponseObject, error)
+
+	// (POST /sources/{sourceId}/activate)
+	ActivateSource(ctx context.Context, request ActivateSourceRequestObject) (ActivateSourceResponseObject, error)
 
 	// (GET /tenants)
 	ListTenants(ctx context.Context, request ListTenantsRequestObject) (ListTenantsResponseObject, error)
@@ -2150,6 +3667,32 @@ func (sh *strictHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAgentsResponseObject); ok {
 		if err := validResponse.VisitListAgentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAgent operation middleware
+func (sh *strictHandler) GetAgent(w http.ResponseWriter, r *http.Request, agentId openapi_types.UUID) {
+	var request GetAgentRequestObject
+
+	request.AgentId = agentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAgent(ctx, request.(GetAgentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAgent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAgentResponseObject); ok {
+		if err := validResponse.VisitGetAgentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2235,6 +3778,30 @@ func (sh *strictHandler) ListAccessByPrincipal(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// ListRiskSignals operation middleware
+func (sh *strictHandler) ListRiskSignals(w http.ResponseWriter, r *http.Request) {
+	var request ListRiskSignalsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRiskSignals(ctx, request.(ListRiskSignalsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRiskSignals")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRiskSignalsResponseObject); ok {
+		if err := validResponse.VisitListRiskSignalsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetAccessSummary operation middleware
 func (sh *strictHandler) GetAccessSummary(w http.ResponseWriter, r *http.Request, params GetAccessSummaryParams) {
 	var request GetAccessSummaryRequestObject
@@ -2254,6 +3821,32 @@ func (sh *strictHandler) GetAccessSummary(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetAccessSummaryResponseObject); ok {
 		if err := validResponse.VisitGetAccessSummaryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAccessTimeline operation middleware
+func (sh *strictHandler) GetAccessTimeline(w http.ResponseWriter, r *http.Request, params GetAccessTimelineParams) {
+	var request GetAccessTimelineRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAccessTimeline(ctx, request.(GetAccessTimelineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAccessTimeline")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAccessTimelineResponseObject); ok {
+		if err := validResponse.VisitGetAccessTimelineResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2313,6 +3906,32 @@ func (sh *strictHandler) ListAuditEvents(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// ExportAuditEvents operation middleware
+func (sh *strictHandler) ExportAuditEvents(w http.ResponseWriter, r *http.Request, params ExportAuditEventsParams) {
+	var request ExportAuditEventsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExportAuditEvents(ctx, request.(ExportAuditEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExportAuditEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExportAuditEventsResponseObject); ok {
+		if err := validResponse.VisitExportAuditEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListCatalogChanges operation middleware
 func (sh *strictHandler) ListCatalogChanges(w http.ResponseWriter, r *http.Request, params ListCatalogChangesParams) {
 	var request ListCatalogChangesRequestObject
@@ -2365,6 +3984,32 @@ func (sh *strictHandler) ListCatalogColumns(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// GetCatalogColumn operation middleware
+func (sh *strictHandler) GetCatalogColumn(w http.ResponseWriter, r *http.Request, columnId openapi_types.UUID) {
+	var request GetCatalogColumnRequestObject
+
+	request.ColumnId = columnId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCatalogColumn(ctx, request.(GetCatalogColumnRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCatalogColumn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCatalogColumnResponseObject); ok {
+		if err := validResponse.VisitGetCatalogColumnResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetCatalogSummary operation middleware
 func (sh *strictHandler) GetCatalogSummary(w http.ResponseWriter, r *http.Request) {
 	var request GetCatalogSummaryRequestObject
@@ -2382,6 +4027,58 @@ func (sh *strictHandler) GetCatalogSummary(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCatalogSummaryResponseObject); ok {
 		if err := validResponse.VisitGetCatalogSummaryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCatalogTables operation middleware
+func (sh *strictHandler) ListCatalogTables(w http.ResponseWriter, r *http.Request, params ListCatalogTablesParams) {
+	var request ListCatalogTablesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCatalogTables(ctx, request.(ListCatalogTablesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCatalogTables")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCatalogTablesResponseObject); ok {
+		if err := validResponse.VisitListCatalogTablesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCatalogTable operation middleware
+func (sh *strictHandler) GetCatalogTable(w http.ResponseWriter, r *http.Request, tableId openapi_types.UUID) {
+	var request GetCatalogTableRequestObject
+
+	request.TableId = tableId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCatalogTable(ctx, request.(GetCatalogTableRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCatalogTable")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCatalogTableResponseObject); ok {
+		if err := validResponse.VisitGetCatalogTableResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2554,6 +4251,115 @@ func (sh *strictHandler) PublishPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListPolicyVersions operation middleware
+func (sh *strictHandler) ListPolicyVersions(w http.ResponseWriter, r *http.Request) {
+	var request ListPolicyVersionsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPolicyVersions(ctx, request.(ListPolicyVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPolicyVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPolicyVersionsResponseObject); ok {
+		if err := validResponse.VisitListPolicyVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPolicyVersion operation middleware
+func (sh *strictHandler) GetPolicyVersion(w http.ResponseWriter, r *http.Request, version int64) {
+	var request GetPolicyVersionRequestObject
+
+	request.Version = version
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPolicyVersion(ctx, request.(GetPolicyVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPolicyVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPolicyVersionResponseObject); ok {
+		if err := validResponse.VisitGetPolicyVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPreference operation middleware
+func (sh *strictHandler) GetPreference(w http.ResponseWriter, r *http.Request, key PreferenceKey) {
+	var request GetPreferenceRequestObject
+
+	request.Key = key
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPreference(ctx, request.(GetPreferenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPreference")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPreferenceResponseObject); ok {
+		if err := validResponse.VisitGetPreferenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SavePreference operation middleware
+func (sh *strictHandler) SavePreference(w http.ResponseWriter, r *http.Request, key PreferenceKey) {
+	var request SavePreferenceRequestObject
+
+	request.Key = key
+
+	var body SavePreferenceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SavePreference(ctx, request.(SavePreferenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SavePreference")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SavePreferenceResponseObject); ok {
+		if err := validResponse.VisitSavePreferenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListScans operation middleware
 func (sh *strictHandler) ListScans(w http.ResponseWriter, r *http.Request, params ListScansParams) {
 	var request ListScansRequestObject
@@ -2604,6 +4410,32 @@ func (sh *strictHandler) RequestScan(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RequestScanResponseObject); ok {
 		if err := validResponse.VisitRequestScanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Search operation middleware
+func (sh *strictHandler) Search(w http.ResponseWriter, r *http.Request, params SearchParams) {
+	var request SearchRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Search(ctx, request.(SearchRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Search")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchResponseObject); ok {
+		if err := validResponse.VisitSearchResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2692,6 +4524,32 @@ func (sh *strictHandler) DeleteSource(w http.ResponseWriter, r *http.Request, so
 	}
 }
 
+// GetSource operation middleware
+func (sh *strictHandler) GetSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	var request GetSourceRequestObject
+
+	request.SourceId = sourceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSource(ctx, request.(GetSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSourceResponseObject); ok {
+		if err := validResponse.VisitGetSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // UpdateSource operation middleware
 func (sh *strictHandler) UpdateSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
 	var request UpdateSourceRequestObject
@@ -2718,6 +4576,32 @@ func (sh *strictHandler) UpdateSource(w http.ResponseWriter, r *http.Request, so
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateSourceResponseObject); ok {
 		if err := validResponse.VisitUpdateSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ActivateSource operation middleware
+func (sh *strictHandler) ActivateSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	var request ActivateSourceRequestObject
+
+	request.SourceId = sourceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ActivateSource(ctx, request.(ActivateSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ActivateSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ActivateSourceResponseObject); ok {
+		if err := validResponse.VisitActivateSourceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

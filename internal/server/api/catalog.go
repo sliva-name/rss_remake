@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"unicode/utf8"
 
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/policy"
@@ -19,6 +20,9 @@ const (
 	defaultCatalogLimit = 100
 	maxCatalogLimit     = 500
 	maxOffset           = math.MaxInt32
+	minSearchRunes      = 2
+	maxSearchRunes      = 128
+	searchGroupLimit    = 8
 )
 
 // errInvalidParameter marks a query parameter outside the range the schema
@@ -107,6 +111,102 @@ func toCatalogColumn(entry *asset.CatalogEntry) restapi.CatalogColumn {
 	}
 }
 
+func (s *Server) ListCatalogTables(ctx context.Context, request restapi.ListCatalogTablesRequestObject) (restapi.ListCatalogTablesResponseObject, error) {
+	limit, err := parameter("limit", request.Params.Limit, defaultCatalogLimit, 1, maxCatalogLimit)
+	if err != nil {
+		return nil, err
+	}
+	offset, err := parameter("offset", request.Params.Offset, 0, 0, maxOffset)
+	if err != nil {
+		return nil, err
+	}
+	filter := asset.TableFilter{
+		Limit: limit, Offset: offset, Query: stringValue(request.Params.Q), Category: stringValue(request.Params.Category),
+		SensitiveOnly: request.Params.Sensitive != nil && *request.Params.Sensitive,
+	}
+	if utf8.RuneCountInString(filter.Query) > maxSearchRunes {
+		return nil, fmt.Errorf("%w: q must be at most %d characters", errInvalidParameter, maxSearchRunes)
+	}
+	if request.Params.SourceId != nil {
+		filter.SourceID = *request.Params.SourceId
+	}
+	entries, total, err := s.catalog.ListTables(ctx, tenantOf(ctx), filter)
+	if err != nil {
+		return nil, err
+	}
+	page := restapi.CatalogTablePage{Total: total, Items: make([]restapi.CatalogTable, 0, len(entries))}
+	for i := range entries {
+		entry := &entries[i]
+		page.Items = append(page.Items, restapi.CatalogTable{
+			Id: entry.ID, SourceId: entry.SourceID, Database: entry.Database, Schema: entry.Schema, Table: entry.Name,
+			Kind: entry.Kind, Columns: entry.Columns, SensitiveColumns: entry.SensitiveColumns,
+			Categories: orEmpty(entry.Categories), LastSeenAt: entry.LastSeenAt,
+		})
+	}
+	return restapi.ListCatalogTables200JSONResponse(page), nil
+}
+
+func (s *Server) GetCatalogTable(ctx context.Context, request restapi.GetCatalogTableRequestObject) (restapi.GetCatalogTableResponseObject, error) {
+	table, err := s.catalog.GetTable(ctx, tenantOf(ctx), request.TableId)
+	if err != nil {
+		return nil, err
+	}
+	columns := make([]restapi.TableColumn, 0, len(table.Columns))
+	for _, column := range table.Columns {
+		columns = append(columns, restapi.TableColumn{
+			Id: column.ID, Name: column.Name, NativeType: column.NativeType, Ordinal: column.Ordinal,
+			Nullable: column.Nullable, Categories: orEmpty(column.Categories),
+		})
+	}
+	return restapi.GetCatalogTable200JSONResponse(restapi.CatalogTableDetail{
+		Id: table.ID, SourceId: table.SourceID, Database: table.Database, Schema: table.Schema, Table: table.Name,
+		Kind: table.Kind, Status: restapi.ObjectStatus(table.Status), FirstSeenAt: table.FirstSeenAt,
+		LastSeenAt: table.LastSeenAt, Columns: columns, Renames: toRenames(table.Renames),
+	}), nil
+}
+
+func (s *Server) GetCatalogColumn(ctx context.Context, request restapi.GetCatalogColumnRequestObject) (restapi.GetCatalogColumnResponseObject, error) {
+	column, err := s.catalog.GetColumn(ctx, tenantOf(ctx), request.ColumnId)
+	if err != nil {
+		return nil, err
+	}
+	decisions := make([]restapi.Classification, 0, len(column.Classifications))
+	for i := range column.Classifications {
+		decision := &column.Classifications[i]
+		decisions = append(decisions, restapi.Classification{
+			CategoryId: decision.CategoryID, Detected: decision.Detected, Confidence: decision.Confidence,
+			NameMatch: decision.NameMatch, ContextMatch: decision.ContextMatch, FormatRatio: decision.FormatRatio,
+			ChecksumRatio: decision.ChecksumRatio, RowsInspected: decision.RowsInspected, RowsNonNull: decision.RowsNonNull,
+			RowsMatched: decision.RowsMatched, UniqueEstimate: decision.UniqueEstimate,
+			SamplingMethod: decision.SamplingMethod, FirstSeenAt: decision.FirstSeenAt, UpdatedAt: decision.UpdatedAt,
+		})
+	}
+	return restapi.GetCatalogColumn200JSONResponse(restapi.CatalogColumnDetail{
+		Id: column.ID, TableId: column.TableID, SourceId: column.SourceID, Database: column.Database,
+		Schema: column.Schema, Table: column.Table, Name: column.Name, NativeType: column.NativeType,
+		Ordinal: column.Ordinal, Nullable: column.Nullable, Status: restapi.ObjectStatus(column.Status),
+		FirstSeenAt: column.FirstSeenAt, LastSeenAt: column.LastSeenAt, Classifications: decisions,
+		Renames: toRenames(column.Renames),
+	}), nil
+}
+
+func toRenames(records []asset.RenameRecord) []restapi.Rename {
+	renames := make([]restapi.Rename, 0, len(records))
+	for _, record := range records {
+		renames = append(renames, restapi.Rename{
+			OldName: record.OldName, NewName: record.NewName, DetectedAt: record.DetectedAt, DetectedBy: record.DetectedBy,
+		})
+	}
+	return renames
+}
+
+func orEmpty[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
+}
+
 func (s *Server) GetCatalogSummary(ctx context.Context, _ restapi.GetCatalogSummaryRequestObject) (restapi.GetCatalogSummaryResponseObject, error) {
 	counts, err := s.catalog.SummarizeCatalog(ctx, tenantOf(ctx))
 	if err != nil {
@@ -124,7 +224,14 @@ func (s *Server) ListCatalogChanges(ctx context.Context, request restapi.ListCat
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.catalog.ListHistory(ctx, tenantOf(ctx), limit)
+	filter := asset.HistoryFilter{Limit: limit}
+	if request.Params.From != nil {
+		filter.From = *request.Params.From
+	}
+	if request.Params.To != nil {
+		filter.To = *request.Params.To
+	}
+	entries, err := s.catalog.ListHistory(ctx, tenantOf(ctx), filter)
 	if err != nil {
 		return nil, err
 	}

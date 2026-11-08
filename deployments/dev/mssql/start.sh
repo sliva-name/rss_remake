@@ -16,7 +16,15 @@ until "${sqlcmd[@]}" -Q 'SELECT 1' -o /dev/null 2>/dev/null; do
   kill -0 "$server" 2>/dev/null || exit 1
   sleep 2
 done
-"${sqlcmd[@]}" -i /dg/init.sql
+# Logins open before system databases finish upgrading after an image update,
+# and init.sql fails until they do. It is idempotent, so it is simply repeated.
+attempts=0
+until "${sqlcmd[@]}" -i /dg/init.sql; do
+  kill -0 "$server" 2>/dev/null || exit 1
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 60 ] || exit 1
+  sleep 5
+done
 unset SQLCMDPASSWORD SCANNER_PASSWORD APP_PASSWORD
 touch /tmp/dg-initialized
 

@@ -5,20 +5,11 @@
 package agentv1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
 	v1 "dataguard/internal/gen/dataguard/agent/v1"
-	errors "errors"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// EnrollmentServiceName is the fully-qualified name of the EnrollmentService service.
@@ -27,358 +18,407 @@ const (
 	AgentServiceName = "dataguard.agent.v1.AgentService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// EnrollmentServiceEnrollProcedure is the fully-qualified name of the EnrollmentService's Enroll
-	// RPC.
+	// EnrollmentServiceEnrollProcedure is the procedure name of the EnrollmentService's Enroll RPC.
 	EnrollmentServiceEnrollProcedure = "/dataguard.agent.v1.EnrollmentService/Enroll"
-	// AgentServiceHeartbeatProcedure is the fully-qualified name of the AgentService's Heartbeat RPC.
+	// AgentServiceHeartbeatProcedure is the procedure name of the AgentService's Heartbeat RPC.
 	AgentServiceHeartbeatProcedure = "/dataguard.agent.v1.AgentService/Heartbeat"
-	// AgentServiceReportSourcesProcedure is the fully-qualified name of the AgentService's
-	// ReportSources RPC.
+	// AgentServiceReportSourcesProcedure is the procedure name of the AgentService's ReportSources RPC.
 	AgentServiceReportSourcesProcedure = "/dataguard.agent.v1.AgentService/ReportSources"
-	// AgentServiceRenewCertificateProcedure is the fully-qualified name of the AgentService's
+	// AgentServiceRenewCertificateProcedure is the procedure name of the AgentService's
 	// RenewCertificate RPC.
 	AgentServiceRenewCertificateProcedure = "/dataguard.agent.v1.AgentService/RenewCertificate"
-	// AgentServiceGetPolicyProcedure is the fully-qualified name of the AgentService's GetPolicy RPC.
+	// AgentServiceGetPolicyProcedure is the procedure name of the AgentService's GetPolicy RPC.
 	AgentServiceGetPolicyProcedure = "/dataguard.agent.v1.AgentService/GetPolicy"
-	// AgentServiceGetSourcesProcedure is the fully-qualified name of the AgentService's GetSources RPC.
+	// AgentServiceGetSourcesProcedure is the procedure name of the AgentService's GetSources RPC.
 	AgentServiceGetSourcesProcedure = "/dataguard.agent.v1.AgentService/GetSources"
-	// AgentServicePullJobsProcedure is the fully-qualified name of the AgentService's PullJobs RPC.
+	// AgentServicePullJobsProcedure is the procedure name of the AgentService's PullJobs RPC.
 	AgentServicePullJobsProcedure = "/dataguard.agent.v1.AgentService/PullJobs"
-	// AgentServiceSubmitScanResultProcedure is the fully-qualified name of the AgentService's
+	// AgentServiceSubmitScanResultProcedure is the procedure name of the AgentService's
 	// SubmitScanResult RPC.
 	AgentServiceSubmitScanResultProcedure = "/dataguard.agent.v1.AgentService/SubmitScanResult"
-	// AgentServiceSubmitEventsProcedure is the fully-qualified name of the AgentService's SubmitEvents
-	// RPC.
+	// AgentServiceSubmitEventsProcedure is the procedure name of the AgentService's SubmitEvents RPC.
 	AgentServiceSubmitEventsProcedure = "/dataguard.agent.v1.AgentService/SubmitEvents"
+)
+
+var (
+	enrollmentServiceEnrollSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("EnrollmentService").Methods().ByName("Enroll"),
+			Procedure:  EnrollmentServiceEnrollProcedure,
+		}
+	})
 )
 
 // EnrollmentServiceClient is a client for the dataguard.agent.v1.EnrollmentService service.
 type EnrollmentServiceClient interface {
-	Enroll(context.Context, *connect.Request[v1.EnrollRequest]) (*connect.Response[v1.EnrollResponse], error)
+	Enroll(context.Context, *v1.EnrollRequest) (*v1.EnrollResponse, error)
 }
 
 // NewEnrollmentServiceClient constructs a client for the dataguard.agent.v1.EnrollmentService
-// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
-// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
-// the connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewEnrollmentServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) EnrollmentServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	enrollmentServiceMethods := v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("EnrollmentService").Methods()
-	return &enrollmentServiceClient{
-		enroll: connect.NewClient[v1.EnrollRequest, v1.EnrollResponse](
-			httpClient,
-			baseURL+EnrollmentServiceEnrollProcedure,
-			connect.WithSchema(enrollmentServiceMethods.ByName("Enroll")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// enrollmentServiceClient implements EnrollmentServiceClient.
-type enrollmentServiceClient struct {
-	enroll *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
-}
-
-// Enroll calls dataguard.agent.v1.EnrollmentService.Enroll.
-func (c *enrollmentServiceClient) Enroll(ctx context.Context, req *connect.Request[v1.EnrollRequest]) (*connect.Response[v1.EnrollResponse], error) {
-	return c.enroll.CallUnary(ctx, req)
+// service. Multiple service clients may share a single connect.Client.
+func NewEnrollmentServiceClient(client *connect.Client) EnrollmentServiceClient {
+	return &enrollmentServiceClient{client: client}
 }
 
 // EnrollmentServiceHandler is an implementation of the dataguard.agent.v1.EnrollmentService
 // service.
 type EnrollmentServiceHandler interface {
-	Enroll(context.Context, *connect.Request[v1.EnrollRequest]) (*connect.Response[v1.EnrollResponse], error)
+	Enroll(context.Context, *v1.EnrollRequest) (*v1.EnrollResponse, error)
 }
 
-// NewEnrollmentServiceHandler builds an HTTP handler from the service implementation. It returns
-// the path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewEnrollmentServiceHandler(svc EnrollmentServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	enrollmentServiceMethods := v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("EnrollmentService").Methods()
-	enrollmentServiceEnrollHandler := connect.NewUnaryHandler(
-		EnrollmentServiceEnrollProcedure,
-		svc.Enroll,
-		connect.WithSchema(enrollmentServiceMethods.ByName("Enroll")),
-		connect.WithHandlerOptions(opts...),
+// RegisterEnrollmentServiceHandler registers svc as the dataguard.agent.v1.EnrollmentService
+// implementation on server.
+func RegisterEnrollmentServiceHandler(server *connect.Server, svc EnrollmentServiceHandler) {
+	adapter := enrollmentServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: enrollmentServiceEnrollSpec(), Handler: adapter.enroll},
 	)
-	return "/dataguard.agent.v1.EnrollmentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case EnrollmentServiceEnrollProcedure:
-			enrollmentServiceEnrollHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedEnrollmentServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedEnrollmentServiceHandler struct{}
 
-func (UnimplementedEnrollmentServiceHandler) Enroll(context.Context, *connect.Request[v1.EnrollRequest]) (*connect.Response[v1.EnrollResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.EnrollmentService.Enroll is not implemented"))
+func (UnimplementedEnrollmentServiceHandler) Enroll(context.Context, *v1.EnrollRequest) (*v1.EnrollResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.EnrollmentService.Enroll is not implemented")
 }
+
+type enrollmentServiceClient struct {
+	client *connect.Client
+}
+
+func (c *enrollmentServiceClient) Enroll(ctx context.Context, req *v1.EnrollRequest) (*v1.EnrollResponse, error) {
+	var res v1.EnrollResponse
+	if err := c.client.CallUnary(ctx, enrollmentServiceEnrollSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type enrollmentServiceHandler struct{ svc EnrollmentServiceHandler }
+
+func (h enrollmentServiceHandler) enroll(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.EnrollRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Enroll(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+var (
+	agentServiceHeartbeatSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("Heartbeat"),
+			Procedure:  AgentServiceHeartbeatProcedure,
+		}
+	})
+	agentServiceReportSourcesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("ReportSources"),
+			Procedure:  AgentServiceReportSourcesProcedure,
+		}
+	})
+	agentServiceRenewCertificateSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("RenewCertificate"),
+			Procedure:  AgentServiceRenewCertificateProcedure,
+		}
+	})
+	agentServiceGetPolicySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("GetPolicy"),
+			Procedure:  AgentServiceGetPolicyProcedure,
+		}
+	})
+	agentServiceGetSourcesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("GetSources"),
+			Procedure:  AgentServiceGetSourcesProcedure,
+		}
+	})
+	agentServicePullJobsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("PullJobs"),
+			Procedure:  AgentServicePullJobsProcedure,
+		}
+	})
+	agentServiceSubmitScanResultSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("SubmitScanResult"),
+			Procedure:  AgentServiceSubmitScanResultProcedure,
+		}
+	})
+	agentServiceSubmitEventsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("SubmitEvents"),
+			Procedure:  AgentServiceSubmitEventsProcedure,
+		}
+	})
+)
 
 // AgentServiceClient is a client for the dataguard.agent.v1.AgentService service.
 type AgentServiceClient interface {
-	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
-	ReportSources(context.Context, *connect.Request[v1.ReportSourcesRequest]) (*connect.Response[v1.ReportSourcesResponse], error)
-	RenewCertificate(context.Context, *connect.Request[v1.RenewCertificateRequest]) (*connect.Response[v1.RenewCertificateResponse], error)
-	GetPolicy(context.Context, *connect.Request[v1.GetPolicyRequest]) (*connect.Response[v1.GetPolicyResponse], error)
-	GetSources(context.Context, *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error)
-	PullJobs(context.Context, *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error)
-	SubmitScanResult(context.Context, *connect.Request[v1.SubmitScanResultRequest]) (*connect.Response[v1.SubmitScanResultResponse], error)
-	SubmitEvents(context.Context, *connect.Request[v1.SubmitEventsRequest]) (*connect.Response[v1.SubmitEventsResponse], error)
+	Heartbeat(context.Context, *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error)
+	ReportSources(context.Context, *v1.ReportSourcesRequest) (*v1.ReportSourcesResponse, error)
+	RenewCertificate(context.Context, *v1.RenewCertificateRequest) (*v1.RenewCertificateResponse, error)
+	GetPolicy(context.Context, *v1.GetPolicyRequest) (*v1.GetPolicyResponse, error)
+	GetSources(context.Context, *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error)
+	PullJobs(context.Context, *v1.PullJobsRequest) (*v1.PullJobsResponse, error)
+	SubmitScanResult(context.Context, *v1.SubmitScanResultRequest) (*v1.SubmitScanResultResponse, error)
+	SubmitEvents(context.Context, *v1.SubmitEventsRequest) (*v1.SubmitEventsResponse, error)
 }
 
-// NewAgentServiceClient constructs a client for the dataguard.agent.v1.AgentService service. By
-// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
-// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) AgentServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	agentServiceMethods := v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods()
-	return &agentServiceClient{
-		heartbeat: connect.NewClient[v1.HeartbeatRequest, v1.HeartbeatResponse](
-			httpClient,
-			baseURL+AgentServiceHeartbeatProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("Heartbeat")),
-			connect.WithClientOptions(opts...),
-		),
-		reportSources: connect.NewClient[v1.ReportSourcesRequest, v1.ReportSourcesResponse](
-			httpClient,
-			baseURL+AgentServiceReportSourcesProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("ReportSources")),
-			connect.WithClientOptions(opts...),
-		),
-		renewCertificate: connect.NewClient[v1.RenewCertificateRequest, v1.RenewCertificateResponse](
-			httpClient,
-			baseURL+AgentServiceRenewCertificateProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("RenewCertificate")),
-			connect.WithClientOptions(opts...),
-		),
-		getPolicy: connect.NewClient[v1.GetPolicyRequest, v1.GetPolicyResponse](
-			httpClient,
-			baseURL+AgentServiceGetPolicyProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("GetPolicy")),
-			connect.WithClientOptions(opts...),
-		),
-		getSources: connect.NewClient[v1.GetSourcesRequest, v1.GetSourcesResponse](
-			httpClient,
-			baseURL+AgentServiceGetSourcesProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("GetSources")),
-			connect.WithClientOptions(opts...),
-		),
-		pullJobs: connect.NewClient[v1.PullJobsRequest, v1.PullJobsResponse](
-			httpClient,
-			baseURL+AgentServicePullJobsProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("PullJobs")),
-			connect.WithClientOptions(opts...),
-		),
-		submitScanResult: connect.NewClient[v1.SubmitScanResultRequest, v1.SubmitScanResultResponse](
-			httpClient,
-			baseURL+AgentServiceSubmitScanResultProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("SubmitScanResult")),
-			connect.WithClientOptions(opts...),
-		),
-		submitEvents: connect.NewClient[v1.SubmitEventsRequest, v1.SubmitEventsResponse](
-			httpClient,
-			baseURL+AgentServiceSubmitEventsProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("SubmitEvents")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// agentServiceClient implements AgentServiceClient.
-type agentServiceClient struct {
-	heartbeat        *connect.Client[v1.HeartbeatRequest, v1.HeartbeatResponse]
-	reportSources    *connect.Client[v1.ReportSourcesRequest, v1.ReportSourcesResponse]
-	renewCertificate *connect.Client[v1.RenewCertificateRequest, v1.RenewCertificateResponse]
-	getPolicy        *connect.Client[v1.GetPolicyRequest, v1.GetPolicyResponse]
-	getSources       *connect.Client[v1.GetSourcesRequest, v1.GetSourcesResponse]
-	pullJobs         *connect.Client[v1.PullJobsRequest, v1.PullJobsResponse]
-	submitScanResult *connect.Client[v1.SubmitScanResultRequest, v1.SubmitScanResultResponse]
-	submitEvents     *connect.Client[v1.SubmitEventsRequest, v1.SubmitEventsResponse]
-}
-
-// Heartbeat calls dataguard.agent.v1.AgentService.Heartbeat.
-func (c *agentServiceClient) Heartbeat(ctx context.Context, req *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
-	return c.heartbeat.CallUnary(ctx, req)
-}
-
-// ReportSources calls dataguard.agent.v1.AgentService.ReportSources.
-func (c *agentServiceClient) ReportSources(ctx context.Context, req *connect.Request[v1.ReportSourcesRequest]) (*connect.Response[v1.ReportSourcesResponse], error) {
-	return c.reportSources.CallUnary(ctx, req)
-}
-
-// RenewCertificate calls dataguard.agent.v1.AgentService.RenewCertificate.
-func (c *agentServiceClient) RenewCertificate(ctx context.Context, req *connect.Request[v1.RenewCertificateRequest]) (*connect.Response[v1.RenewCertificateResponse], error) {
-	return c.renewCertificate.CallUnary(ctx, req)
-}
-
-// GetPolicy calls dataguard.agent.v1.AgentService.GetPolicy.
-func (c *agentServiceClient) GetPolicy(ctx context.Context, req *connect.Request[v1.GetPolicyRequest]) (*connect.Response[v1.GetPolicyResponse], error) {
-	return c.getPolicy.CallUnary(ctx, req)
-}
-
-// GetSources calls dataguard.agent.v1.AgentService.GetSources.
-func (c *agentServiceClient) GetSources(ctx context.Context, req *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error) {
-	return c.getSources.CallUnary(ctx, req)
-}
-
-// PullJobs calls dataguard.agent.v1.AgentService.PullJobs.
-func (c *agentServiceClient) PullJobs(ctx context.Context, req *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error) {
-	return c.pullJobs.CallUnary(ctx, req)
-}
-
-// SubmitScanResult calls dataguard.agent.v1.AgentService.SubmitScanResult.
-func (c *agentServiceClient) SubmitScanResult(ctx context.Context, req *connect.Request[v1.SubmitScanResultRequest]) (*connect.Response[v1.SubmitScanResultResponse], error) {
-	return c.submitScanResult.CallUnary(ctx, req)
-}
-
-// SubmitEvents calls dataguard.agent.v1.AgentService.SubmitEvents.
-func (c *agentServiceClient) SubmitEvents(ctx context.Context, req *connect.Request[v1.SubmitEventsRequest]) (*connect.Response[v1.SubmitEventsResponse], error) {
-	return c.submitEvents.CallUnary(ctx, req)
+// NewAgentServiceClient constructs a client for the dataguard.agent.v1.AgentService service.
+// Multiple service clients may share a single connect.Client.
+func NewAgentServiceClient(client *connect.Client) AgentServiceClient {
+	return &agentServiceClient{client: client}
 }
 
 // AgentServiceHandler is an implementation of the dataguard.agent.v1.AgentService service.
 type AgentServiceHandler interface {
-	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
-	ReportSources(context.Context, *connect.Request[v1.ReportSourcesRequest]) (*connect.Response[v1.ReportSourcesResponse], error)
-	RenewCertificate(context.Context, *connect.Request[v1.RenewCertificateRequest]) (*connect.Response[v1.RenewCertificateResponse], error)
-	GetPolicy(context.Context, *connect.Request[v1.GetPolicyRequest]) (*connect.Response[v1.GetPolicyResponse], error)
-	GetSources(context.Context, *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error)
-	PullJobs(context.Context, *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error)
-	SubmitScanResult(context.Context, *connect.Request[v1.SubmitScanResultRequest]) (*connect.Response[v1.SubmitScanResultResponse], error)
-	SubmitEvents(context.Context, *connect.Request[v1.SubmitEventsRequest]) (*connect.Response[v1.SubmitEventsResponse], error)
+	Heartbeat(context.Context, *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error)
+	ReportSources(context.Context, *v1.ReportSourcesRequest) (*v1.ReportSourcesResponse, error)
+	RenewCertificate(context.Context, *v1.RenewCertificateRequest) (*v1.RenewCertificateResponse, error)
+	GetPolicy(context.Context, *v1.GetPolicyRequest) (*v1.GetPolicyResponse, error)
+	GetSources(context.Context, *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error)
+	PullJobs(context.Context, *v1.PullJobsRequest) (*v1.PullJobsResponse, error)
+	SubmitScanResult(context.Context, *v1.SubmitScanResultRequest) (*v1.SubmitScanResultResponse, error)
+	SubmitEvents(context.Context, *v1.SubmitEventsRequest) (*v1.SubmitEventsResponse, error)
 }
 
-// NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	agentServiceMethods := v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods()
-	agentServiceHeartbeatHandler := connect.NewUnaryHandler(
-		AgentServiceHeartbeatProcedure,
-		svc.Heartbeat,
-		connect.WithSchema(agentServiceMethods.ByName("Heartbeat")),
-		connect.WithHandlerOptions(opts...),
+// RegisterAgentServiceHandler registers svc as the dataguard.agent.v1.AgentService implementation
+// on server.
+func RegisterAgentServiceHandler(server *connect.Server, svc AgentServiceHandler) {
+	adapter := agentServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: agentServiceHeartbeatSpec(), Handler: adapter.heartbeat},
+		connect.Method{Spec: agentServiceReportSourcesSpec(), Handler: adapter.reportSources},
+		connect.Method{Spec: agentServiceRenewCertificateSpec(), Handler: adapter.renewCertificate},
+		connect.Method{Spec: agentServiceGetPolicySpec(), Handler: adapter.getPolicy},
+		connect.Method{Spec: agentServiceGetSourcesSpec(), Handler: adapter.getSources},
+		connect.Method{Spec: agentServicePullJobsSpec(), Handler: adapter.pullJobs},
+		connect.Method{Spec: agentServiceSubmitScanResultSpec(), Handler: adapter.submitScanResult},
+		connect.Method{Spec: agentServiceSubmitEventsSpec(), Handler: adapter.submitEvents},
 	)
-	agentServiceReportSourcesHandler := connect.NewUnaryHandler(
-		AgentServiceReportSourcesProcedure,
-		svc.ReportSources,
-		connect.WithSchema(agentServiceMethods.ByName("ReportSources")),
-		connect.WithHandlerOptions(opts...),
-	)
-	agentServiceRenewCertificateHandler := connect.NewUnaryHandler(
-		AgentServiceRenewCertificateProcedure,
-		svc.RenewCertificate,
-		connect.WithSchema(agentServiceMethods.ByName("RenewCertificate")),
-		connect.WithHandlerOptions(opts...),
-	)
-	agentServiceGetPolicyHandler := connect.NewUnaryHandler(
-		AgentServiceGetPolicyProcedure,
-		svc.GetPolicy,
-		connect.WithSchema(agentServiceMethods.ByName("GetPolicy")),
-		connect.WithHandlerOptions(opts...),
-	)
-	agentServiceGetSourcesHandler := connect.NewUnaryHandler(
-		AgentServiceGetSourcesProcedure,
-		svc.GetSources,
-		connect.WithSchema(agentServiceMethods.ByName("GetSources")),
-		connect.WithHandlerOptions(opts...),
-	)
-	agentServicePullJobsHandler := connect.NewUnaryHandler(
-		AgentServicePullJobsProcedure,
-		svc.PullJobs,
-		connect.WithSchema(agentServiceMethods.ByName("PullJobs")),
-		connect.WithHandlerOptions(opts...),
-	)
-	agentServiceSubmitScanResultHandler := connect.NewUnaryHandler(
-		AgentServiceSubmitScanResultProcedure,
-		svc.SubmitScanResult,
-		connect.WithSchema(agentServiceMethods.ByName("SubmitScanResult")),
-		connect.WithHandlerOptions(opts...),
-	)
-	agentServiceSubmitEventsHandler := connect.NewUnaryHandler(
-		AgentServiceSubmitEventsProcedure,
-		svc.SubmitEvents,
-		connect.WithSchema(agentServiceMethods.ByName("SubmitEvents")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/dataguard.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case AgentServiceHeartbeatProcedure:
-			agentServiceHeartbeatHandler.ServeHTTP(w, r)
-		case AgentServiceReportSourcesProcedure:
-			agentServiceReportSourcesHandler.ServeHTTP(w, r)
-		case AgentServiceRenewCertificateProcedure:
-			agentServiceRenewCertificateHandler.ServeHTTP(w, r)
-		case AgentServiceGetPolicyProcedure:
-			agentServiceGetPolicyHandler.ServeHTTP(w, r)
-		case AgentServiceGetSourcesProcedure:
-			agentServiceGetSourcesHandler.ServeHTTP(w, r)
-		case AgentServicePullJobsProcedure:
-			agentServicePullJobsHandler.ServeHTTP(w, r)
-		case AgentServiceSubmitScanResultProcedure:
-			agentServiceSubmitScanResultHandler.ServeHTTP(w, r)
-		case AgentServiceSubmitEventsProcedure:
-			agentServiceSubmitEventsHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedAgentServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAgentServiceHandler struct{}
 
-func (UnimplementedAgentServiceHandler) Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.Heartbeat is not implemented"))
+func (UnimplementedAgentServiceHandler) Heartbeat(context.Context, *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.Heartbeat is not implemented")
 }
 
-func (UnimplementedAgentServiceHandler) ReportSources(context.Context, *connect.Request[v1.ReportSourcesRequest]) (*connect.Response[v1.ReportSourcesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.ReportSources is not implemented"))
+func (UnimplementedAgentServiceHandler) ReportSources(context.Context, *v1.ReportSourcesRequest) (*v1.ReportSourcesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.ReportSources is not implemented")
 }
 
-func (UnimplementedAgentServiceHandler) RenewCertificate(context.Context, *connect.Request[v1.RenewCertificateRequest]) (*connect.Response[v1.RenewCertificateResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.RenewCertificate is not implemented"))
+func (UnimplementedAgentServiceHandler) RenewCertificate(context.Context, *v1.RenewCertificateRequest) (*v1.RenewCertificateResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.RenewCertificate is not implemented")
 }
 
-func (UnimplementedAgentServiceHandler) GetPolicy(context.Context, *connect.Request[v1.GetPolicyRequest]) (*connect.Response[v1.GetPolicyResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.GetPolicy is not implemented"))
+func (UnimplementedAgentServiceHandler) GetPolicy(context.Context, *v1.GetPolicyRequest) (*v1.GetPolicyResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.GetPolicy is not implemented")
 }
 
-func (UnimplementedAgentServiceHandler) GetSources(context.Context, *connect.Request[v1.GetSourcesRequest]) (*connect.Response[v1.GetSourcesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.GetSources is not implemented"))
+func (UnimplementedAgentServiceHandler) GetSources(context.Context, *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.GetSources is not implemented")
 }
 
-func (UnimplementedAgentServiceHandler) PullJobs(context.Context, *connect.Request[v1.PullJobsRequest]) (*connect.Response[v1.PullJobsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.PullJobs is not implemented"))
+func (UnimplementedAgentServiceHandler) PullJobs(context.Context, *v1.PullJobsRequest) (*v1.PullJobsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.PullJobs is not implemented")
 }
 
-func (UnimplementedAgentServiceHandler) SubmitScanResult(context.Context, *connect.Request[v1.SubmitScanResultRequest]) (*connect.Response[v1.SubmitScanResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.SubmitScanResult is not implemented"))
+func (UnimplementedAgentServiceHandler) SubmitScanResult(context.Context, *v1.SubmitScanResultRequest) (*v1.SubmitScanResultResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.SubmitScanResult is not implemented")
 }
 
-func (UnimplementedAgentServiceHandler) SubmitEvents(context.Context, *connect.Request[v1.SubmitEventsRequest]) (*connect.Response[v1.SubmitEventsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dataguard.agent.v1.AgentService.SubmitEvents is not implemented"))
+func (UnimplementedAgentServiceHandler) SubmitEvents(context.Context, *v1.SubmitEventsRequest) (*v1.SubmitEventsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.SubmitEvents is not implemented")
+}
+
+type agentServiceClient struct {
+	client *connect.Client
+}
+
+func (c *agentServiceClient) Heartbeat(ctx context.Context, req *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error) {
+	var res v1.HeartbeatResponse
+	if err := c.client.CallUnary(ctx, agentServiceHeartbeatSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) ReportSources(ctx context.Context, req *v1.ReportSourcesRequest) (*v1.ReportSourcesResponse, error) {
+	var res v1.ReportSourcesResponse
+	if err := c.client.CallUnary(ctx, agentServiceReportSourcesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) RenewCertificate(ctx context.Context, req *v1.RenewCertificateRequest) (*v1.RenewCertificateResponse, error) {
+	var res v1.RenewCertificateResponse
+	if err := c.client.CallUnary(ctx, agentServiceRenewCertificateSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) GetPolicy(ctx context.Context, req *v1.GetPolicyRequest) (*v1.GetPolicyResponse, error) {
+	var res v1.GetPolicyResponse
+	if err := c.client.CallUnary(ctx, agentServiceGetPolicySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) GetSources(ctx context.Context, req *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error) {
+	var res v1.GetSourcesResponse
+	if err := c.client.CallUnary(ctx, agentServiceGetSourcesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) PullJobs(ctx context.Context, req *v1.PullJobsRequest) (*v1.PullJobsResponse, error) {
+	var res v1.PullJobsResponse
+	if err := c.client.CallUnary(ctx, agentServicePullJobsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) SubmitScanResult(ctx context.Context, req *v1.SubmitScanResultRequest) (*v1.SubmitScanResultResponse, error) {
+	var res v1.SubmitScanResultResponse
+	if err := c.client.CallUnary(ctx, agentServiceSubmitScanResultSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) SubmitEvents(ctx context.Context, req *v1.SubmitEventsRequest) (*v1.SubmitEventsResponse, error) {
+	var res v1.SubmitEventsResponse
+	if err := c.client.CallUnary(ctx, agentServiceSubmitEventsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type agentServiceHandler struct{ svc AgentServiceHandler }
+
+func (h agentServiceHandler) heartbeat(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.HeartbeatRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Heartbeat(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) reportSources(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ReportSourcesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ReportSources(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) renewCertificate(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RenewCertificateRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RenewCertificate(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) getPolicy(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetPolicyRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetPolicy(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) getSources(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetSourcesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetSources(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) pullJobs(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.PullJobsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.PullJobs(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) submitScanResult(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SubmitScanResultRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SubmitScanResult(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) submitEvents(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SubmitEventsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SubmitEvents(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

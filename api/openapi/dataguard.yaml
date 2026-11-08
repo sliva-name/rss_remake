@@ -16,6 +16,32 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/CurrentUser"}
+  /preferences/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: {$ref: "#/components/schemas/PreferenceKey"}
+    get:
+      operationId: getPreference
+      description: A personal setting of the caller in the current organization. Value is null when it was never saved.
+      responses:
+        "200":
+          description: The setting
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Preference"}
+    put:
+      operationId: savePreference
+      description: Replaces the setting. At most 64 KiB of JSON; references and filters only, never data values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Preference"}
+      responses:
+        "204":
+          description: Saved
   /tenants:
     get:
       operationId: listTenants
@@ -89,6 +115,20 @@ paths:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/Agent"}
+  /agents/{agentId}:
+    get:
+      operationId: getAgent
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The agent
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Agent"}
   /agents/{agentId}/revoke:
     post:
       operationId: revokeAgent
@@ -131,6 +171,14 @@ paths:
         in: path
         required: true
         schema: {type: string, format: uuid}
+    get:
+      operationId: getSource
+      responses:
+        "200":
+          description: The source; a deleted one is not found
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Source"}
     put:
       operationId: updateSource
       description: The agent and the engine cannot change. A change of host, port, database, user or TLS needs the password sealed again.
@@ -151,6 +199,21 @@ paths:
       responses:
         "204":
           description: Deleted
+  /sources/{sourceId}/activate:
+    post:
+      operationId: activateSource
+      description: Saves a checked draft; the agent starts scanning it and reading its audit. A saved source is returned as is.
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The saved source
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Source"}
   /scans:
     get:
       operationId: listScans
@@ -192,6 +255,62 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/CatalogPage"}
+  /catalog/columns/{columnId}:
+    get:
+      operationId: getCatalogColumn
+      description: A column with every classification decision and its renames, also after it was removed
+      parameters:
+        - name: columnId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The column
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CatalogColumnDetail"}
+  /catalog/tables:
+    get:
+      operationId: listCatalogTables
+      description: Active tables, by database, schema and name
+      parameters:
+        - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - name: q
+          in: query
+          description: Part of the database, schema or table name, case-insensitive.
+          schema: {type: string, maxLength: 128}
+        - name: category
+          in: query
+          description: Only tables with a column of this category.
+          schema: {type: string}
+        - name: sensitive
+          in: query
+          description: Only tables with at least one sensitive column.
+          schema: {type: boolean, default: false}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+      responses:
+        "200":
+          description: Tables
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CatalogTablePage"}
+  /catalog/tables/{tableId}:
+    get:
+      operationId: getCatalogTable
+      description: A table with its active columns, also after it was removed
+      parameters:
+        - name: tableId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The table
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CatalogTableDetail"}
   /catalog/summary:
     get:
       operationId: getCatalogSummary
@@ -208,6 +327,8 @@ paths:
       operationId: listCatalogChanges
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
       responses:
         "200":
           description: Recent changes of the inventory
@@ -221,9 +342,18 @@ paths:
       operationId: listAuditEvents
       parameters:
         - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - name: tableId
+          in: query
+          description: Events that name the table or read any of its columns, also under names it had before a rename.
+          schema: {type: string, format: uuid}
+        - {name: columnId, in: query, schema: {type: string, format: uuid}}
         - {name: principal, in: query, schema: {type: string}}
         - {name: category, in: query, schema: {type: string}}
         - {name: eventType, in: query, schema: {type: string}}
+        - name: sessionId
+          in: query
+          description: Events of one database session, as the engine numbered it.
+          schema: {type: string, maxLength: 128}
         - name: includeLogins
           in: query
           description: Logins outnumber data access by far, so they are left out unless asked for or filtered by type.
@@ -242,6 +372,31 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AuditEventPage"}
+  /audit/events/export:
+    get:
+      operationId: exportAuditEvents
+      description: The same selection as listAuditEvents as CSV, newest first, at most 100 000 rows. X-Dataguard-Truncated is true when more matched.
+      parameters:
+        - {name: sourceId, in: query, schema: {type: string, format: uuid}}
+        - {name: tableId, in: query, schema: {type: string, format: uuid}}
+        - {name: columnId, in: query, schema: {type: string, format: uuid}}
+        - {name: principal, in: query, schema: {type: string}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: eventType, in: query, schema: {type: string}}
+        - {name: sessionId, in: query, schema: {type: string, maxLength: 128}}
+        - {name: includeLogins, in: query, schema: {type: boolean, default: false}}
+        - {name: includeScanner, in: query, schema: {type: boolean, default: false}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: CSV, UTF-8 with a byte order mark so spreadsheet programs read Cyrillic correctly
+          headers:
+            X-Dataguard-Truncated:
+              schema: {type: boolean}
+          content:
+            text/csv:
+              schema: {type: string, format: binary}
   /audit/coverage:
     get:
       operationId: getAuditCoverage
@@ -271,6 +426,14 @@ paths:
     get:
       operationId: listAccessByPrincipal
       parameters:
+        - name: category
+          in: query
+          description: Count only the events that touched this category.
+          schema: {type: string}
+        - name: columnId
+          in: query
+          description: Count only the events that read this column. Read from the events themselves, not the hourly aggregate.
+          schema: {type: string, format: uuid}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
       responses:
@@ -295,6 +458,36 @@ paths:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/CategoryAccess"}
+  /analytics/timeline:
+    get:
+      operationId: getAccessTimeline
+      description: Events per hour. Hours without events are absent; coverage tells whether an hour was observed.
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: Hourly counts, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/TimelinePoint"}
+  /search:
+    get:
+      operationId: search
+      description: Objects whose name contains the text. Each group is filled only when the caller may read that kind of object.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 2, maxLength: 128}
+      responses:
+        "200":
+          description: Matches, at most 8 per group
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SearchResult"}
   /policy:
     get:
       operationId: getPolicy
@@ -317,6 +510,46 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Policy"}
+  /policy/versions:
+    get:
+      operationId: listPolicyVersions
+      responses:
+        "200":
+          description: Every published version, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/PolicyVersion"}
+  /policy/versions/{version}:
+    get:
+      operationId: getPolicyVersion
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        "200":
+          description: One published version as it was signed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Policy"}
+  /analytics/signals:
+    get:
+      operationId: listRiskSignals
+      description: >-
+        Heuristic signals over the last 24 hours compared with the days before.
+        A signal is a reason to look, not a confirmed incident; each carries the
+        rule and the numbers it was computed from.
+      responses:
+        "200":
+          description: Signals, strongest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/RiskSignal"}
 components:
   securitySchemes:
     bearerAuth:
@@ -331,13 +564,110 @@ components:
         message: {type: string}
     CurrentUser:
       type: object
-      required: [subject, roles]
+      required: [subject, roles, permissions]
       properties:
         subject: {type: string}
         tenantId: {type: string, format: uuid}
         roles:
           type: array
           items: {type: string}
+        permissions:
+          description: Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010).
+          type: array
+          items: {$ref: "#/components/schemas/Permission"}
+    PreferenceKey:
+      type: string
+      enum: [views, favorites, recent, overview]
+    Preference:
+      type: object
+      required: [value]
+      properties:
+        value:
+          description: Whatever the dashboard keeps under the key, as JSON; null when never saved.
+          nullable: true
+    PolicyVersion:
+      type: object
+      required: [version, createdBy, createdAt, customDetectors, hasScanBudget]
+      properties:
+        version: {type: integer, format: int64}
+        createdBy: {type: string}
+        createdAt: {type: string, format: date-time}
+        customDetectors: {type: integer}
+        hasScanBudget: {type: boolean}
+    RiskSignal:
+      type: object
+      required: [kind, databasePrincipal, applicationPrincipal, identityConfidence, category, observed, baseline, lastSeen]
+      properties:
+        kind:
+          type: string
+          enum: [VOLUME_SPIKE, NEW_CATEGORY, FAILED_ACCESS]
+        databasePrincipal: {type: string}
+        applicationPrincipal: {type: string}
+        identityConfidence: {type: string}
+        category:
+          description: Empty when the signal is not about one category.
+          type: string
+        observed:
+          description: Events in the last 24 hours that the rule counted.
+          type: integer
+          format: int64
+        baseline:
+          description: What the rule compared with; its meaning depends on the kind.
+          type: number
+          format: double
+        lastSeen: {type: string, format: date-time}
+    PrincipalHit:
+      type: object
+      required: [databasePrincipal, applicationPrincipal, events]
+      properties:
+        databasePrincipal: {type: string}
+        applicationPrincipal: {type: string}
+        events:
+          description: Events in the last 30 days.
+          type: integer
+          format: int64
+    Permission:
+      description: An operationId of this API.
+      type: string
+      enum:
+        - getCurrentUser
+        - getPreference
+        - savePreference
+        - exportAuditEvents
+        - listPolicyVersions
+        - getPolicyVersion
+        - listRiskSignals
+        - listTenants
+        - createTenant
+        - listEnvironments
+        - createEnvironment
+        - createEnrollmentToken
+        - listAgents
+        - getAgent
+        - revokeAgent
+        - listSources
+        - getSource
+        - createSource
+        - updateSource
+        - deleteSource
+        - activateSource
+        - listScans
+        - requestScan
+        - listCatalogColumns
+        - getCatalogColumn
+        - listCatalogTables
+        - getCatalogTable
+        - getCatalogSummary
+        - listCatalogChanges
+        - listAuditEvents
+        - getAuditCoverage
+        - getAccessSummary
+        - getAccessTimeline
+        - search
+        - listAccessByPrincipal
+        - listAccessByCategory
+        - getPolicy
+        - publishPolicy
     NewTenant:
       type: object
       required: [name]
@@ -430,9 +760,13 @@ components:
           required: [agentId, sealedPassword]
           properties:
             agentId: {type: string, format: uuid}
+            draft:
+              description: Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+              type: boolean
+              default: false
     Source:
       type: object
-      required: [id, agentId, key, engine, host, port, database, username, tls, auditDirectory, maxConnections, statusCode, engineVersion, capabilities, updatedAt]
+      required: [id, agentId, key, engine, host, port, database, username, tls, auditDirectory, maxConnections, statusCode, engineVersion, capabilities, updatedAt, draft]
       properties:
         id: {type: string, format: uuid}
         agentId: {type: string, format: uuid}
@@ -454,6 +788,9 @@ components:
           type: array
           items: {$ref: "#/components/schemas/Capability"}
         updatedAt: {type: string, format: date-time}
+        draft:
+          description: A connection check that has not been saved yet.
+          type: boolean
     NewScan:
       type: object
       required: [sourceId]
@@ -503,6 +840,116 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/CatalogColumn"}
+    CatalogTable:
+      type: object
+      required: [id, sourceId, database, schema, table, kind, columns, sensitiveColumns, categories, lastSeenAt]
+      properties:
+        id: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        database: {type: string}
+        schema: {type: string}
+        table: {type: string}
+        kind: {type: string}
+        columns: {type: integer, format: int64}
+        sensitiveColumns: {type: integer, format: int64}
+        categories:
+          type: array
+          items: {type: string}
+        lastSeenAt: {type: string, format: date-time}
+    CatalogTablePage:
+      type: object
+      required: [total, items]
+      properties:
+        total: {type: integer, format: int64}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CatalogTable"}
+    ObjectStatus:
+      type: string
+      enum: [active, removed]
+    TableColumn:
+      type: object
+      required: [id, name, nativeType, ordinal, nullable, categories]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        nativeType: {type: string}
+        ordinal: {type: integer, format: int32}
+        nullable: {type: boolean}
+        categories:
+          description: Detected categories only.
+          type: array
+          items: {type: string}
+    CatalogTableDetail:
+      type: object
+      required: [id, sourceId, database, schema, table, kind, status, firstSeenAt, lastSeenAt, columns, renames]
+      properties:
+        id: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        database: {type: string}
+        schema: {type: string}
+        table: {type: string}
+        kind: {type: string}
+        status: {$ref: "#/components/schemas/ObjectStatus"}
+        firstSeenAt: {type: string, format: date-time}
+        lastSeenAt: {type: string, format: date-time}
+        columns:
+          type: array
+          items: {$ref: "#/components/schemas/TableColumn"}
+        renames:
+          type: array
+          items: {$ref: "#/components/schemas/Rename"}
+    Classification:
+      type: object
+      required: [categoryId, detected, confidence, nameMatch, contextMatch, formatRatio, rowsInspected, rowsNonNull, rowsMatched, uniqueEstimate, samplingMethod, firstSeenAt, updatedAt]
+      properties:
+        categoryId: {type: string}
+        detected:
+          description: False when the classifier looked and decided the category is absent.
+          type: boolean
+        confidence: {type: number, format: double}
+        nameMatch: {type: boolean}
+        contextMatch: {type: boolean}
+        formatRatio: {type: number, format: double}
+        checksumRatio: {type: number, format: double}
+        rowsInspected: {type: integer, format: int64}
+        rowsNonNull: {type: integer, format: int64}
+        rowsMatched: {type: integer, format: int64}
+        uniqueEstimate: {type: integer, format: int64}
+        samplingMethod: {type: string}
+        firstSeenAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    Rename:
+      type: object
+      required: [oldName, newName, detectedAt, detectedBy]
+      properties:
+        oldName: {type: string}
+        newName: {type: string}
+        detectedAt: {type: string, format: date-time}
+        detectedBy: {type: string}
+    CatalogColumnDetail:
+      type: object
+      required: [id, tableId, sourceId, database, schema, table, name, nativeType, ordinal, nullable, status, firstSeenAt, lastSeenAt, classifications, renames]
+      properties:
+        id: {type: string, format: uuid}
+        tableId: {type: string, format: uuid}
+        sourceId: {type: string, format: uuid}
+        database: {type: string}
+        schema: {type: string}
+        table: {type: string}
+        name: {type: string}
+        nativeType: {type: string}
+        ordinal: {type: integer, format: int32}
+        nullable: {type: boolean}
+        status: {$ref: "#/components/schemas/ObjectStatus"}
+        firstSeenAt: {type: string, format: date-time}
+        lastSeenAt: {type: string, format: date-time}
+        classifications:
+          type: array
+          items: {$ref: "#/components/schemas/Classification"}
+        renames:
+          type: array
+          items: {$ref: "#/components/schemas/Rename"}
     CatalogChange:
       type: object
       required: [occurredAt, kind, tableId, categoryId, tableName, sourceKey]
@@ -548,7 +995,7 @@ components:
             version: {type: integer, format: int64}
     AuditEvent:
       type: object
-      required: [id, time, type, sourceId, databasePrincipal, applicationPrincipal, identityConfidence, operation, tables, columns, categories, queryFingerprint, executionStatus, errorCode, evidenceLevel, objectResolution, gapReason]
+      required: [id, time, type, sourceId, databasePrincipal, applicationPrincipal, applicationId, clientAddress, sessionId, transactionId, identityConfidence, operation, tables, columns, categories, queryFingerprint, executionStatus, errorCode, evidenceLevel, objectResolution, gapReason]
       properties:
         id: {type: string, format: uuid}
         time: {type: string, format: date-time}
@@ -556,6 +1003,14 @@ components:
         sourceId: {type: string, format: uuid}
         databasePrincipal: {type: string}
         applicationPrincipal: {type: string}
+        applicationId:
+          description: The application that signed the context, empty without one.
+          type: string
+        clientAddress: {type: string}
+        sessionId:
+          description: The engine's session number; with the source it ties statements of one connection together.
+          type: string
+        transactionId: {type: string}
         identityConfidence: {type: string}
         operation: {type: string}
         tables:
@@ -607,6 +1062,42 @@ components:
         columnsShare: {type: number, format: double}
         verifiedShare: {type: number, format: double}
         principalShare: {type: number, format: double}
+    TimelinePoint:
+      type: object
+      required: [hour, events, sensitiveEvents, failedEvents]
+      properties:
+        hour: {type: string, format: date-time}
+        events: {type: integer, format: int64}
+        sensitiveEvents: {type: integer, format: int64}
+        failedEvents: {type: integer, format: int64}
+    SearchResult:
+      type: object
+      required: [sources, tables, columns, principals]
+      properties:
+        principals:
+          type: array
+          items: {$ref: "#/components/schemas/PrincipalHit"}
+        sources:
+          type: array
+          items: {$ref: "#/components/schemas/SearchHit"}
+        tables:
+          type: array
+          items: {$ref: "#/components/schemas/SearchHit"}
+        columns:
+          type: array
+          items: {$ref: "#/components/schemas/SearchHit"}
+    SearchHit:
+      type: object
+      required: [id, name, context]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        context:
+          description: Where the object is, such as the source and schema of a table.
+          type: string
+        categories:
+          type: array
+          items: {type: string}
     AccessSummary:
       type: object
       required: [events, sensitiveEvents, failedEvents, principals, gaps]

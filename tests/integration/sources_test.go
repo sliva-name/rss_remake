@@ -180,6 +180,58 @@ func TestSourcesAreTenantScoped(t *testing.T) {
 	}
 }
 
+// A connection check before saving runs on a draft: the agent opens it and
+// reports, but nothing else happens to it until the administrator saves it.
+func TestDraftIsProbedButNotScannedUntilActivated(t *testing.T) {
+	ctx := context.Background()
+	source := stand.PostgresSource(t)
+	platform := startPlatform(t)
+	created, environment := platform.newTenant(t, "Acme")
+	enrolled := platform.enroll(t, created.ID, environment.ID)
+	agent, _ := platform.startAgent(t, enrolled)
+
+	definition := source.Config
+	definition.AuditDirectory = stand.AuditDirectory("postgresql")
+	definition.ProbeOnly = true
+	draftID := platform.addSource(t, enrolled, definition)
+	if probed := waitForProbe(t, platform, created.ID, draftID); probed.StatusCode != "" || !probed.Draft {
+		t.Fatalf("draft probe: status %q, draft %v; logs: %s", probed.StatusCode, probed.Draft, agent.logs.String())
+	}
+	listed, err := platform.app.Fleet.ListSources(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 0 {
+		t.Fatalf("a draft is listed: %+v", listed)
+	}
+	if _, err := platform.app.Scans.Request(ctx, created.ID, draftID, "tester"); !errors.Is(err, scan.ErrNotFound) {
+		t.Fatalf("scan of a draft: %v", err)
+	}
+	if _, reports := agent.audit.Health(); len(reports) != 0 {
+		t.Fatalf("the audit of a draft is collected: %v", reports)
+	}
+
+	activated, err := platform.app.Fleet.ActivateSource(ctx, created.ID, draftID)
+	if err != nil {
+		t.Fatalf("ActivateSource: %v", err)
+	}
+	if activated.Draft || activated.ID != draftID {
+		t.Fatalf("activated source: %+v", activated)
+	}
+	if again, err := platform.app.Fleet.ActivateSource(ctx, created.ID, draftID); err != nil || again.Draft {
+		t.Fatalf("activating a saved source again: %+v %v", again, err)
+	}
+	waitForProbe(t, platform, created.ID, draftID)
+	job, err := platform.app.Scans.Request(ctx, created.ID, draftID, "tester")
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if finished := waitForScan(t, platform, created.ID, job.ID); finished.Status != scan.StatusCompleted {
+		t.Fatalf("scan finished as %s (%s); logs: %s", finished.Status, finished.FailureCode, agent.logs.String())
+	}
+	agent.awaitObserving(t)
+}
+
 func TestDeletedSourceIsNoLongerServed(t *testing.T) {
 	ctx := context.Background()
 	platform := startPlatform(t)

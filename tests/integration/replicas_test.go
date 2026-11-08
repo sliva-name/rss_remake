@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -43,7 +43,7 @@ type balancer struct {
 
 func newBalancer(t *testing.T, target string) *balancer {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,19 +53,20 @@ func newBalancer(t *testing.T, target string) *balancer {
 		_ = listener.Close()
 		b.dropAll()
 	})
-	go b.accept()
+	go b.accept(t.Context())
 	return b
 }
 
 func (b *balancer) URL() string { return "https://" + b.listener.Addr().String() }
 
-func (b *balancer) accept() {
+func (b *balancer) accept(ctx context.Context) {
+	var dialer net.Dialer
 	for {
 		client, err := b.listener.Accept()
 		if err != nil {
 			return
 		}
-		backend, err := net.Dial("tcp", b.target.Load().(string))
+		backend, err := dialer.DialContext(ctx, "tcp", b.target.Load().(string))
 		if err != nil {
 			_ = client.Close()
 			continue

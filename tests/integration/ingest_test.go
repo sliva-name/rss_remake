@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	chdriver "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -140,6 +141,30 @@ func TestAuditReachesAnalyticsWithClassification(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(string(payload), "dg_app") {
 		t.Fatalf("principals: %d %s", status, payload)
 	}
+	var everything, email, none []restapi.PrincipalAccess
+	for path, into := range map[string]*[]restapi.PrincipalAccess{
+		"/api/v1/analytics/principals":                                      &everything,
+		"/api/v1/analytics/principals?category=" + classifier.CategoryEmail: &email,
+		"/api/v1/analytics/principals?category=NOTHING.READ":                &none,
+	} {
+		status, payload := restCall(t, platform, http.MethodGet, path, "analyst", "")
+		if status != http.StatusOK || json.Unmarshal(payload, into) != nil {
+			t.Fatalf("%s: %d %s", path, status, payload)
+		}
+	}
+	if len(none) != 0 || len(email) == 0 {
+		t.Fatalf("by category: email %+v, nothing %+v", email, none)
+	}
+	for _, row := range email {
+		whole := slices.IndexFunc(everything, func(item restapi.PrincipalAccess) bool {
+			return item.DatabasePrincipal == row.DatabasePrincipal && item.ApplicationPrincipal == row.ApplicationPrincipal &&
+				item.IdentityConfidence == row.IdentityConfidence
+		})
+		if whole < 0 || row.Events > everything[whole].Events || !slices.Contains(row.Categories, classifier.CategoryEmail) {
+			t.Errorf("email row %+v against %+v", row, everything)
+		}
+	}
+
 	status, payload = restCall(t, platform, http.MethodGet, "/api/v1/analytics/categories", "analyst", "")
 	if status != http.StatusOK || !strings.Contains(string(payload), classifier.CategoryEmail) {
 		t.Fatalf("categories: %d %s", status, payload)
@@ -412,14 +437,14 @@ func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
 				}
 			}
 		}
-		summary, err := store.Summarize(ctx, tenantID, from, to)
+		summary, err := store.Summarize(ctx, tenantID, from, to, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if summary.Events != want || summary.SensitiveEvents != sensitive {
 			t.Errorf("window %v: summary %+v, want %d events, %d sensitive", window, summary, want, sensitive)
 		}
-		principals, err := store.ByPrincipal(ctx, tenantID, from, to)
+		principals, err := store.ByPrincipal(ctx, tenantID, from, to, audit.PrincipalFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -427,7 +452,7 @@ func TestReportsCountPartialAndWholeHoursExactly(t *testing.T) {
 		for _, row := range principals {
 			byPrincipal += row.Events
 		}
-		categories, err := store.ByCategory(ctx, tenantID, from, to)
+		categories, err := store.ByCategory(ctx, tenantID, from, to, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -497,6 +522,69 @@ func TestEventTableMigrationKeepsEventsOnceAndStaysIsolated(t *testing.T) {
 	var total uint64
 	if err := connection.QueryRow(ctx, `SELECT count() FROM audit_events`).Scan(&total); err == nil {
 		t.Fatalf("a query without the tenant setting must fail after migration, returned %d", total)
+	}
+}
+
+// Databases migrated before goose list their files in schema_migrations. Applied
+// again, 0001 would fail on the existing table and 0002 would rebuild it.
+func TestMigrationAdoptsFilesAppliedBeforeGoose(t *testing.T) {
+	ctx := context.Background()
+	owner, runtime := stand.EmptyCenterEvents(t)
+	if err := clickhouse.Migrate(ctx, owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := clickhouse.Open(ctx, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	tenantID := uuid.New()
+	event := audit.Event{
+		ID: uuid.New(), TenantID: tenantID, SourceID: uuid.New(), Type: "EVENT_TYPE_DATA_ACCESS",
+		Time: time.Now().UTC().Truncate(time.Microsecond),
+	}
+	if err := store.Insert(ctx, []audit.Event{event}); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := fs.ReadDir(migrations.ClickHouse, "clickhouse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := make([]string, 0, len(files))
+	for _, file := range files {
+		applied = append(applied, "('"+file.Name()+"')")
+	}
+	for _, statement := range []string{
+		`DROP TABLE goose_db_version`,
+		`CREATE TABLE schema_migrations (name String, applied_at DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY name`,
+		`INSERT INTO schema_migrations (name) VALUES ` + strings.Join(applied, ", "),
+	} {
+		if err := clickhouse.ExecAdmin(ctx, owner, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for range 2 {
+		if err := clickhouse.Migrate(ctx, owner, runtime.Username, migrations.ClickHouse, "clickhouse"); err != nil {
+			t.Fatalf("migrate a database migrated before goose: %v", err)
+		}
+	}
+	if _, total, err := store.Search(ctx, tenantID, searchWindow()); err != nil || total != 1 {
+		t.Fatalf("stored %d events after migration, want 1: %v", total, err)
+	}
+	connection, err := chdriver.Open(&chdriver.Options{
+		Addr: []string{owner.Address},
+		Auth: chdriver.Auth{Database: owner.Database, Username: owner.Username, Password: owner.Password},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connection.Close() }()
+	var legacy uint64
+	const find = `SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = 'schema_migrations'`
+	if err := connection.QueryRow(ctx, find).Scan(&legacy); err != nil || legacy != 0 {
+		t.Fatalf("schema_migrations left after migration: %d, %v", legacy, err)
 	}
 }
 

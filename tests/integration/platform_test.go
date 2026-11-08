@@ -20,7 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
@@ -371,9 +372,9 @@ func rawClient(t *testing.T, platform *platform, certificate *tls.Certificate) a
 	if certificate != nil {
 		config.Certificates = []tls.Certificate{*certificate}
 	}
-	return agentv1connect.NewAgentServiceClient(
+	return agentv1connect.NewAgentServiceClient(connect.NewClient(connecthttp.NewTransport(
 		&http.Client{Transport: &http.Transport{TLSClientConfig: config, ForceAttemptHTTP2: true}},
-		platform.agents.URL)
+		platform.agents.URL)))
 }
 
 func TestAgentServiceRequiresPlatformCertificate(t *testing.T) {
@@ -381,7 +382,7 @@ func TestAgentServiceRequiresPlatformCertificate(t *testing.T) {
 	platform := startPlatform(t)
 
 	t.Run("no certificate", func(t *testing.T) {
-		_, err := rawClient(t, platform, nil).Heartbeat(ctx, connect.NewRequest(&agentv1.HeartbeatRequest{}))
+		_, err := rawClient(t, platform, nil).Heartbeat(ctx, &agentv1.HeartbeatRequest{})
 		if connect.CodeOf(err) != connect.CodeUnauthenticated {
 			t.Fatalf("err = %v", err)
 		}
@@ -408,7 +409,7 @@ func TestAgentServiceRequiresPlatformCertificate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = rawClient(t, platform, &certificate).Heartbeat(ctx, connect.NewRequest(&agentv1.HeartbeatRequest{}))
+		_, err = rawClient(t, platform, &certificate).Heartbeat(ctx, &agentv1.HeartbeatRequest{})
 		if err == nil {
 			t.Fatal("a foreign certificate must fail the handshake")
 		}
@@ -434,7 +435,7 @@ func TestEnvelopeCannotClaimAnotherTenant(t *testing.T) {
 		},
 		Sources: []*agentv1.SourceReport{{SourceId: uuid.NewString(), Engine: agentv1.Engine_ENGINE_MYSQL}},
 	}
-	_, err = client.ReportSources(ctx, connect.NewRequest(request))
+	_, err = client.ReportSources(ctx, request)
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("err = %v", err)
 	}
@@ -463,7 +464,7 @@ func TestServerRejectsMessageBreakingTheContract(t *testing.T) {
 			MessageId: "not-a-uuid",
 		},
 	}
-	_, err = rawClient(t, platform, certificate).Heartbeat(ctx, connect.NewRequest(request))
+	_, err = rawClient(t, platform, certificate).Heartbeat(ctx, request)
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("err = %v", err)
 	}
@@ -558,7 +559,7 @@ func TestOutboundGuardBlocksBeforeTheWire(t *testing.T) {
 
 func restCall(t *testing.T, platform *platform, method, path, token, body string) (int, []byte) {
 	t.Helper()
-	request, err := http.NewRequest(method, platform.rest.URL+path, strings.NewReader(body))
+	request, err := http.NewRequestWithContext(t.Context(), method, platform.rest.URL+path, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

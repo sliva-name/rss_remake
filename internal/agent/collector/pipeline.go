@@ -15,6 +15,7 @@ import (
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/connector"
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/contract/egress"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/retry"
@@ -27,10 +28,6 @@ const (
 	defaultPollInterval    = time.Second
 	catalogRefreshInterval = 5 * time.Minute
 	analysisCacheEntries   = 4096
-	reasonQueueFull        = "QUEUE_FULL"
-	reasonLogUnreadable    = "LOG_UNREADABLE"
-	reasonCatalogFailed    = "CATALOG_UNAVAILABLE"
-	reasonTimeZoneUnknown  = "LOG_TIME_ZONE_UNKNOWN"
 )
 
 // eventNamespace scopes event ids to DataGuard.
@@ -91,7 +88,7 @@ func New(options Options) *Collector {
 	if options.PollInterval == 0 {
 		options.PollInterval = defaultPollInterval
 	}
-	return &Collector{options: options, state: agentv1.AuditSourceState_AUDIT_SOURCE_STATE_UNAVAILABLE, reason: "NOT_STARTED"}
+	return &Collector{options: options, state: agentv1.AuditSourceState_AUDIT_SOURCE_STATE_UNAVAILABLE, reason: codes.NotStarted}
 }
 
 // Health reports what the center should show. Quiet in OBSERVING means no
@@ -127,12 +124,12 @@ func (c *Collector) Run(ctx context.Context) {
 
 func (c *Collector) tick(ctx context.Context) {
 	if err := c.refreshCatalog(ctx); err != nil {
-		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, reasonCatalogFailed)
+		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, codes.CatalogUnavailable)
 		c.options.Logger.Warn("catalog refresh failed", "source_key", c.options.SourceKey, "error", err)
 		return
 	}
 	if err := c.refreshLocation(ctx); err != nil {
-		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, reasonTimeZoneUnknown)
+		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, codes.LogTimeZoneUnknown)
 		c.options.Logger.Warn("log time zone unknown", "source_key", c.options.SourceKey, "error", err)
 		return
 	}
@@ -162,7 +159,7 @@ func (c *Collector) unreadable(err error) {
 	if errors.Is(err, os.ErrNotExist) {
 		state = agentv1.AuditSourceState_AUDIT_SOURCE_STATE_NOT_CONFIGURED
 	}
-	c.setState(state, reasonLogUnreadable)
+	c.setState(state, codes.LogUnreadable)
 	c.options.Logger.Warn("audit log unreadable", "source_key", c.options.SourceKey, "code", string(safeerr.CodeOf(err)))
 }
 
@@ -173,10 +170,10 @@ func (c *Collector) storeFailed(err error) {
 		c.mu.Lock()
 		c.queueFull = true
 		c.mu.Unlock()
-		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, reasonQueueFull)
+		c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, codes.QueueFull)
 		return
 	}
-	c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, "STORE_FAILED")
+	c.setState(agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED, codes.StoreFailed)
 	c.options.Logger.Error("event not stored", "source_key", c.options.SourceKey, "error", safeerr.New("store events", safeerr.CodeInternal, err))
 }
 

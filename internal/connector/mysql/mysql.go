@@ -15,6 +15,7 @@ import (
 
 	"dataguard/internal/connector"
 	"dataguard/internal/connector/sqlsource"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safeerr"
 )
@@ -68,8 +69,8 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 	var version string
 	if err := s.db.QueryRowContext(ctx, `SELECT VERSION()`).Scan(&version); err != nil {
 		return "", []*agentv1.CapabilityStatus{
-			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED"),
-			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED"),
+			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
+			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
 		}
 	}
 	return version, append([]*agentv1.CapabilityStatus{
@@ -79,9 +80,9 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 }
 
 func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilityStatus {
-	query, reason := `SELECT @@general_log = 1 AND @@log_output LIKE '%FILE%'`, "GENERAL_LOG_REQUIRED"
+	query, reason := `SELECT @@general_log = 1 AND @@log_output LIKE '%FILE%'`, codes.GeneralLogRequired
 	if s.flavor == FlavorMariaDB {
-		query, reason = `SELECT @@server_audit_logging = 1 AND @@server_audit_output_type = 'FILE'`, "SERVER_AUDIT_REQUIRED"
+		query, reason = `SELECT @@server_audit_logging = 1 AND @@server_audit_output_type = 'FILE'`, codes.ServerAuditRequired
 	}
 	var enabled bool
 	if err := s.db.QueryRowContext(ctx, query).Scan(&enabled); err != nil {
@@ -90,16 +91,16 @@ func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilitySta
 	statuses := []*agentv1.CapabilityStatus{
 		connector.Configured(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, enabled, reason),
 		connector.Configured(agentv1.Capability_CAPABILITY_READ_AUDIT, enabled, reason),
-		connector.Configured(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, enabled, "DERIVED_FROM_QUERY_TEXT"),
-		connector.Configured(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, enabled, "DERIVED_FROM_QUERY_TEXT"),
+		connector.Configured(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, enabled, codes.DerivedFromQueryText),
+		connector.Configured(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, enabled, codes.DerivedFromQueryText),
 		connector.Configured(agentv1.Capability_CAPABILITY_QUERY_TEXT, enabled, reason),
-		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IN_NATIVE_AUDIT"),
-		connector.Status(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IMPLEMENTED_FOR_ENGINE"),
+		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, codes.NotInNativeAudit),
+		connector.Status(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, agentv1.Support_SUPPORT_UNAVAILABLE, codes.NotImplementedForEngine),
 	}
 	if s.flavor == FlavorMariaDB {
 		return append(statuses, connector.Configured(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, enabled, reason))
 	}
-	return append(statuses, connector.Status(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, agentv1.Support_SUPPORT_UNAVAILABLE, "GENERAL_LOG_HAS_NO_OUTCOME"))
+	return append(statuses, connector.Status(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, agentv1.Support_SUPPORT_UNAVAILABLE, codes.GeneralLogHasNoOutcome))
 }
 
 // LogLocation reports the zone of server_audit timestamps, which are the

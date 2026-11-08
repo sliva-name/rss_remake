@@ -6,13 +6,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"dataguard/internal/agent/center"
 	"dataguard/internal/agent/scanner"
 	"dataguard/internal/agent/sources"
 	"dataguard/internal/classifier"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/retry"
 	"dataguard/internal/platform/safeerr"
@@ -105,7 +106,7 @@ func (d *Discovery) execute(ctx context.Context, job *agentv1.ScanJob) *agentv1.
 	if !known {
 		return &agentv1.ScanResult{
 			JobId: job.GetJobId(), SourceId: job.GetSourceId(),
-			Outcome: agentv1.ScanOutcome_SCAN_OUTCOME_FAILED, FailureCode: "UNKNOWN_SOURCE",
+			Outcome: agentv1.ScanOutcome_SCAN_OUTCOME_FAILED, FailureCode: codes.UnknownSource,
 			StartedAt: timestamppb.Now(), FinishedAt: timestamppb.Now(),
 		}
 	}

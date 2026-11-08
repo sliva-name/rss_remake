@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -41,6 +42,16 @@ type Repository interface {
 	// that version so the signature covers it.
 	Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (Signed, error)) (uint64, error)
 	Latest(ctx context.Context, tenantID uuid.UUID) (Signed, error)
+	// History lists every version, newest first.
+	History(ctx context.Context, tenantID uuid.UUID) ([]Published, error)
+	Version(ctx context.Context, tenantID uuid.UUID, version uint64) (Signed, error)
+}
+
+// Published is a stored version with who published it and when.
+type Published struct {
+	Signed
+	CreatedBy string
+	CreatedAt time.Time
 }
 
 // Signer signs serialized policies.
@@ -78,6 +89,14 @@ func (s *Service) Publish(ctx context.Context, tenantID uuid.UUID, createdBy str
 
 func (s *Service) Latest(ctx context.Context, tenantID uuid.UUID) (Signed, error) {
 	return s.repository.Latest(ctx, tenantID)
+}
+
+func (s *Service) History(ctx context.Context, tenantID uuid.UUID) ([]Published, error) {
+	return s.repository.History(ctx, tenantID)
+}
+
+func (s *Service) Version(ctx context.Context, tenantID uuid.UUID, version uint64) (Signed, error) {
+	return s.repository.Version(ctx, tenantID, version)
 }
 
 // Decode returns the content of a signed policy.

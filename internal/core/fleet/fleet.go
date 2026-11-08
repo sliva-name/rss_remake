@@ -79,6 +79,8 @@ type Source struct {
 	StatusCode string
 	ProbedAt   *time.Time
 	UpdatedAt  time.Time
+	// Draft is a source being checked before it is saved: probed, not used.
+	Draft bool
 }
 
 // Probe is an agent's report on one of its sources.
@@ -106,6 +108,7 @@ type Repository interface {
 	CreateSource(ctx context.Context, source Source) error
 	UpdateSource(ctx context.Context, source Source) error
 	DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) error
+	ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID) error
 	GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (Source, error)
 	// ListSources returns live sources; deleted ones keep only their history.
 	ListSources(ctx context.Context, tenantID uuid.UUID) ([]Source, error)
@@ -236,6 +239,10 @@ func (s *Service) RenewCertificate(ctx context.Context, tenantID, agentID uuid.U
 
 func (s *Service) Revoke(ctx context.Context, tenantID, agentID uuid.UUID) error {
 	return s.repository.RevokeAgent(ctx, tenantID, agentID)
+}
+
+func (s *Service) GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (Agent, error) {
+	return s.repository.GetAgent(ctx, tenantID, agentID)
 }
 
 func (s *Service) ListAgents(ctx context.Context, tenantID uuid.UUID) ([]Agent, error) {

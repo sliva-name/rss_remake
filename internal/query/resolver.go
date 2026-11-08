@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 
@@ -365,9 +366,7 @@ func (r *resolution) bindCTEs(query *ir.Query, parent *scope, inherited map[stri
 		return inherited
 	}
 	ctes := make(map[string]*binding, len(inherited)+len(query.CTEs))
-	for name, item := range inherited {
-		ctes[name] = item
-	}
+	maps.Copy(ctes, inherited)
 	for i := range query.CTEs {
 		cte := &query.CTEs[i]
 		name := r.catalog.fold(cte.Name)

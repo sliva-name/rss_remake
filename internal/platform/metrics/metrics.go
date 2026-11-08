@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -86,10 +87,11 @@ func (r *Registry) Gather() (map[string]float64, error) {
 	samples := map[string]float64{}
 	for _, family := range families {
 		for _, metric := range family.GetMetric() {
-			key := family.GetName()
+			parts := []string{family.GetName()}
 			for _, pair := range metric.GetLabel() {
-				key += "|" + pair.GetName() + "=" + pair.GetValue()
+				parts = append(parts, pair.GetName()+"="+pair.GetValue())
 			}
+			key := strings.Join(parts, "|")
 			switch {
 			case metric.GetCounter() != nil:
 				samples[key] = metric.GetCounter().GetValue()

@@ -1,3 +1,5 @@
+-- +goose NO TRANSACTION
+-- +goose Up
 -- One row per event. ReplacingMergeTree folds rows with the same key, so a replay
 -- after a crash converges to one row; queries read with FINAL to see that at once.
 CREATE TABLE audit_events

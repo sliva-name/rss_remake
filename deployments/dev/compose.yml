@@ -55,7 +55,7 @@ services:
       retries: 30
 
   source-mysql:
-    image: mysql:8.4.6
+    image: mysql:8.4.13
     environment:
       MYSQL_DATABASE: crm
       MYSQL_ROOT_PASSWORD: ${SOURCE_ADMIN_PASSWORD}
@@ -100,7 +100,7 @@ services:
       retries: 40
 
   source-mssql:
-    image: mcr.microsoft.com/mssql/server:2022-CU20-ubuntu-22.04
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
     entrypoint: ["/dg/start.sh"]
     environment:
       ACCEPT_EULA: "Y"
@@ -120,7 +120,7 @@ services:
       retries: 40
 
   center-postgres:
-    image: postgres:17.6-bookworm
+    image: postgres:17.11-bookworm
     environment:
       POSTGRES_DB: dataguard
       POSTGRES_USER: dg_owner
@@ -138,7 +138,7 @@ services:
       retries: 30
 
   center-clickhouse:
-    image: clickhouse/clickhouse-server:25.8.2.29-alpine
+    image: clickhouse/clickhouse-server:26.8.36.3-alpine
     environment:
       CLICKHOUSE_DB: dataguard
       CLICKHOUSE_USER: dg_ch_admin
@@ -164,7 +164,7 @@ services:
   # Event broker between ingest and ClickHouse (ADR-0009). One node on the stand;
   # an installation needs three.
   center-redpanda:
-    image: redpandadata/redpanda:v26.2.5@sha256:badca2d958f81da675c3055a9ecb6ebb590325582bcf16936148ffd65e96e920
+    image: redpandadata/redpanda:v26.2.6@sha256:8b1076e0d61bfceb66594dc01536427ce0b529f8ead35fdab9763ab6085891ce
     command:
       - redpanda
       - start
@@ -187,7 +187,7 @@ services:
       retries: 40
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.3.3
+    image: quay.io/keycloak/keycloak:26.8.2
     # The browser reaches Keycloak through the published port and the server through
     # the network, so the issuer is fixed and back-channel addresses follow the request.
     command:
@@ -203,6 +203,7 @@ services:
     ports: ["127.0.0.1:25080:8080"]
     volumes:
       - ./keycloak/dataguard-realm.json:/opt/keycloak/data/import/dataguard-realm.json:ro
+      - ../keycloak/themes/dataguard:/opt/keycloak/themes/dataguard:ro
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
       interval: 5s

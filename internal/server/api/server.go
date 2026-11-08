@@ -16,6 +16,7 @@ import (
 	"dataguard/internal/core/coverage"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/policy"
+	"dataguard/internal/core/preference"
 	"dataguard/internal/core/scan"
 	"dataguard/internal/core/tenant"
 	"dataguard/internal/gen/restapi"
@@ -27,24 +28,27 @@ const maxRequestBytes = 1 << 20
 
 // Services are the use cases the API exposes.
 type Services struct {
-	Tenants  *tenant.Service
-	Fleet    *fleet.Service
-	Policies *policy.Service
-	Scans    *scan.Service
-	Catalog  asset.Reader
-	Events   audit.Reader
-	Coverage *coverage.Service
+	Tenants     *tenant.Service
+	Fleet       *fleet.Service
+	Policies    *policy.Service
+	Scans       *scan.Service
+	Catalog     asset.Reader
+	Events      audit.Reader
+	Coverage    *coverage.Service
+	Preferences *preference.Service
 }
 
 // Server implements the generated strict interface.
 type Server struct {
-	tenants  *tenant.Service
-	fleet    *fleet.Service
-	policies *policy.Service
-	scans    *scan.Service
-	catalog  asset.Reader
-	events   audit.Reader
-	coverage *coverage.Service
+	tenants     *tenant.Service
+	fleet       *fleet.Service
+	policies    *policy.Service
+	scans       *scan.Service
+	catalog     asset.Reader
+	events      audit.Reader
+	coverage    *coverage.Service
+	preferences *preference.Service
+	signals     *signalCache
 }
 
 // Handler builds the HTTP handler with authentication and authorization.
@@ -73,6 +77,7 @@ func New(services Services) *Server {
 	return &Server{
 		tenants: services.Tenants, fleet: services.Fleet, policies: services.Policies,
 		scans: services.Scans, catalog: services.Catalog, events: services.Events, coverage: services.Coverage,
+		preferences: services.Preferences, signals: &signalCache{},
 	}
 }
 
@@ -89,12 +94,13 @@ func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeProblem(w, http.StatusUnauthorized, "unauthenticated", err.Error())
 	case errors.Is(err, errForbidden), errors.Is(err, errNoTenant):
 		writeProblem(w, http.StatusForbidden, "forbidden", err.Error())
-	case errors.Is(err, fleet.ErrNotFound), errors.Is(err, scan.ErrNotFound), errors.Is(err, policy.ErrNotFound):
+	case errors.Is(err, fleet.ErrNotFound), errors.Is(err, scan.ErrNotFound), errors.Is(err, policy.ErrNotFound),
+		errors.Is(err, asset.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "not_found", "resource not found")
 	case errors.Is(err, tenant.ErrConflict), errors.Is(err, fleet.ErrConflict):
 		writeProblem(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid),
-		errors.Is(err, errInvalidParameter):
+		errors.Is(err, preference.ErrInvalid), errors.Is(err, errInvalidParameter):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 	default:
 		logger.Error("request failed", "error", err, "code", string(safeerr.CodeOf(err)))
@@ -116,7 +122,7 @@ func tenantOf(ctx context.Context) uuid.UUID {
 
 func (s *Server) GetCurrentUser(ctx context.Context, _ restapi.GetCurrentUserRequestObject) (restapi.GetCurrentUserResponseObject, error) {
 	principal, _ := principalFrom(ctx)
-	user := restapi.CurrentUser{Subject: principal.Subject, Roles: principal.Roles}
+	user := restapi.CurrentUser{Subject: principal.Subject, Roles: principal.Roles, Permissions: permissionsOf(principal)}
 	if principal.TenantID != uuid.Nil {
 		id := principal.TenantID
 		user.TenantId = &id
@@ -184,6 +190,14 @@ func (s *Server) ListAgents(ctx context.Context, _ restapi.ListAgentsRequestObje
 	return response, nil
 }
 
+func (s *Server) GetAgent(ctx context.Context, request restapi.GetAgentRequestObject) (restapi.GetAgentResponseObject, error) {
+	agent, err := s.fleet.GetAgent(ctx, tenantOf(ctx), request.AgentId)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.GetAgent200JSONResponse(toAgent(agent)), nil
+}
+
 func (s *Server) RevokeAgent(ctx context.Context, request restapi.RevokeAgentRequestObject) (restapi.RevokeAgentResponseObject, error) {
 	if err := s.fleet.Revoke(ctx, tenantOf(ctx), request.AgentId); err != nil {
 		return nil, err
@@ -203,16 +217,33 @@ func (s *Server) ListSources(ctx context.Context, _ restapi.ListSourcesRequestOb
 	return response, nil
 }
 
+func (s *Server) GetSource(ctx context.Context, request restapi.GetSourceRequestObject) (restapi.GetSourceResponseObject, error) {
+	source, err := s.fleet.GetSource(ctx, tenantOf(ctx), request.SourceId)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.GetSource200JSONResponse(toSource(source)), nil
+}
+
 func (s *Server) CreateSource(ctx context.Context, request restapi.CreateSourceRequestObject) (restapi.CreateSourceResponseObject, error) {
 	body := request.Body
 	draft := sourceDraft(body.Name, string(body.Engine), body.Host, body.Port, body.Database, body.Username,
 		string(body.Tls), body.AuditDirectory, body.MaxConnections, body.SealedPassword)
 	draft.AgentID = body.AgentId
+	draft.Draft = body.Draft != nil && *body.Draft
 	created, err := s.fleet.CreateSource(ctx, tenantOf(ctx), draft)
 	if err != nil {
 		return nil, err
 	}
 	return restapi.CreateSource201JSONResponse(toSource(created)), nil
+}
+
+func (s *Server) ActivateSource(ctx context.Context, request restapi.ActivateSourceRequestObject) (restapi.ActivateSourceResponseObject, error) {
+	activated, err := s.fleet.ActivateSource(ctx, tenantOf(ctx), request.SourceId)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.ActivateSource200JSONResponse(toSource(activated)), nil
 }
 
 func (s *Server) UpdateSource(ctx context.Context, request restapi.UpdateSourceRequestObject) (restapi.UpdateSourceResponseObject, error) {
@@ -283,6 +314,6 @@ func toSource(item fleet.Source) restapi.Source {
 		Host: item.Host, Port: item.Port, Database: item.Database, Username: item.Username,
 		Tls: restapi.TlsMode(item.TLS), AuditDirectory: item.AuditDirectory, MaxConnections: item.MaxConnections,
 		StatusCode: item.StatusCode, ProbedAt: item.ProbedAt,
-		EngineVersion: item.EngineVersion, Capabilities: capabilities, UpdatedAt: item.UpdatedAt,
+		EngineVersion: item.EngineVersion, Capabilities: capabilities, UpdatedAt: item.UpdatedAt, Draft: item.Draft,
 	}
 }

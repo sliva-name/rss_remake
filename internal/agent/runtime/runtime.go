@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"dataguard/internal/agent/center"
 	"dataguard/internal/agent/identity"

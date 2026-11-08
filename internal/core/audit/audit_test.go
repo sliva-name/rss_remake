@@ -205,7 +205,7 @@ func (c *countingCatalog) CatalogVersion(_ context.Context, _, sourceID uuid.UUI
 // Each lookup is a transaction in PostgreSQL, so a batch must not pay one per event.
 func TestIngestReadsEachCatalogOncePerBatch(t *testing.T) {
 	first, second := uuid.New(), uuid.New()
-	catalog := &countingCatalog{fakeCatalog: fakeCatalog{owned: []uuid.UUID{first, second}}, versionReads: map[uuid.UUID]int{}}
+	catalog := &countingCatalog{owned: []uuid.UUID{first, second}, versionReads: map[uuid.UUID]int{}}
 	service, _ := newService(t, catalog)
 	batch := []*agentv1.AuditEvent{event(first), event(second), event(first), event(first), event(second)}
 	if _, err := service.Ingest(context.Background(), uuid.New(), uuid.New(), batch); err != nil {
@@ -254,7 +254,7 @@ func TestEventTimeIsKeptToTheMicrosecond(t *testing.T) {
 // A consumer reads events of many agents at once; each agent is stored under its
 // own lock, and a record read twice is stored once.
 func TestStoreSeparatesAgentsAndDropsRepeats(t *testing.T) {
-	locks := &countingLocks{fakeLocks: fakeLocks{t: t}, agents: map[uuid.UUID]int{}}
+	locks := &countingLocks{t: t, agents: map[uuid.UUID]int{}}
 	sink := &fakeSink{locks: &locks.fakeLocks}
 	service := audit.NewService(fakeCatalog{}, locks, sink, nil, nil)
 	tenantID, first, second := uuid.New(), uuid.New(), uuid.New()

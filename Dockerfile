@@ -2,7 +2,7 @@
 # Platform images. Each final target holds one binary on a distroless base: no
 # shell, no package manager, a non-root user. Base images are pinned by digest.
 
-FROM node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 AS dashboard
+FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS dashboard
 WORKDIR /src/web/dashboard
 COPY web/dashboard/package.json web/dashboard/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
@@ -10,7 +10,7 @@ COPY api/openapi /src/api/openapi
 COPY web/dashboard ./
 RUN npm run api && npm run build
 
-FROM golang:1.27.3-trixie@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS build
+FROM golang:1.27.3-trixie@sha256:af1bfc2614ebb1dbd31af514b78740fd678850e76498762b425ecee4c5c6ea80 AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
 COPY go.mod go.sum ./

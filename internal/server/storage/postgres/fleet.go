@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/fleet"
 )
 
@@ -155,15 +156,20 @@ func (s *Store) updateAgent(ctx context.Context, tenantID uuid.UUID, op, stateme
 }
 
 const sourceColumns = `id, tenant_id, agent_id, source_key, engine, host, port, database_name, username,
-	tls_mode, audit_directory, max_connections, sealed_password, engine_version, status_code, probed_at, updated_at`
+	tls_mode, audit_directory, max_connections, sealed_password, engine_version, status_code, probed_at, updated_at, draft`
 
 func scanSource(row pgx.Row) (fleet.Source, error) {
 	var item fleet.Source
 	err := row.Scan(&item.ID, &item.TenantID, &item.AgentID, &item.Key, &item.Engine, &item.Host, &item.Port,
 		&item.Database, &item.Username, &item.TLS, &item.AuditDirectory, &item.MaxConnections, &item.SealedPassword,
-		&item.EngineVersion, &item.StatusCode, &item.ProbedAt, &item.UpdatedAt)
+		&item.EngineVersion, &item.StatusCode, &item.ProbedAt, &item.UpdatedAt, &item.Draft)
 	return item, err
 }
+
+// staleDraft is the age past which a draft left behind by a closed browser is
+// removed, the next time a source is added to its agent. A check takes
+// seconds; an hour is plenty for someone who stepped away.
+const staleDraft = time.Hour
 
 // bumpSourcesVersion makes the agent fetch its list again. Callers run it in
 // the transaction that changed the list.
@@ -174,17 +180,49 @@ func bumpSourcesVersion(ctx context.Context, tx pgx.Tx, agentID uuid.UUID) error
 
 func (s *Store) CreateSource(ctx context.Context, source fleet.Source) error {
 	err := s.inTenant(ctx, source.TenantID, func(tx pgx.Tx) error {
+		// Drafts nobody saved or cancelled leave the agent's list here, in the
+		// same version bump, and free their names.
+		const sweep = `UPDATE sources SET deleted_at = now(), sealed_password = NULL
+			WHERE agent_id = $1 AND draft AND deleted_at IS NULL AND updated_at < now() - $2::interval`
+		if _, err := tx.Exec(ctx, sweep, source.AgentID, staleDraft.String()); err != nil {
+			return err
+		}
 		const insert = `INSERT INTO sources (id, tenant_id, agent_id, source_key, engine, host, port, database_name,
-				username, tls_mode, audit_directory, max_connections, sealed_password)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
+				username, tls_mode, audit_directory, max_connections, sealed_password, draft)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`
 		if _, err := tx.Exec(ctx, insert, source.ID, source.TenantID, source.AgentID, source.Key, source.Engine,
 			source.Host, source.Port, source.Database, source.Username, source.TLS, source.AuditDirectory,
-			source.MaxConnections, source.SealedPassword); err != nil {
+			source.MaxConnections, source.SealedPassword, source.Draft); err != nil {
 			return err
 		}
 		return bumpSourcesVersion(ctx, tx, source.AgentID)
 	})
 	return sourceWriteError("create source", err)
+}
+
+func (s *Store) ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID) error {
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		var agentID uuid.UUID
+		var draft bool
+		const read = `SELECT agent_id, draft FROM sources WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`
+		if err := tx.QueryRow(ctx, read, sourceID).Scan(&agentID, &draft); err != nil {
+			return err
+		}
+		if !draft {
+			return nil
+		}
+		// The probe is reset as on any change: a new one means the agent holds
+		// the saved source and will take its scans, not only the draft.
+		const activate = `UPDATE sources SET draft = false, updated_at = now(), status_code = '', probed_at = NULL WHERE id = $1`
+		if _, err := tx.Exec(ctx, activate, sourceID); err != nil {
+			return err
+		}
+		return bumpSourcesVersion(ctx, tx, agentID)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fleet.ErrNotFound
+	}
+	return sourceWriteError("activate source", err)
 }
 
 func (s *Store) UpdateSource(ctx context.Context, source fleet.Source) error {
@@ -214,9 +252,9 @@ func (s *Store) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) 
 		if err := tx.QueryRow(ctx, remove, sourceID).Scan(&agentID); err != nil {
 			return err
 		}
-		const cancel = `UPDATE scan_jobs SET status = 'cancelled', failure_code = 'SOURCE_DELETED', finished_at = now()
+		const cancel = `UPDATE scan_jobs SET status = 'cancelled', failure_code = $2, finished_at = now()
 			WHERE source_id = $1 AND status IN ('pending', 'running')`
-		if _, err := tx.Exec(ctx, cancel, sourceID); err != nil {
+		if _, err := tx.Exec(ctx, cancel, sourceID, codes.SourceDeleted); err != nil {
 			return err
 		}
 		return bumpSourcesVersion(ctx, tx, agentID)
@@ -245,7 +283,15 @@ func (s *Store) GetSource(ctx context.Context, tenantID, sourceID uuid.UUID) (fl
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		var err error
 		source, err = scanSource(tx.QueryRow(ctx, `SELECT `+sourceColumns+` FROM sources WHERE id = $1 AND deleted_at IS NULL`, sourceID))
-		return err
+		if err != nil {
+			return err
+		}
+		one := []fleet.Source{source}
+		if err := attachCapabilities(ctx, tx, one); err != nil {
+			return err
+		}
+		source = one[0]
+		return nil
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fleet.Source{}, fleet.ErrNotFound
@@ -260,7 +306,7 @@ func (s *Store) ListSources(ctx context.Context, tenantID uuid.UUID) ([]fleet.So
 	var sources []fleet.Source
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		var err error
-		sources, err = querySources(ctx, tx, `SELECT `+sourceColumns+` FROM sources WHERE deleted_at IS NULL ORDER BY source_key`)
+		sources, err = querySources(ctx, tx, `SELECT `+sourceColumns+` FROM sources WHERE deleted_at IS NULL AND NOT draft ORDER BY source_key`)
 		if err != nil {
 			return err
 		}

@@ -10,16 +10,12 @@ import (
 
 	"dataguard/internal/agent/config"
 	"dataguard/internal/agent/sources"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/sealing"
 )
 
-// Codes reported for a source the agent refuses to open.
 const (
-	refusedTarget     = "TARGET_NOT_ALLOWED"
-	refusedDirectory  = "AUDIT_DIRECTORY_NOT_ALLOWED"
-	refusedCredential = "CREDENTIAL_UNREADABLE" //nolint:gosec // A status code, not a credential.
-	refusedDefinition = "INVALID_DEFINITION"
 	maxPort           = 65535
 	maxConnections    = 8
 	defaultSourcePool = 2
@@ -68,22 +64,22 @@ func (s *SourceSync) resolve(ctx context.Context, item *agentv1.SourceDefinition
 	tls, knownTLS := tlsModes[item.GetTls()]
 	if _, err := uuid.Parse(item.GetSourceId()); err != nil || !knownEngine || !knownTLS ||
 		item.GetPort() == 0 || item.GetPort() > maxPort {
-		return sources.Definition{}, refusedDefinition
+		return sources.Definition{}, codes.InvalidDefinition
 	}
 	resolve := s.Resolve
 	if resolve == nil {
 		resolve = net.DefaultResolver.LookupNetIP
 	}
 	if !s.Allowlist.PermitsHost(ctx, item.GetHost(), resolve) {
-		return sources.Definition{}, refusedTarget
+		return sources.Definition{}, codes.TargetNotAllowed
 	}
 	// SQL Server reads its audit through SQL from a path on its own server.
 	if item.GetAuditDirectory() != "" && engine != sources.EngineMSSQL &&
 		!s.Allowlist.PermitsAuditDirectory(item.GetAuditDirectory()) {
-		return sources.Definition{}, refusedDirectory
+		return sources.Definition{}, codes.AuditDirectoryNotAllowed
 	}
 	if s.Key == nil {
-		return sources.Definition{}, refusedCredential
+		return sources.Definition{}, codes.CredentialUnreadable
 	}
 	port := int(item.GetPort())
 	password, err := sealing.Open(s.Key, sealing.Binding{
@@ -91,7 +87,7 @@ func (s *SourceSync) resolve(ctx context.Context, item *agentv1.SourceDefinition
 		Database: item.GetDatabase(), Username: item.GetUsername(), TLS: tls,
 	}, item.GetSealedPassword())
 	if err != nil {
-		return sources.Definition{}, refusedCredential
+		return sources.Definition{}, codes.CredentialUnreadable
 	}
 	defer clear(password)
 	pool := int(item.GetMaxConnections())
@@ -102,5 +98,6 @@ func (s *SourceSync) resolve(ctx context.Context, item *agentv1.SourceDefinition
 		ID: item.GetSourceId(), Name: item.GetName(), Engine: engine, Host: item.GetHost(), Port: port,
 		Database: item.GetDatabase(), Username: item.GetUsername(), Password: string(password), TLS: tls,
 		MaxConnections: min(pool, maxConnections), AuditDirectory: item.GetAuditDirectory(),
+		ProbeOnly: item.GetProbeOnly(),
 	}, ""
 }

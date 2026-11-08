@@ -19,7 +19,7 @@ func TestPolicyAllowsTheProviderOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/catalog", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/catalog", nil))
 
 	policy := recorder.Header().Get("Content-Security-Policy")
 	if !strings.Contains(policy, "connect-src 'self' https://id.example.test;") {
@@ -44,7 +44,7 @@ func TestPathTraversalStaysInTheDirectory(t *testing.T) {
 	}
 	for _, target := range []string{"/../../etc/passwd", "/escape/passwd"} {
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 		request.URL.Path = target
 		handler.ServeHTTP(recorder, request)
 		if strings.Contains(recorder.Body.String(), "root:") {

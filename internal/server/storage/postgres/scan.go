@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/scan"
 )
@@ -16,7 +17,8 @@ import (
 func (s *Store) SourceExists(ctx context.Context, tenantID, sourceID uuid.UUID) (bool, error) {
 	var exists bool
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sources WHERE id = $1 AND deleted_at IS NULL)`, sourceID).Scan(&exists)
+		// A draft exists only to be checked: it cannot be scanned until saved.
+		return tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sources WHERE id = $1 AND deleted_at IS NULL AND NOT draft)`, sourceID).Scan(&exists)
 	})
 	if err != nil {
 		return false, storageError("check source", err)
@@ -69,9 +71,9 @@ func (s *Store) LeaseJobs(ctx context.Context, tenantID, agentID uuid.UUID, maxJ
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		// A job whose agent vanished comes back through an expired lease; after
 		// MaxAttempts it fails instead of being retried forever.
-		const giveUp = `UPDATE scan_jobs SET status = 'failed', failure_code = 'LEASE_EXPIRED', finished_at = now()
+		const giveUp = `UPDATE scan_jobs SET status = 'failed', failure_code = $2, finished_at = now()
 			WHERE status = 'running' AND lease_until < now() AND attempts >= $1`
-		if _, err := tx.Exec(ctx, giveUp, scan.MaxAttempts); err != nil {
+		if _, err := tx.Exec(ctx, giveUp, scan.MaxAttempts, codes.LeaseExpired); err != nil {
 			return err
 		}
 		const lease = `UPDATE scan_jobs SET status = 'running', attempts = attempts + 1,

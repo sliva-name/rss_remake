@@ -37,6 +37,41 @@ func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy strin
 	return version, nil
 }
 
+func (s *Store) History(ctx context.Context, tenantID uuid.UUID) ([]policy.Published, error) {
+	var history []policy.Published
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT version, payload, signature, created_by, created_at FROM policies ORDER BY version DESC`)
+		if err != nil {
+			return err
+		}
+		history, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.Published, error) {
+			var item policy.Published
+			err := row.Scan(&item.Version, &item.Payload, &item.Signature, &item.CreatedBy, &item.CreatedAt)
+			return item, err
+		})
+		return err
+	})
+	if err != nil {
+		return nil, storageError("list policy versions", err)
+	}
+	return history, nil
+}
+
+func (s *Store) Version(ctx context.Context, tenantID uuid.UUID, version uint64) (policy.Signed, error) {
+	var signed policy.Signed
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		const query = `SELECT version, payload, signature FROM policies WHERE version = $1`
+		return tx.QueryRow(ctx, query, version).Scan(&signed.Version, &signed.Payload, &signed.Signature)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return policy.Signed{}, policy.ErrNotFound
+	}
+	if err != nil {
+		return policy.Signed{}, storageError("read policy version", err)
+	}
+	return signed, nil
+}
+
 func (s *Store) Latest(ctx context.Context, tenantID uuid.UUID) (policy.Signed, error) {
 	var signed policy.Signed
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {

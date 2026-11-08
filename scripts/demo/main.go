@@ -243,13 +243,13 @@ func ensureAgent(ctx context.Context, center *client) (restapi.Agent, error) {
 		return restapi.Agent{}, err
 	}
 	for _, agent := range agents {
-		if agent.Status == restapi.Active && agent.SealingPublicKey != nil && agent.LastSeenAt != nil &&
+		if agent.Status == restapi.AgentStatusActive && agent.SealingPublicKey != nil && agent.LastSeenAt != nil &&
 			time.Since(*agent.LastSeenAt) < agentFresh && strings.TrimSpace(running) != "" {
 			return agent, nil
 		}
 	}
 	for _, agent := range agents {
-		if agent.Status == restapi.Active {
+		if agent.Status == restapi.AgentStatusActive {
 			if err := center.call(ctx, http.MethodPost, "/agents/"+agent.Id.String()+"/revoke", nil, nil); err != nil {
 				return restapi.Agent{}, err
 			}

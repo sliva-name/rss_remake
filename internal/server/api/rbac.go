@@ -3,6 +3,9 @@ package api
 import (
 	"context"
 	"net/http"
+	"slices"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -34,23 +37,39 @@ var accessRules = map[string]accessRule{
 	"CreateEnvironment":     {roles: tenantAdmins, tenantScoped: true},
 	"CreateEnrollmentToken": {roles: tenantAdmins, tenantScoped: true},
 	"ListAgents":            {roles: tenantReaders, tenantScoped: true},
+	"GetAgent":              {roles: tenantReaders, tenantScoped: true},
 	"RevokeAgent":           {roles: tenantAdmins, tenantScoped: true},
 	"ListSources":           {roles: tenantReaders, tenantScoped: true},
+	"GetSource":             {roles: tenantReaders, tenantScoped: true},
 	"CreateSource":          {roles: tenantAdmins, tenantScoped: true},
 	"UpdateSource":          {roles: tenantAdmins, tenantScoped: true},
 	"DeleteSource":          {roles: tenantAdmins, tenantScoped: true},
+	"ActivateSource":        {roles: tenantAdmins, tenantScoped: true},
 	"ListScans":             {roles: tenantReaders, tenantScoped: true},
 	"RequestScan":           {roles: scanRequesters, tenantScoped: true},
 	"ListCatalogColumns":    {roles: tenantReaders, tenantScoped: true},
+	"GetCatalogColumn":      {roles: tenantReaders, tenantScoped: true},
+	"ListCatalogTables":     {roles: tenantReaders, tenantScoped: true},
+	"GetCatalogTable":       {roles: tenantReaders, tenantScoped: true},
 	"GetCatalogSummary":     {roles: tenantReaders, tenantScoped: true},
 	"ListCatalogChanges":    {roles: tenantReaders, tenantScoped: true},
 	"ListAuditEvents":       {roles: tenantReaders, tenantScoped: true},
 	"GetAuditCoverage":      {roles: tenantReaders, tenantScoped: true},
 	"GetAccessSummary":      {roles: tenantReaders, tenantScoped: true},
+	"GetAccessTimeline":     {roles: tenantReaders, tenantScoped: true},
+	"Search":                {roles: tenantReaders, tenantScoped: true},
 	"ListAccessByPrincipal": {roles: tenantReaders, tenantScoped: true},
 	"ListAccessByCategory":  {roles: tenantReaders, tenantScoped: true},
 	"GetPolicy":             {roles: tenantReaders, tenantScoped: true},
 	"PublishPolicy":         {roles: tenantAdmins, tenantScoped: true},
+	"ListPolicyVersions":    {roles: tenantReaders, tenantScoped: true},
+	"GetPolicyVersion":      {roles: tenantReaders, tenantScoped: true},
+	"ExportAuditEvents":     {roles: tenantReaders, tenantScoped: true},
+	"ListRiskSignals":       {roles: tenantReaders, tenantScoped: true},
+	// Personal settings belong to an account inside an organization; the row
+	// policy ties every read and write to the caller.
+	"GetPreference":  {roles: tenantReaders, tenantScoped: true},
+	"SavePreference": {roles: tenantReaders, tenantScoped: true},
 }
 
 func authorize(next restapi.StrictHandlerFunc, operationID string) restapi.StrictHandlerFunc {
@@ -75,4 +94,25 @@ func checkAccess(ctx context.Context, operationID string) error {
 	default:
 		return nil
 	}
+}
+
+// permissionsOf lists the operations principal may call, named as in the
+// OpenAPI contract. It applies the same rules as checkAccess, so what the
+// dashboard offers cannot drift from what the API allows (ADR-0010).
+func permissionsOf(principal Principal) []restapi.Permission {
+	permissions := make([]restapi.Permission, 0, len(accessRules))
+	for operationID, rule := range accessRules {
+		if principal.hasAnyRole(rule.roles) && (!rule.tenantScoped || principal.TenantID != uuid.Nil) {
+			permissions = append(permissions, restapi.Permission(contractName(operationID)))
+		}
+	}
+	slices.Sort(permissions)
+	return permissions
+}
+
+// contractName turns a generated handler name into the operationId it was
+// generated from: GetCurrentUser becomes getCurrentUser.
+func contractName(operationID string) string {
+	first, size := utf8.DecodeRuneInString(operationID)
+	return string(unicode.ToLower(first)) + operationID[size:]
 }

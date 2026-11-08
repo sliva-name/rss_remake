@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +24,7 @@ func (f fixedAuthenticator) Authenticate(context.Context, string) (Principal, er
 func TestOutOfRangeParametersAreRejected(t *testing.T) {
 	handler := Handler(New(Services{}), fixedAuthenticator{Principal{
 		Subject: "admin", TenantID: uuid.New(), Roles: []string{RoleTenantAdmin},
-	}}, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	}}, slog.New(slog.DiscardHandler), nil)
 
 	cases := []struct {
 		name, method, target, body string
@@ -44,7 +43,7 @@ func TestOutOfRangeParametersAreRejected(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			request := httptest.NewRequest(tc.method, tc.target, strings.NewReader(tc.body))
+			request := httptest.NewRequestWithContext(t.Context(), tc.method, tc.target, strings.NewReader(tc.body))
 			request.Header.Set("Authorization", "Bearer token")
 			if tc.body != "" {
 				request.Header.Set("Content-Type", "application/json")

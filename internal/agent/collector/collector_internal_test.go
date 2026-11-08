@@ -13,6 +13,7 @@ import (
 	"dataguard/internal/agent/queue"
 	"dataguard/internal/agent/telemetry"
 	"dataguard/internal/connector"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safelog"
 	"dataguard/internal/query/frontend/postgres"
@@ -412,7 +413,7 @@ func TestFullQueueDoesNotLoseRecords(t *testing.T) {
 		t.Fatalf("cursor moved past stored events: %q, %v", cursor, err)
 	}
 	health := item.Health()
-	if health.GetState() != agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED || health.GetReasonCode() != reasonQueueFull {
+	if health.GetState() != agentv1.AuditSourceState_AUDIT_SOURCE_STATE_DEGRADED || health.GetReasonCode() != codes.QueueFull {
 		t.Fatalf("health = %+v", health)
 	}
 }

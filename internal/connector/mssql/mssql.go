@@ -13,6 +13,7 @@ import (
 
 	"dataguard/internal/connector"
 	"dataguard/internal/connector/sqlsource"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/safeerr"
 )
@@ -64,8 +65,8 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 	var version string
 	if err := s.db.QueryRowContext(ctx, `SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(32))`).Scan(&version); err != nil {
 		return "", []*agentv1.CapabilityStatus{
-			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED"),
-			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, "PROBE_FAILED"),
+			connector.Status(agentv1.Capability_CAPABILITY_SCHEMA_DISCOVERY, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
+			connector.Status(agentv1.Capability_CAPABILITY_COLUMN_PROFILING, agentv1.Support_SUPPORT_UNKNOWN, codes.ProbeFailed),
 		}
 	}
 	return version, append([]*agentv1.CapabilityStatus{
@@ -79,10 +80,10 @@ func (s *Source) Probe(ctx context.Context) (string, []*agentv1.CapabilityStatus
 // reading the files is the only honest probe: an empty catalog would look like
 // "not configured" while events flow.
 func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilityStatus {
-	const reason = "SERVER_AUDIT_REQUIRED"
+	const reason = codes.SQLServerAuditRequired
 	if s.auditPattern == "" {
 		return []*agentv1.CapabilityStatus{
-			connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_NOT_CONFIGURED, "AUDIT_DIRECTORY_NOT_SET"),
+			connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_NOT_CONFIGURED, codes.AuditDirectoryNotSet),
 		}
 	}
 	const probe = `SELECT COUNT(*), COUNT(CASE WHEN action_id = 'SL' THEN 1 END)
@@ -95,17 +96,17 @@ func (s *Source) auditCapabilities(ctx context.Context) []*agentv1.CapabilitySta
 	if reads == 0 {
 		// The file is readable but holds no SELECT yet: that may be a quiet database
 		// or a specification without SELECT. The probe cannot tell which.
-		readAudit = connector.Status(agentv1.Capability_CAPABILITY_READ_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, "NO_READ_RECORDS_SEEN")
+		readAudit = connector.Status(agentv1.Capability_CAPABILITY_READ_AUDIT, agentv1.Support_SUPPORT_UNKNOWN, codes.NoReadRecordsSeen)
 	}
 	return []*agentv1.CapabilityStatus{
 		connector.Status(agentv1.Capability_CAPABILITY_NATIVE_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, ""),
 		readAudit,
 		connector.Status(agentv1.Capability_CAPABILITY_TABLE_LEVEL_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, ""),
-		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, "DERIVED_FROM_QUERY_TEXT"),
+		connector.Status(agentv1.Capability_CAPABILITY_COLUMN_LEVEL_AUDIT, agentv1.Support_SUPPORT_AVAILABLE, codes.DerivedFromQueryText),
 		connector.Status(agentv1.Capability_CAPABILITY_QUERY_TEXT, agentv1.Support_SUPPORT_AVAILABLE, ""),
 		connector.Status(agentv1.Capability_CAPABILITY_EXECUTION_STATUS, agentv1.Support_SUPPORT_AVAILABLE, ""),
-		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IN_NATIVE_AUDIT"),
-		connector.Status(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, agentv1.Support_SUPPORT_UNAVAILABLE, "NOT_IMPLEMENTED_FOR_ENGINE"),
+		connector.Status(agentv1.Capability_CAPABILITY_RETURNED_ROWS, agentv1.Support_SUPPORT_UNAVAILABLE, codes.NotInNativeAudit),
+		connector.Status(agentv1.Capability_CAPABILITY_APPLICATION_CONTEXT, agentv1.Support_SUPPORT_UNAVAILABLE, codes.NotImplementedForEngine),
 	}
 }
 

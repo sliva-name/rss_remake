@@ -23,6 +23,14 @@ const (
 	CodeInternal     Code = "INTERNAL"
 )
 
+// Codes lists every code, so the dashboard can be checked to explain each one.
+func Codes() []Code {
+	return []Code{
+		CodeUnknown, CodeTimeout, CodeCanceled, CodeUnavailable, CodeUnauthorized,
+		CodeNotFound, CodeInvalid, CodeQuery, CodeInternal,
+	}
+}
+
 // Error is a failure stripped of its original text. The cause is intentionally
 // not retained: an Unwrap or %+v anywhere up the stack would print it.
 type Error struct {

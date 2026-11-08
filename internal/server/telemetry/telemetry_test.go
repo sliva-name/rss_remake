@@ -17,7 +17,7 @@ func TestRequestsAreCountedByRouteTemplate(t *testing.T) {
 	router.HandleFunc("GET /api/v1/sources/{id}", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) })
 	handler := metrics.API(router, router)
 	for _, target := range []string{"/api/v1/sources/0190a8c4-7b1e-7c3d-9f10-2a4b6c8d0e1f", "/api/v1/unknown/crm.public.users"} {
-		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, target, nil))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil))
 	}
 	samples, err := metrics.Gather()
 	if err != nil {

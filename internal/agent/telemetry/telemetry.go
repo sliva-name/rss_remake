@@ -9,7 +9,7 @@ import (
 	"slices"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"dataguard/internal/contract/egress"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"

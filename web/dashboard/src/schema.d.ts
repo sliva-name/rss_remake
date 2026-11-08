@@ -20,6 +20,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/preferences/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["PreferenceKey"];
+            };
+            cookie?: never;
+        };
+        /** @description A personal setting of the caller in the current organization. Value is null when it was never saved. */
+        get: operations["getPreference"];
+        /** @description Replaces the setting. At most 64 KiB of JSON; references and filters only, never data values. */
+        put: operations["savePreference"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants": {
         parameters: {
             query?: never;
@@ -84,6 +104,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAgent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agentId}/revoke": {
         parameters: {
             query?: never;
@@ -126,12 +162,29 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        get: operations["getSource"];
         /** @description The agent and the engine cannot change. A change of host, port, database, user or TLS needs the password sealed again. */
         put: operations["updateSource"];
         post?: never;
         /** @description The agent stops serving the source; its inventory and access history stay. */
         delete: operations["deleteSource"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sources/{sourceId}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Saves a checked draft; the agent starts scanning it and reading its audit. A saved source is returned as is. */
+        post: operations["activateSource"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -162,6 +215,57 @@ export interface paths {
         };
         /** @description Active columns with detected classifications */
         get: operations["listCatalogColumns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/columns/{columnId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A column with every classification decision and its renames, also after it was removed */
+        get: operations["getCatalogColumn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Active tables, by database, schema and name */
+        get: operations["listCatalogTables"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/tables/{tableId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A table with its active columns, also after it was removed */
+        get: operations["getCatalogTable"];
         put?: never;
         post?: never;
         delete?: never;
@@ -210,6 +314,23 @@ export interface paths {
             cookie?: never;
         };
         get: operations["listAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/events/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The same selection as listAuditEvents as CSV, newest first, at most 100 000 rows. X-Dataguard-Truncated is true when more matched. */
+        get: operations["exportAuditEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -282,6 +403,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Events per hour. Hours without events are absent; coverage tells whether an hour was observed. */
+        get: operations["getAccessTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Objects whose name contains the text. Each group is filled only when the caller may read that kind of object. */
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/policy": {
         parameters: {
             query?: never;
@@ -291,6 +446,55 @@ export interface paths {
         };
         get: operations["getPolicy"];
         put: operations["publishPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/policy/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPolicyVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/policy/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPolicyVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Heuristic signals over the last 24 hours compared with the days before. A signal is a reason to look, not a confirmed incident; each carries the rule and the numbers it was computed from. */
+        get: operations["listRiskSignals"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -311,7 +515,59 @@ export interface components {
             /** Format: uuid */
             tenantId?: string;
             roles: string[];
+            /** @description Operations the caller may invoke, computed from the same rules that check each call. The dashboard decides what to show from these, never from roles (ADR-0010). */
+            permissions: components["schemas"]["Permission"][];
         };
+        /** @enum {string} */
+        PreferenceKey: "views" | "favorites" | "recent" | "overview";
+        Preference: {
+            /** @description Whatever the dashboard keeps under the key, as JSON; null when never saved. */
+            value: unknown;
+        };
+        PolicyVersion: {
+            /** Format: int64 */
+            version: number;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            customDetectors: number;
+            hasScanBudget: boolean;
+        };
+        RiskSignal: {
+            /** @enum {string} */
+            kind: "VOLUME_SPIKE" | "NEW_CATEGORY" | "FAILED_ACCESS";
+            databasePrincipal: string;
+            applicationPrincipal: string;
+            identityConfidence: string;
+            /** @description Empty when the signal is not about one category. */
+            category: string;
+            /**
+             * Format: int64
+             * @description Events in the last 24 hours that the rule counted.
+             */
+            observed: number;
+            /**
+             * Format: double
+             * @description What the rule compared with; its meaning depends on the kind.
+             */
+            baseline: number;
+            /** Format: date-time */
+            lastSeen: string;
+        };
+        PrincipalHit: {
+            databasePrincipal: string;
+            applicationPrincipal: string;
+            /**
+             * Format: int64
+             * @description Events in the last 30 days.
+             */
+            events: number;
+        };
+        /**
+         * @description An operationId of this API.
+         * @enum {string}
+         */
+        Permission: "getCurrentUser" | "getPreference" | "savePreference" | "exportAuditEvents" | "listPolicyVersions" | "getPolicyVersion" | "listRiskSignals" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "activateSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
         NewTenant: {
             name: string;
         };
@@ -393,6 +649,11 @@ export interface components {
         NewSource: components["schemas"]["SourceUpdate"] & {
             /** Format: uuid */
             agentId: string;
+            /**
+             * @description Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+             * @default false
+             */
+            draft: boolean;
         };
         Source: {
             /** Format: uuid */
@@ -416,6 +677,8 @@ export interface components {
             capabilities: components["schemas"]["Capability"][];
             /** Format: date-time */
             updatedAt: string;
+            /** @description A connection check that has not been saved yet. */
+            draft: boolean;
         };
         NewScan: {
             /** Format: uuid */
@@ -475,6 +738,114 @@ export interface components {
             total: number;
             items: components["schemas"]["CatalogColumn"][];
         };
+        CatalogTable: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            sourceId: string;
+            database: string;
+            schema: string;
+            table: string;
+            kind: string;
+            /** Format: int64 */
+            columns: number;
+            /** Format: int64 */
+            sensitiveColumns: number;
+            categories: string[];
+            /** Format: date-time */
+            lastSeenAt: string;
+        };
+        CatalogTablePage: {
+            /** Format: int64 */
+            total: number;
+            items: components["schemas"]["CatalogTable"][];
+        };
+        /** @enum {string} */
+        ObjectStatus: "active" | "removed";
+        TableColumn: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            nativeType: string;
+            /** Format: int32 */
+            ordinal: number;
+            nullable: boolean;
+            /** @description Detected categories only. */
+            categories: string[];
+        };
+        CatalogTableDetail: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            sourceId: string;
+            database: string;
+            schema: string;
+            table: string;
+            kind: string;
+            status: components["schemas"]["ObjectStatus"];
+            /** Format: date-time */
+            firstSeenAt: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+            columns: components["schemas"]["TableColumn"][];
+            renames: components["schemas"]["Rename"][];
+        };
+        Classification: {
+            categoryId: string;
+            /** @description False when the classifier looked and decided the category is absent. */
+            detected: boolean;
+            /** Format: double */
+            confidence: number;
+            nameMatch: boolean;
+            contextMatch: boolean;
+            /** Format: double */
+            formatRatio: number;
+            /** Format: double */
+            checksumRatio?: number;
+            /** Format: int64 */
+            rowsInspected: number;
+            /** Format: int64 */
+            rowsNonNull: number;
+            /** Format: int64 */
+            rowsMatched: number;
+            /** Format: int64 */
+            uniqueEstimate: number;
+            samplingMethod: string;
+            /** Format: date-time */
+            firstSeenAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        Rename: {
+            oldName: string;
+            newName: string;
+            /** Format: date-time */
+            detectedAt: string;
+            detectedBy: string;
+        };
+        CatalogColumnDetail: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tableId: string;
+            /** Format: uuid */
+            sourceId: string;
+            database: string;
+            schema: string;
+            table: string;
+            name: string;
+            nativeType: string;
+            /** Format: int32 */
+            ordinal: number;
+            nullable: boolean;
+            status: components["schemas"]["ObjectStatus"];
+            /** Format: date-time */
+            firstSeenAt: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+            classifications: components["schemas"]["Classification"][];
+            renames: components["schemas"]["Rename"][];
+        };
         CatalogChange: {
             /** Format: date-time */
             occurredAt: string;
@@ -520,6 +891,12 @@ export interface components {
             sourceId: string;
             databasePrincipal: string;
             applicationPrincipal: string;
+            /** @description The application that signed the context, empty without one. */
+            applicationId: string;
+            clientAddress: string;
+            /** @description The engine's session number; with the source it ties statements of one connection together. */
+            sessionId: string;
+            transactionId: string;
             identityConfidence: string;
             operation: string;
             tables: string[];
@@ -572,6 +949,30 @@ export interface components {
             verifiedShare?: number;
             /** Format: double */
             principalShare?: number;
+        };
+        TimelinePoint: {
+            /** Format: date-time */
+            hour: string;
+            /** Format: int64 */
+            events: number;
+            /** Format: int64 */
+            sensitiveEvents: number;
+            /** Format: int64 */
+            failedEvents: number;
+        };
+        SearchResult: {
+            principals: components["schemas"]["PrincipalHit"][];
+            sources: components["schemas"]["SearchHit"][];
+            tables: components["schemas"]["SearchHit"][];
+            columns: components["schemas"]["SearchHit"][];
+        };
+        SearchHit: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Where the object is, such as the source and schema of a table. */
+            context: string;
+            categories?: string[];
         };
         AccessSummary: {
             /** Format: int64 */
@@ -643,6 +1044,52 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CurrentUser"];
                 };
+            };
+        };
+    };
+    getPreference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["PreferenceKey"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The setting */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preference"];
+                };
+            };
+        };
+    };
+    savePreference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["PreferenceKey"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preference"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -778,6 +1225,28 @@ export interface operations {
             };
         };
     };
+    getAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+        };
+    };
     revokeAgent: {
         parameters: {
             query?: never;
@@ -842,6 +1311,28 @@ export interface operations {
             };
         };
     };
+    getSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The source; a deleted one is not found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+        };
+    };
     updateSource: {
         parameters: {
             query?: never;
@@ -885,6 +1376,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    activateSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved source */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
             };
         };
     };
@@ -959,6 +1472,80 @@ export interface operations {
             };
         };
     };
+    getCatalogColumn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                columnId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The column */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogColumnDetail"];
+                };
+            };
+        };
+    };
+    listCatalogTables: {
+        parameters: {
+            query?: {
+                sourceId?: string;
+                /** @description Part of the database, schema or table name, case-insensitive. */
+                q?: string;
+                /** @description Only tables with a column of this category. */
+                category?: string;
+                /** @description Only tables with at least one sensitive column. */
+                sensitive?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tables */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogTablePage"];
+                };
+            };
+        };
+    };
+    getCatalogTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The table */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogTableDetail"];
+                };
+            };
+        };
+    };
     getCatalogSummary: {
         parameters: {
             query?: never;
@@ -983,6 +1570,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                from?: string;
+                to?: string;
             };
             header?: never;
             path?: never;
@@ -1005,9 +1594,14 @@ export interface operations {
         parameters: {
             query?: {
                 sourceId?: string;
+                /** @description Events that name the table or read any of its columns, also under names it had before a rename. */
+                tableId?: string;
+                columnId?: string;
                 principal?: string;
                 category?: string;
                 eventType?: string;
+                /** @description Events of one database session, as the engine numbered it. */
+                sessionId?: string;
                 /** @description Logins outnumber data access by far, so they are left out unless asked for or filtered by type. */
                 includeLogins?: boolean;
                 /** @description Reads by the agent's own scanner login are left out unless asked for. */
@@ -1030,6 +1624,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditEventPage"];
+                };
+            };
+        };
+    };
+    exportAuditEvents: {
+        parameters: {
+            query?: {
+                sourceId?: string;
+                tableId?: string;
+                columnId?: string;
+                principal?: string;
+                category?: string;
+                eventType?: string;
+                sessionId?: string;
+                includeLogins?: boolean;
+                includeScanner?: boolean;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV, UTF-8 with a byte order mark so spreadsheet programs read Cyrillic correctly */
+            200: {
+                headers: {
+                    "X-Dataguard-Truncated"?: boolean;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
         };
@@ -1082,6 +1709,10 @@ export interface operations {
     listAccessByPrincipal: {
         parameters: {
             query?: {
+                /** @description Count only the events that touched this category. */
+                category?: string;
+                /** @description Count only the events that read this column. Read from the events themselves, not the hourly aggregate. */
+                columnId?: string;
                 from?: string;
                 to?: string;
             };
@@ -1121,6 +1752,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CategoryAccess"][];
+                };
+            };
+        };
+    };
+    getAccessTimeline: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hourly counts, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelinePoint"][];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matches, at most 8 per group */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResult"];
                 };
             };
         };
@@ -1165,6 +1841,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    listPolicyVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every published version, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"][];
+                };
+            };
+        };
+    };
+    getPolicyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One published version as it was signed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    listRiskSignals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signals, strongest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskSignal"][];
                 };
             };
         };
