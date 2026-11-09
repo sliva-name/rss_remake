@@ -93,9 +93,9 @@ func TestBootstrapRefusesToOverwrite(t *testing.T) {
 
 func TestPolicySignature(t *testing.T) {
 	_, dir := newAuthority(t)
-	signer, err := pki.LoadPolicySigner(filepath.Join(dir, pki.PolicyKeyFile))
+	signer, err := pki.LoadPolicyKeys(dir)
 	if err != nil {
-		t.Fatalf("LoadPolicySigner: %v", err)
+		t.Fatalf("LoadPolicyKeys: %v", err)
 	}
 	payload := []byte("policy v1")
 	signature := signer.Sign(payload)

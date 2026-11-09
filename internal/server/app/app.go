@@ -90,9 +90,9 @@ func Build(options Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	signer, err := pki.LoadPolicySigner(filepath.Join(options.PKIDirectory, pki.PolicyKeyFile))
+	signer, err := pki.LoadPolicyKeys(options.PKIDirectory)
 	if err != nil {
-		return nil, fmt.Errorf("load policy key: %w", err)
+		return nil, err
 	}
 	serverCertificates, err := pki.LoadServerCertificates(options.PKIDirectory, authority)
 	if err != nil {
@@ -124,7 +124,7 @@ func Build(options Options) (*App, error) {
 			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,
 			Audit: events, Health: options.Store,
 			Metrics:       options.Metrics,
-			CACertificate: authority.CertificatePEM(), PolicyPublicKey: signer.PublicKey(),
+			CACertificate: authority.CertificatePEM(), PolicyKeys: signer,
 		}),
 		pkiDirectory:       options.PKIDirectory,
 		serverCertificates: serverCertificates,

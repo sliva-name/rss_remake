@@ -435,6 +435,9 @@ type Agent struct {
 	Id              openapi_types.UUID `json:"id"`
 	LastSeenAt      *time.Time         `json:"lastSeenAt,omitempty"`
 
+	// PolicyKeyEpoch Epoch of the policy signing key the agent trusts; it takes a rotated key with its next heartbeat
+	PolicyKeyEpoch int32 `json:"policyKeyEpoch"`
+
 	// ProblemCode Why the center does not accept the agent right now, such as CONTRACT_UNSUPPORTED. Absent when nothing is wrong.
 	ProblemCode *string `json:"problemCode,omitempty"`
 

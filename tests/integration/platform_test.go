@@ -529,7 +529,7 @@ func TestPolicyDeliveryAndRollbackProtection(t *testing.T) {
 		t.Fatalf("tampered policy: %v", err)
 	}
 
-	signer, err := pki.LoadPolicySigner(filepath.Join(platform.pkiDir, pki.PolicyKeyFile))
+	signer, err := pki.LoadPolicyKeys(platform.pkiDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -772,7 +772,7 @@ components:
         expiresAt: {type: string, format: date-time}
     Agent:
       type: object
-      required: [id, environmentId, status, version, contractVersion, certificateExpires, createdAt]
+      required: [id, environmentId, status, version, contractVersion, policyKeyEpoch, certificateExpires, createdAt]
       properties:
         id: {type: string, format: uuid}
         environmentId: {type: string, format: uuid}
@@ -780,6 +780,10 @@ components:
         version: {type: string}
         contractVersion:
           description: Contract version of the last accepted heartbeat
+          type: integer
+          format: int32
+        policyKeyEpoch:
+          description: Epoch of the policy signing key the agent trusts; it takes a rotated key with its next heartbeat
           type: integer
           format: int32
         problemCode:

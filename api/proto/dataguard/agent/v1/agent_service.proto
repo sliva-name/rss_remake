@@ -23,6 +23,7 @@ service AgentService {
   rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
   rpc GetPolicy(GetPolicyRequest) returns (GetPolicyResponse);
   rpc GetSources(GetSourcesRequest) returns (GetSourcesResponse);
+  rpc GetSigningKeys(GetSigningKeysRequest) returns (GetSigningKeysResponse);
   rpc PullJobs(PullJobsRequest) returns (PullJobsResponse);
   rpc SubmitScanResult(SubmitScanResultRequest) returns (SubmitScanResultResponse);
   rpc SubmitEvents(SubmitEventsRequest) returns (SubmitEventsResponse);
@@ -45,6 +46,9 @@ message EnrollResponse {
   bytes certificate_pem = 3;
   bytes ca_certificate_pem = 4;
   bytes policy_public_key = 5;
+  // The epoch of policy_public_key. Zero comes from centers older than key
+  // rotation, whose only key is epoch 1.
+  uint32 policy_key_epoch = 6;
 }
 
 message QueueHealth {
@@ -58,11 +62,17 @@ message HeartbeatRequest {
   string agent_version = 2 [(field_kind) = FIELD_KIND_VERSION];
   QueueHealth queue = 3;
   repeated AuditSourceHealth audit_sources = 4;
+  // The epoch of the policy key the agent trusts, so the center can show which
+  // agents still have to take a rotated key.
+  uint32 policy_key_epoch = 5;
 }
 
 message HeartbeatResponse {
   uint64 latest_policy_version = 1;
   uint64 latest_sources_version = 2;
+  // The epoch of the key that signs policies and source lists now. An agent
+  // that trusts an earlier one fetches the endorsements first.
+  uint32 policy_key_epoch = 3;
 }
 
 message ReportSourcesRequest {
@@ -160,6 +170,29 @@ message SourceList {
 message GetSourcesResponse {
   bytes source_list = 1 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
   bytes signature = 2 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+}
+
+// PolicyKeyEndorsement introduces the policy key of the next epoch. The key of
+// the epoch before signs it, so an agent that pinned any earlier key walks the
+// chain to the current one without enrolling again (ADR-0014).
+message PolicyKeyEndorsement {
+  uint32 epoch = 1;
+  bytes public_key = 2 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+}
+
+message SignedEndorsement {
+  // A serialized PolicyKeyEndorsement, signed as bytes like a policy.
+  bytes endorsement = 1 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+  bytes signature = 2 [(field_kind) = FIELD_KIND_INBOUND_ONLY];
+}
+
+message GetSigningKeysRequest {
+  Envelope envelope = 1;
+}
+
+// Every endorsement since the first key, oldest first.
+message GetSigningKeysResponse {
+  repeated SignedEndorsement endorsements = 1;
 }
 
 message PullJobsRequest {

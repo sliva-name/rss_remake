@@ -55,6 +55,7 @@ export function AgentPage() {
               ["Версия", <Mono key="version">{data.version} · контракт {data.contractVersion}</Mono>],
               ["Был на связи", data.lastSeenAt ? `${ago(data.lastSeenAt)} · ${dateTime(data.lastSeenAt)}` : "ещё не выходил на связь"],
               ["Сертификат до", dateTime(data.certificateExpires)],
+              ["Ключ подписи политик", `эпоха ${data.policyKeyEpoch}`],
               ["Зарегистрирован", dateTime(data.createdAt)],
               ["Ключ для паролей", data.sealingPublicKey ? "Есть: принимает запечатанные пароли" : "Нет: зарегистрируйте агента заново, чтобы добавлять источники"],
             ]}

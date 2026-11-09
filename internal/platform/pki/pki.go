@@ -193,7 +193,6 @@ const (
 	CAKeyFile      = "ca.key"
 	ServerCertFile = "server.crt"
 	ServerKeyFile  = "server.key"
-	PolicyKeyFile  = "policy.key"
 )
 
 func createCA(dir string) error {

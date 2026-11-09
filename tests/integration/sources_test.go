@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,7 +74,7 @@ func TestSourceListIsSignedAddressedAndOnlyGrows(t *testing.T) {
 	})
 
 	t.Run("a policy signature does not pass for a source list", func(t *testing.T) {
-		signer, err := pki.LoadPolicySigner(filepath.Join(platform.pkiDir, pki.PolicyKeyFile))
+		signer, err := pki.LoadPolicyKeys(platform.pkiDir)
 		if err != nil {
 			t.Fatal(err)
 		}

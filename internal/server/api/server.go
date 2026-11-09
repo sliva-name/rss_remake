@@ -290,8 +290,9 @@ func toEnvironment(item tenant.Environment) restapi.Environment {
 func toAgent(item fleet.Agent) restapi.Agent {
 	agent := restapi.Agent{
 		Id: item.ID, EnvironmentId: item.EnvironmentID, Status: restapi.AgentStatus(item.Status),
-		Version: item.Version, ContractVersion: int32(item.ContractVersion), CertificateExpires: item.CertificateExpires,
-		LastSeenAt: item.LastSeenAt, CreatedAt: item.CreatedAt,
+		Version: item.Version, ContractVersion: int32(item.ContractVersion), PolicyKeyEpoch: int32(item.PolicyKeyEpoch),
+		CertificateExpires: item.CertificateExpires,
+		LastSeenAt:         item.LastSeenAt, CreatedAt: item.CreatedAt,
 	}
 	if len(item.SealingPublicKey) > 0 {
 		agent.SealingPublicKey = &item.SealingPublicKey

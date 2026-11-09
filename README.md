@@ -112,7 +112,8 @@ docker build --target agent -t dataguard/agent .
 
 Подкоманды образа сервера:
 
-- `pki-init --dir DIR --hosts HOSTS [--keep-existing] [--public-dir DIR]`;
+- `pki-init --dir DIR --hosts HOSTS [--keep-existing] [--public-dir DIR]` — с `--keep-existing` сохраняет CA и ключи, но перевыпускает сертификат сервера, если прошла половина срока или изменился список имён;
+- `rotate-policy-key --dir DIR` — заменяет ключ подписи политик и списков источников (ADR-0014). После неё перезапустите все экземпляры сервера, агенты возьмут новый ключ со следующим heartbeat;
 - `migrate`;
 - `serve` — запускается по умолчанию;
 - `ready` — проверка для healthcheck.

@@ -49,7 +49,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: dataguard-server migrate|pki-init|serve|ready")
+		return errors.New("usage: dataguard-server migrate|pki-init|rotate-policy-key|serve|ready")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -59,6 +59,8 @@ func run() error {
 		return migrateWhenReachable(ctx)
 	case "pki-init":
 		return pkiInit(os.Args[2:])
+	case "rotate-policy-key":
+		return rotatePolicyKey(os.Args[2:])
 	case "serve":
 		return serve(ctx)
 	case "ready":
@@ -168,6 +170,11 @@ func pkiInit(args []string) error {
 	} else if renewed {
 		fmt.Fprintln(os.Stderr, "dataguard-server: server certificate issued anew")
 	}
+	if finished, err := pki.FinishPolicyKeyRotation(*directory); err != nil {
+		return err
+	} else if finished {
+		fmt.Fprintln(os.Stderr, "dataguard-server: an interrupted policy key rotation was finished")
+	}
 	if *publicDirectory == "" {
 		return nil
 	}
@@ -177,6 +184,26 @@ func pkiInit(args []string) error {
 	}
 	//nolint:gosec // The CA certificate is public; agents running as any user must read it.
 	return os.WriteFile(filepath.Join(filepath.Clean(*publicDirectory), pki.CACertFile), certificate, 0o644)
+}
+
+// rotatePolicyKey replaces the key that signs policies and source lists. Every
+// server instance must restart afterwards to sign with the new key; agents take
+// it with their next heartbeat (ADR-0014).
+func rotatePolicyKey(args []string) error {
+	flags := flag.NewFlagSet("rotate-policy-key", flag.ContinueOnError)
+	directory := flags.String("dir", "", "the PKI directory of pki-init")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *directory == "" {
+		return errors.New("--dir is required")
+	}
+	epoch, err := pki.RotatePolicyKey(*directory)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "dataguard-server: policy key epoch %d is current, restart every server instance\n", epoch)
+	return nil
 }
 
 // ready asks the local API for readiness. It exists because the image has no

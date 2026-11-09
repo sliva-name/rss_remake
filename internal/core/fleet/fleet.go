@@ -56,6 +56,15 @@ type Agent struct {
 	// RefusedContractVersion is set while the center refuses the contract the
 	// agent speaks: from the refusal until the next accepted heartbeat.
 	RefusedContractVersion *uint32
+	// PolicyKeyEpoch is the policy key the agent trusts (ADR-0014).
+	PolicyKeyEpoch uint32
+}
+
+// Heartbeat is what an agent says about itself on every call home.
+type Heartbeat struct {
+	Version        string
+	Contract       uint32
+	PolicyKeyEpoch uint32
 }
 
 type Capability struct {
@@ -111,7 +120,7 @@ type Repository interface {
 	ListAgents(ctx context.Context, tenantID uuid.UUID) ([]Agent, error)
 	// TouchAgent records a heartbeat, which clears a contract refusal, and
 	// returns the agent's source list version.
-	TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, version string, contract uint32) (uint64, error)
+	TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, beat Heartbeat) (uint64, error)
 	RefuseContract(ctx context.Context, tenantID, agentID uuid.UUID, offered uint32) error
 	RevokeAgent(ctx context.Context, tenantID, agentID uuid.UUID, entry oplog.Entry) error
 	UpdateCertificateExpiry(ctx context.Context, tenantID, agentID uuid.UUID, expires time.Time) error
@@ -238,8 +247,8 @@ func (s *Service) Authorize(ctx context.Context, tenantID, agentID uuid.UUID) er
 
 // Heartbeat returns the agent's source list version, so it fetches the list
 // only when it changed.
-func (s *Service) Heartbeat(ctx context.Context, tenantID, agentID uuid.UUID, version string, contract uint32) (uint64, error) {
-	return s.repository.TouchAgent(ctx, tenantID, agentID, version, contract)
+func (s *Service) Heartbeat(ctx context.Context, tenantID, agentID uuid.UUID, beat Heartbeat) (uint64, error) {
+	return s.repository.TouchAgent(ctx, tenantID, agentID, beat)
 }
 
 // RefuseContract records that the center refused the contract version the agent

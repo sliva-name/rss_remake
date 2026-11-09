@@ -195,6 +195,11 @@ func (c *Client) GetSources(ctx context.Context) (*agentv1.GetSourcesResponse, e
 	return c.rpc.GetSources(ctx, &agentv1.GetSourcesRequest{Envelope: c.envelope()})
 }
 
+func (c *Client) GetSigningKeys(ctx context.Context) ([]*agentv1.SignedEndorsement, error) {
+	response, err := c.rpc.GetSigningKeys(ctx, &agentv1.GetSigningKeysRequest{Envelope: c.envelope()})
+	return response.GetEndorsements(), err
+}
+
 func (c *Client) PullJobs(ctx context.Context, maxJobs uint32) ([]*agentv1.ScanJob, error) {
 	response, err := c.rpc.PullJobs(ctx, &agentv1.PullJobsRequest{Envelope: c.envelope(), MaxJobs: maxJobs})
 	return response.GetJobs(), err

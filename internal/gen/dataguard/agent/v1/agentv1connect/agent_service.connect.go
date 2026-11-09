@@ -39,6 +39,9 @@ const (
 	AgentServiceGetPolicyProcedure = "/dataguard.agent.v1.AgentService/GetPolicy"
 	// AgentServiceGetSourcesProcedure is the procedure name of the AgentService's GetSources RPC.
 	AgentServiceGetSourcesProcedure = "/dataguard.agent.v1.AgentService/GetSources"
+	// AgentServiceGetSigningKeysProcedure is the procedure name of the AgentService's GetSigningKeys
+	// RPC.
+	AgentServiceGetSigningKeysProcedure = "/dataguard.agent.v1.AgentService/GetSigningKeys"
 	// AgentServicePullJobsProcedure is the procedure name of the AgentService's PullJobs RPC.
 	AgentServicePullJobsProcedure = "/dataguard.agent.v1.AgentService/PullJobs"
 	// AgentServiceSubmitScanResultProcedure is the procedure name of the AgentService's
@@ -153,6 +156,13 @@ var (
 			Procedure:  AgentServiceGetSourcesProcedure,
 		}
 	})
+	agentServiceGetSigningKeysSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_dataguard_agent_v1_agent_service_proto.Services().ByName("AgentService").Methods().ByName("GetSigningKeys"),
+			Procedure:  AgentServiceGetSigningKeysProcedure,
+		}
+	})
 	agentServicePullJobsSpec = sync.OnceValue(func() connect.Spec {
 		return connect.Spec{
 			StreamType: connect.StreamTypeUnary,
@@ -183,6 +193,7 @@ type AgentServiceClient interface {
 	RenewCertificate(context.Context, *v1.RenewCertificateRequest) (*v1.RenewCertificateResponse, error)
 	GetPolicy(context.Context, *v1.GetPolicyRequest) (*v1.GetPolicyResponse, error)
 	GetSources(context.Context, *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error)
+	GetSigningKeys(context.Context, *v1.GetSigningKeysRequest) (*v1.GetSigningKeysResponse, error)
 	PullJobs(context.Context, *v1.PullJobsRequest) (*v1.PullJobsResponse, error)
 	SubmitScanResult(context.Context, *v1.SubmitScanResultRequest) (*v1.SubmitScanResultResponse, error)
 	SubmitEvents(context.Context, *v1.SubmitEventsRequest) (*v1.SubmitEventsResponse, error)
@@ -201,6 +212,7 @@ type AgentServiceHandler interface {
 	RenewCertificate(context.Context, *v1.RenewCertificateRequest) (*v1.RenewCertificateResponse, error)
 	GetPolicy(context.Context, *v1.GetPolicyRequest) (*v1.GetPolicyResponse, error)
 	GetSources(context.Context, *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error)
+	GetSigningKeys(context.Context, *v1.GetSigningKeysRequest) (*v1.GetSigningKeysResponse, error)
 	PullJobs(context.Context, *v1.PullJobsRequest) (*v1.PullJobsResponse, error)
 	SubmitScanResult(context.Context, *v1.SubmitScanResultRequest) (*v1.SubmitScanResultResponse, error)
 	SubmitEvents(context.Context, *v1.SubmitEventsRequest) (*v1.SubmitEventsResponse, error)
@@ -216,6 +228,7 @@ func RegisterAgentServiceHandler(server *connect.Server, svc AgentServiceHandler
 		connect.Method{Spec: agentServiceRenewCertificateSpec(), Handler: adapter.renewCertificate},
 		connect.Method{Spec: agentServiceGetPolicySpec(), Handler: adapter.getPolicy},
 		connect.Method{Spec: agentServiceGetSourcesSpec(), Handler: adapter.getSources},
+		connect.Method{Spec: agentServiceGetSigningKeysSpec(), Handler: adapter.getSigningKeys},
 		connect.Method{Spec: agentServicePullJobsSpec(), Handler: adapter.pullJobs},
 		connect.Method{Spec: agentServiceSubmitScanResultSpec(), Handler: adapter.submitScanResult},
 		connect.Method{Spec: agentServiceSubmitEventsSpec(), Handler: adapter.submitEvents},
@@ -243,6 +256,10 @@ func (UnimplementedAgentServiceHandler) GetPolicy(context.Context, *v1.GetPolicy
 
 func (UnimplementedAgentServiceHandler) GetSources(context.Context, *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.GetSources is not implemented")
+}
+
+func (UnimplementedAgentServiceHandler) GetSigningKeys(context.Context, *v1.GetSigningKeysRequest) (*v1.GetSigningKeysResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "dataguard.agent.v1.AgentService.GetSigningKeys is not implemented")
 }
 
 func (UnimplementedAgentServiceHandler) PullJobs(context.Context, *v1.PullJobsRequest) (*v1.PullJobsResponse, error) {
@@ -296,6 +313,14 @@ func (c *agentServiceClient) GetPolicy(ctx context.Context, req *v1.GetPolicyReq
 func (c *agentServiceClient) GetSources(ctx context.Context, req *v1.GetSourcesRequest) (*v1.GetSourcesResponse, error) {
 	var res v1.GetSourcesResponse
 	if err := c.client.CallUnary(ctx, agentServiceGetSourcesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *agentServiceClient) GetSigningKeys(ctx context.Context, req *v1.GetSigningKeysRequest) (*v1.GetSigningKeysResponse, error) {
+	var res v1.GetSigningKeysResponse
+	if err := c.client.CallUnary(ctx, agentServiceGetSigningKeysSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -381,6 +406,18 @@ func (h agentServiceHandler) getSources(ctx context.Context, _ connect.Spec, str
 		return err
 	}
 	res, err := h.svc.GetSources(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h agentServiceHandler) getSigningKeys(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetSigningKeysRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetSigningKeys(ctx, &req)
 	if err != nil {
 		return err
 	}

@@ -66,12 +66,12 @@ func (s *Store) CreateAgent(ctx context.Context, agent fleet.Agent, entry oplog.
 }
 
 const agentColumns = `id, tenant_id, environment_id, status, version, certificate_expires, last_seen_at, created_at,
-	sealing_public_key, contract_version, refused_contract_version`
+	sealing_public_key, contract_version, refused_contract_version, policy_key_epoch`
 
 func scanAgent(row pgx.Row, agent *fleet.Agent) error {
 	return row.Scan(&agent.ID, &agent.TenantID, &agent.EnvironmentID, &agent.Status, &agent.Version,
 		&agent.CertificateExpires, &agent.LastSeenAt, &agent.CreatedAt, &agent.SealingPublicKey,
-		&agent.ContractVersion, &agent.RefusedContractVersion)
+		&agent.ContractVersion, &agent.RefusedContractVersion, &agent.PolicyKeyEpoch)
 }
 
 func (s *Store) GetAgent(ctx context.Context, tenantID, agentID uuid.UUID) (fleet.Agent, error) {
@@ -98,12 +98,13 @@ func (s *Store) ListAgents(ctx context.Context, tenantID uuid.UUID) ([]fleet.Age
 	return agents, nil
 }
 
-func (s *Store) TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, version string, contract uint32) (uint64, error) {
+func (s *Store) TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, beat fleet.Heartbeat) (uint64, error) {
 	var sourcesVersion uint64
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		const update = `UPDATE agents SET last_seen_at = now(), version = $2, contract_version = $3, refused_contract_version = NULL
+		const update = `UPDATE agents SET last_seen_at = now(), version = $2, contract_version = $3, refused_contract_version = NULL,
+				policy_key_epoch = $4
 			WHERE id = $1 RETURNING sources_version`
-		return tx.QueryRow(ctx, update, agentID, version, contract).Scan(&sourcesVersion)
+		return tx.QueryRow(ctx, update, agentID, beat.Version, beat.Contract, beat.PolicyKeyEpoch).Scan(&sourcesVersion)
 	})
 	if err := readError("touch agent", err, fleet.ErrNotFound); err != nil {
 		return 0, err

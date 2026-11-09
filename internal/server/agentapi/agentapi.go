@@ -154,6 +154,14 @@ func checkEnvelope(envelope *agentv1.Envelope, identity pki.Identity) error {
 	return nil
 }
 
+// PolicyKeys is the key that signs policies and source lists, with the
+// endorsements that lead an agent to it from any earlier one.
+type PolicyKeys interface {
+	PublicKey() []byte
+	Epoch() uint32
+	Endorsements() []*agentv1.SignedEndorsement
+}
+
 // HealthStore records what collectors report.
 type HealthStore interface {
 	SaveHealth(ctx context.Context, tenantID, agentID uuid.UUID, reports []coverage.Health) error
@@ -161,14 +169,14 @@ type HealthStore interface {
 
 // Dependencies are the services the agent API delegates to.
 type Dependencies struct {
-	Fleet           *fleet.Service
-	Policies        *policy.Service
-	Scans           *scan.Service
-	Audit           *audit.Service
-	Health          HealthStore
-	CACertificate   []byte
-	PolicyPublicKey []byte
-	Logger          *slog.Logger
+	Fleet         *fleet.Service
+	Policies      *policy.Service
+	Scans         *scan.Service
+	Audit         *audit.Service
+	Health        HealthStore
+	CACertificate []byte
+	PolicyKeys    PolicyKeys
+	Logger        *slog.Logger
 	// Metrics may be nil.
 	Metrics *telemetry.Server
 }
@@ -213,7 +221,8 @@ func (h *enrollmentHandler) Enroll(ctx context.Context, request *agentv1.EnrollR
 		AgentId:          enrollment.AgentID.String(),
 		CertificatePem:   enrollment.CertificatePEM,
 		CaCertificatePem: h.dependencies.CACertificate,
-		PolicyPublicKey:  h.dependencies.PolicyPublicKey,
+		PolicyPublicKey:  h.dependencies.PolicyKeys.PublicKey(),
+		PolicyKeyEpoch:   h.dependencies.PolicyKeys.Epoch(),
 	}, nil
 }
 
@@ -236,19 +245,28 @@ type agentHandler struct {
 
 func (h *agentHandler) Heartbeat(ctx context.Context, request *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
 	identity, _ := identityFrom(ctx)
-	sourcesVersion, err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID,
-		request.GetAgentVersion(), request.GetEnvelope().GetSchemaVersion())
+	sourcesVersion, err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID, fleet.Heartbeat{
+		Version: request.GetAgentVersion(), Contract: request.GetEnvelope().GetSchemaVersion(),
+		// Agents older than key rotation do not report it: they trust epoch 1.
+		PolicyKeyEpoch: max(request.GetPolicyKeyEpoch(), 1),
+	})
 	if err != nil {
 		return nil, h.internal("heartbeat", err)
 	}
 	if err := h.dependencies.Health.SaveHealth(ctx, identity.TenantID, identity.AgentID, healthReports(request.GetAuditSources())); err != nil {
 		return nil, h.internal("save audit health", err)
 	}
-	latest, err := h.dependencies.Policies.Latest(ctx, identity.TenantID)
-	if err != nil && !errors.Is(err, policy.ErrNotFound) {
+	latest, err := h.dependencies.Policies.LatestVersion(ctx, identity.TenantID)
+	if err != nil {
 		return nil, h.internal("read policy", err)
 	}
-	return &agentv1.HeartbeatResponse{LatestPolicyVersion: latest.Version, LatestSourcesVersion: sourcesVersion}, nil
+	return &agentv1.HeartbeatResponse{
+		LatestPolicyVersion: latest, LatestSourcesVersion: sourcesVersion, PolicyKeyEpoch: h.dependencies.PolicyKeys.Epoch(),
+	}, nil
+}
+
+func (h *agentHandler) GetSigningKeys(context.Context, *agentv1.GetSigningKeysRequest) (*agentv1.GetSigningKeysResponse, error) {
+	return &agentv1.GetSigningKeysResponse{Endorsements: h.dependencies.PolicyKeys.Endorsements()}, nil
 }
 
 func healthReports(sources []*agentv1.AuditSourceHealth) []coverage.Health {
@@ -342,6 +360,16 @@ func (h *agentHandler) GetPolicy(ctx context.Context, _ *agentv1.GetPolicyReques
 	signed, err := h.dependencies.Policies.Latest(ctx, identity.TenantID)
 	if errors.Is(err, policy.ErrNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, "no policy published")
+	}
+	if errors.Is(err, policy.ErrTampered) {
+		// An incident, not a failure: the database holds a policy nobody published.
+		h.dependencies.Logger.Error("stored policy does not match its signature", "tenant_id", identity.TenantID.String())
+		return nil, connect.NewError(connect.CodeInternal, "request failed")
+	}
+	if errors.Is(err, policy.ErrKeyRotated) {
+		// The agent retries and reaches a restarted instance.
+		h.dependencies.Logger.Error("policy key rotated, restart this server")
+		return nil, connect.NewError(connect.CodeUnavailable, "server restart pending")
 	}
 	if err != nil {
 		return nil, h.internal("read policy", err)

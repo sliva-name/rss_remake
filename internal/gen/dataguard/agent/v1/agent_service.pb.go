@@ -159,8 +159,11 @@ type EnrollResponse struct {
 	CertificatePem   []byte                 `protobuf:"bytes,3,opt,name=certificate_pem,json=certificatePem,proto3" json:"certificate_pem,omitempty"`
 	CaCertificatePem []byte                 `protobuf:"bytes,4,opt,name=ca_certificate_pem,json=caCertificatePem,proto3" json:"ca_certificate_pem,omitempty"`
 	PolicyPublicKey  []byte                 `protobuf:"bytes,5,opt,name=policy_public_key,json=policyPublicKey,proto3" json:"policy_public_key,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The epoch of policy_public_key. Zero comes from centers older than key
+	// rotation, whose only key is epoch 1.
+	PolicyKeyEpoch uint32 `protobuf:"varint,6,opt,name=policy_key_epoch,json=policyKeyEpoch,proto3" json:"policy_key_epoch,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *EnrollResponse) Reset() {
@@ -228,6 +231,13 @@ func (x *EnrollResponse) GetPolicyPublicKey() []byte {
 	return nil
 }
 
+func (x *EnrollResponse) GetPolicyKeyEpoch() uint32 {
+	if x != nil {
+		return x.PolicyKeyEpoch
+	}
+	return 0
+}
+
 type QueueHealth struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PendingEvents uint64                 `protobuf:"varint,1,opt,name=pending_events,json=pendingEvents,proto3" json:"pending_events,omitempty"`
@@ -289,13 +299,16 @@ func (x *QueueHealth) GetCapacityBytes() uint64 {
 }
 
 type HeartbeatRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Envelope      *Envelope              `protobuf:"bytes,1,opt,name=envelope,proto3" json:"envelope,omitempty"`
-	AgentVersion  string                 `protobuf:"bytes,2,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
-	Queue         *QueueHealth           `protobuf:"bytes,3,opt,name=queue,proto3" json:"queue,omitempty"`
-	AuditSources  []*AuditSourceHealth   `protobuf:"bytes,4,rep,name=audit_sources,json=auditSources,proto3" json:"audit_sources,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Envelope     *Envelope              `protobuf:"bytes,1,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	AgentVersion string                 `protobuf:"bytes,2,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	Queue        *QueueHealth           `protobuf:"bytes,3,opt,name=queue,proto3" json:"queue,omitempty"`
+	AuditSources []*AuditSourceHealth   `protobuf:"bytes,4,rep,name=audit_sources,json=auditSources,proto3" json:"audit_sources,omitempty"`
+	// The epoch of the policy key the agent trusts, so the center can show which
+	// agents still have to take a rotated key.
+	PolicyKeyEpoch uint32 `protobuf:"varint,5,opt,name=policy_key_epoch,json=policyKeyEpoch,proto3" json:"policy_key_epoch,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *HeartbeatRequest) Reset() {
@@ -356,12 +369,22 @@ func (x *HeartbeatRequest) GetAuditSources() []*AuditSourceHealth {
 	return nil
 }
 
+func (x *HeartbeatRequest) GetPolicyKeyEpoch() uint32 {
+	if x != nil {
+		return x.PolicyKeyEpoch
+	}
+	return 0
+}
+
 type HeartbeatResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	LatestPolicyVersion  uint64                 `protobuf:"varint,1,opt,name=latest_policy_version,json=latestPolicyVersion,proto3" json:"latest_policy_version,omitempty"`
 	LatestSourcesVersion uint64                 `protobuf:"varint,2,opt,name=latest_sources_version,json=latestSourcesVersion,proto3" json:"latest_sources_version,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// The epoch of the key that signs policies and source lists now. An agent
+	// that trusts an earlier one fetches the endorsements first.
+	PolicyKeyEpoch uint32 `protobuf:"varint,3,opt,name=policy_key_epoch,json=policyKeyEpoch,proto3" json:"policy_key_epoch,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *HeartbeatResponse) Reset() {
@@ -404,6 +427,13 @@ func (x *HeartbeatResponse) GetLatestPolicyVersion() uint64 {
 func (x *HeartbeatResponse) GetLatestSourcesVersion() uint64 {
 	if x != nil {
 		return x.LatestSourcesVersion
+	}
+	return 0
+}
+
+func (x *HeartbeatResponse) GetPolicyKeyEpoch() uint32 {
+	if x != nil {
+		return x.PolicyKeyEpoch
 	}
 	return 0
 }
@@ -1198,6 +1228,203 @@ func (x *GetSourcesResponse) GetSignature() []byte {
 	return nil
 }
 
+// PolicyKeyEndorsement introduces the policy key of the next epoch. The key of
+// the epoch before signs it, so an agent that pinned any earlier key walks the
+// chain to the current one without enrolling again (ADR-0014).
+type PolicyKeyEndorsement struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Epoch         uint32                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PolicyKeyEndorsement) Reset() {
+	*x = PolicyKeyEndorsement{}
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PolicyKeyEndorsement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PolicyKeyEndorsement) ProtoMessage() {}
+
+func (x *PolicyKeyEndorsement) ProtoReflect() protoreflect.Message {
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PolicyKeyEndorsement.ProtoReflect.Descriptor instead.
+func (*PolicyKeyEndorsement) Descriptor() ([]byte, []int) {
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PolicyKeyEndorsement) GetEpoch() uint32 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *PolicyKeyEndorsement) GetPublicKey() []byte {
+	if x != nil {
+		return x.PublicKey
+	}
+	return nil
+}
+
+type SignedEndorsement struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A serialized PolicyKeyEndorsement, signed as bytes like a policy.
+	Endorsement   []byte `protobuf:"bytes,1,opt,name=endorsement,proto3" json:"endorsement,omitempty"`
+	Signature     []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedEndorsement) Reset() {
+	*x = SignedEndorsement{}
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedEndorsement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedEndorsement) ProtoMessage() {}
+
+func (x *SignedEndorsement) ProtoReflect() protoreflect.Message {
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedEndorsement.ProtoReflect.Descriptor instead.
+func (*SignedEndorsement) Descriptor() ([]byte, []int) {
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SignedEndorsement) GetEndorsement() []byte {
+	if x != nil {
+		return x.Endorsement
+	}
+	return nil
+}
+
+func (x *SignedEndorsement) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+type GetSigningKeysRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Envelope      *Envelope              `protobuf:"bytes,1,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSigningKeysRequest) Reset() {
+	*x = GetSigningKeysRequest{}
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSigningKeysRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSigningKeysRequest) ProtoMessage() {}
+
+func (x *GetSigningKeysRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSigningKeysRequest.ProtoReflect.Descriptor instead.
+func (*GetSigningKeysRequest) Descriptor() ([]byte, []int) {
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *GetSigningKeysRequest) GetEnvelope() *Envelope {
+	if x != nil {
+		return x.Envelope
+	}
+	return nil
+}
+
+// Every endorsement since the first key, oldest first.
+type GetSigningKeysResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Endorsements  []*SignedEndorsement   `protobuf:"bytes,1,rep,name=endorsements,proto3" json:"endorsements,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSigningKeysResponse) Reset() {
+	*x = GetSigningKeysResponse{}
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSigningKeysResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSigningKeysResponse) ProtoMessage() {}
+
+func (x *GetSigningKeysResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSigningKeysResponse.ProtoReflect.Descriptor instead.
+func (*GetSigningKeysResponse) Descriptor() ([]byte, []int) {
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetSigningKeysResponse) GetEndorsements() []*SignedEndorsement {
+	if x != nil {
+		return x.Endorsements
+	}
+	return nil
+}
+
 type PullJobsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Envelope      *Envelope              `protobuf:"bytes,1,opt,name=envelope,proto3" json:"envelope,omitempty"`
@@ -1208,7 +1435,7 @@ type PullJobsRequest struct {
 
 func (x *PullJobsRequest) Reset() {
 	*x = PullJobsRequest{}
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[18]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1220,7 +1447,7 @@ func (x *PullJobsRequest) String() string {
 func (*PullJobsRequest) ProtoMessage() {}
 
 func (x *PullJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[18]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1233,7 +1460,7 @@ func (x *PullJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullJobsRequest.ProtoReflect.Descriptor instead.
 func (*PullJobsRequest) Descriptor() ([]byte, []int) {
-	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{18}
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *PullJobsRequest) GetEnvelope() *Envelope {
@@ -1261,7 +1488,7 @@ type ScanJob struct {
 
 func (x *ScanJob) Reset() {
 	*x = ScanJob{}
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[19]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1500,7 @@ func (x *ScanJob) String() string {
 func (*ScanJob) ProtoMessage() {}
 
 func (x *ScanJob) ProtoReflect() protoreflect.Message {
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[19]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1513,7 @@ func (x *ScanJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanJob.ProtoReflect.Descriptor instead.
 func (*ScanJob) Descriptor() ([]byte, []int) {
-	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{19}
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ScanJob) GetJobId() string {
@@ -1319,7 +1546,7 @@ type PullJobsResponse struct {
 
 func (x *PullJobsResponse) Reset() {
 	*x = PullJobsResponse{}
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[20]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1331,7 +1558,7 @@ func (x *PullJobsResponse) String() string {
 func (*PullJobsResponse) ProtoMessage() {}
 
 func (x *PullJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[20]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1344,7 +1571,7 @@ func (x *PullJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullJobsResponse.ProtoReflect.Descriptor instead.
 func (*PullJobsResponse) Descriptor() ([]byte, []int) {
-	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{20}
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PullJobsResponse) GetJobs() []*ScanJob {
@@ -1364,7 +1591,7 @@ type SubmitScanResultRequest struct {
 
 func (x *SubmitScanResultRequest) Reset() {
 	*x = SubmitScanResultRequest{}
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[21]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1376,7 +1603,7 @@ func (x *SubmitScanResultRequest) String() string {
 func (*SubmitScanResultRequest) ProtoMessage() {}
 
 func (x *SubmitScanResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[21]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1389,7 +1616,7 @@ func (x *SubmitScanResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitScanResultRequest.ProtoReflect.Descriptor instead.
 func (*SubmitScanResultRequest) Descriptor() ([]byte, []int) {
-	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{21}
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SubmitScanResultRequest) GetEnvelope() *Envelope {
@@ -1414,7 +1641,7 @@ type SubmitScanResultResponse struct {
 
 func (x *SubmitScanResultResponse) Reset() {
 	*x = SubmitScanResultResponse{}
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[22]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1426,7 +1653,7 @@ func (x *SubmitScanResultResponse) String() string {
 func (*SubmitScanResultResponse) ProtoMessage() {}
 
 func (x *SubmitScanResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[22]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1439,7 +1666,7 @@ func (x *SubmitScanResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitScanResultResponse.ProtoReflect.Descriptor instead.
 func (*SubmitScanResultResponse) Descriptor() ([]byte, []int) {
-	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{22}
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{26}
 }
 
 type SubmitEventsRequest struct {
@@ -1452,7 +1679,7 @@ type SubmitEventsRequest struct {
 
 func (x *SubmitEventsRequest) Reset() {
 	*x = SubmitEventsRequest{}
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[23]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1464,7 +1691,7 @@ func (x *SubmitEventsRequest) String() string {
 func (*SubmitEventsRequest) ProtoMessage() {}
 
 func (x *SubmitEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[23]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1477,7 +1704,7 @@ func (x *SubmitEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitEventsRequest.ProtoReflect.Descriptor instead.
 func (*SubmitEventsRequest) Descriptor() ([]byte, []int) {
-	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{23}
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SubmitEventsRequest) GetEnvelope() *Envelope {
@@ -1504,7 +1731,7 @@ type SubmitEventsResponse struct {
 
 func (x *SubmitEventsResponse) Reset() {
 	*x = SubmitEventsResponse{}
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[24]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1516,7 +1743,7 @@ func (x *SubmitEventsResponse) String() string {
 func (*SubmitEventsResponse) ProtoMessage() {}
 
 func (x *SubmitEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[24]
+	mi := &file_dataguard_agent_v1_agent_service_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1529,7 +1756,7 @@ func (x *SubmitEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitEventsResponse.ProtoReflect.Descriptor instead.
 func (*SubmitEventsResponse) Descriptor() ([]byte, []int) {
-	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{24}
+	return file_dataguard_agent_v1_agent_service_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SubmitEventsResponse) GetAcceptedEventIds() []string {
@@ -1550,25 +1777,28 @@ const file_dataguard_agent_v1_agent_service_proto_rawDesc = "" +
 	"R\x06csrPem\x12)\n" +
 	"\ragent_version\x18\x03 \x01(\tB\x04\xc0\xf3\x18\x05R\fagentVersion\x122\n" +
 	"\x12sealing_public_key\x18\x04 \x01(\fB\x04\xc0\xf3\x18\rR\x10sealingPublicKey\x12%\n" +
-	"\x0eschema_version\x18\x05 \x01(\rR\rschemaVersion\"\xcb\x01\n" +
+	"\x0eschema_version\x18\x05 \x01(\rR\rschemaVersion\"\xf5\x01\n" +
 	"\x0eEnrollResponse\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12'\n" +
 	"\x0fcertificate_pem\x18\x03 \x01(\fR\x0ecertificatePem\x12,\n" +
 	"\x12ca_certificate_pem\x18\x04 \x01(\fR\x10caCertificatePem\x12*\n" +
-	"\x11policy_public_key\x18\x05 \x01(\fR\x0fpolicyPublicKey\"\x80\x01\n" +
+	"\x11policy_public_key\x18\x05 \x01(\fR\x0fpolicyPublicKey\x12(\n" +
+	"\x10policy_key_epoch\x18\x06 \x01(\rR\x0epolicyKeyEpoch\"\x80\x01\n" +
 	"\vQueueHealth\x12%\n" +
 	"\x0epending_events\x18\x01 \x01(\x04R\rpendingEvents\x12#\n" +
 	"\rpending_bytes\x18\x02 \x01(\x04R\fpendingBytes\x12%\n" +
-	"\x0ecapacity_bytes\x18\x03 \x01(\x04R\rcapacityBytes\"\xfa\x01\n" +
+	"\x0ecapacity_bytes\x18\x03 \x01(\x04R\rcapacityBytes\"\xa4\x02\n" +
 	"\x10HeartbeatRequest\x128\n" +
 	"\benvelope\x18\x01 \x01(\v2\x1c.dataguard.agent.v1.EnvelopeR\benvelope\x12)\n" +
 	"\ragent_version\x18\x02 \x01(\tB\x04\xc0\xf3\x18\x05R\fagentVersion\x125\n" +
 	"\x05queue\x18\x03 \x01(\v2\x1f.dataguard.agent.v1.QueueHealthR\x05queue\x12J\n" +
-	"\raudit_sources\x18\x04 \x03(\v2%.dataguard.agent.v1.AuditSourceHealthR\fauditSources\"}\n" +
+	"\raudit_sources\x18\x04 \x03(\v2%.dataguard.agent.v1.AuditSourceHealthR\fauditSources\x12(\n" +
+	"\x10policy_key_epoch\x18\x05 \x01(\rR\x0epolicyKeyEpoch\"\xa7\x01\n" +
 	"\x11HeartbeatResponse\x122\n" +
 	"\x15latest_policy_version\x18\x01 \x01(\x04R\x13latestPolicyVersion\x124\n" +
-	"\x16latest_sources_version\x18\x02 \x01(\x04R\x14latestSourcesVersion\"\x8c\x01\n" +
+	"\x16latest_sources_version\x18\x02 \x01(\x04R\x14latestSourcesVersion\x12(\n" +
+	"\x10policy_key_epoch\x18\x03 \x01(\rR\x0epolicyKeyEpoch\"\x8c\x01\n" +
 	"\x14ReportSourcesRequest\x128\n" +
 	"\benvelope\x18\x01 \x01(\v2\x1c.dataguard.agent.v1.EnvelopeR\benvelope\x12:\n" +
 	"\asources\x18\x02 \x03(\v2 .dataguard.agent.v1.SourceReportR\asources\"*\n" +
@@ -1627,7 +1857,18 @@ const file_dataguard_agent_v1_agent_service_proto_rawDesc = "" +
 	"\x12GetSourcesResponse\x12%\n" +
 	"\vsource_list\x18\x01 \x01(\fB\x04\xc0\xf3\x18\fR\n" +
 	"sourceList\x12\"\n" +
-	"\tsignature\x18\x02 \x01(\fB\x04\xc0\xf3\x18\fR\tsignature\"f\n" +
+	"\tsignature\x18\x02 \x01(\fB\x04\xc0\xf3\x18\fR\tsignature\"Q\n" +
+	"\x14PolicyKeyEndorsement\x12\x14\n" +
+	"\x05epoch\x18\x01 \x01(\rR\x05epoch\x12#\n" +
+	"\n" +
+	"public_key\x18\x02 \x01(\fB\x04\xc0\xf3\x18\fR\tpublicKey\"_\n" +
+	"\x11SignedEndorsement\x12&\n" +
+	"\vendorsement\x18\x01 \x01(\fB\x04\xc0\xf3\x18\fR\vendorsement\x12\"\n" +
+	"\tsignature\x18\x02 \x01(\fB\x04\xc0\xf3\x18\fR\tsignature\"Q\n" +
+	"\x15GetSigningKeysRequest\x128\n" +
+	"\benvelope\x18\x01 \x01(\v2\x1c.dataguard.agent.v1.EnvelopeR\benvelope\"c\n" +
+	"\x16GetSigningKeysResponse\x12I\n" +
+	"\fendorsements\x18\x01 \x03(\v2%.dataguard.agent.v1.SignedEndorsementR\fendorsements\"f\n" +
 	"\x0fPullJobsRequest\x128\n" +
 	"\benvelope\x18\x01 \x01(\v2\x1c.dataguard.agent.v1.EnvelopeR\benvelope\x12\x19\n" +
 	"\bmax_jobs\x18\x02 \x01(\rR\amaxJobs\"u\n" +
@@ -1652,14 +1893,15 @@ const file_dataguard_agent_v1_agent_service_proto_rawDesc = "" +
 	"\x10TLS_MODE_REQUIRE\x10\x02\x12\x14\n" +
 	"\x10TLS_MODE_DISABLE\x10\x032d\n" +
 	"\x11EnrollmentService\x12O\n" +
-	"\x06Enroll\x12!.dataguard.agent.v1.EnrollRequest\x1a\".dataguard.agent.v1.EnrollResponse2\x9d\x06\n" +
+	"\x06Enroll\x12!.dataguard.agent.v1.EnrollRequest\x1a\".dataguard.agent.v1.EnrollResponse2\x86\a\n" +
 	"\fAgentService\x12X\n" +
 	"\tHeartbeat\x12$.dataguard.agent.v1.HeartbeatRequest\x1a%.dataguard.agent.v1.HeartbeatResponse\x12d\n" +
 	"\rReportSources\x12(.dataguard.agent.v1.ReportSourcesRequest\x1a).dataguard.agent.v1.ReportSourcesResponse\x12m\n" +
 	"\x10RenewCertificate\x12+.dataguard.agent.v1.RenewCertificateRequest\x1a,.dataguard.agent.v1.RenewCertificateResponse\x12X\n" +
 	"\tGetPolicy\x12$.dataguard.agent.v1.GetPolicyRequest\x1a%.dataguard.agent.v1.GetPolicyResponse\x12[\n" +
 	"\n" +
-	"GetSources\x12%.dataguard.agent.v1.GetSourcesRequest\x1a&.dataguard.agent.v1.GetSourcesResponse\x12U\n" +
+	"GetSources\x12%.dataguard.agent.v1.GetSourcesRequest\x1a&.dataguard.agent.v1.GetSourcesResponse\x12g\n" +
+	"\x0eGetSigningKeys\x12).dataguard.agent.v1.GetSigningKeysRequest\x1a*.dataguard.agent.v1.GetSigningKeysResponse\x12U\n" +
 	"\bPullJobs\x12#.dataguard.agent.v1.PullJobsRequest\x1a$.dataguard.agent.v1.PullJobsResponse\x12m\n" +
 	"\x10SubmitScanResult\x12+.dataguard.agent.v1.SubmitScanResultRequest\x1a,.dataguard.agent.v1.SubmitScanResultResponse\x12a\n" +
 	"\fSubmitEvents\x12'.dataguard.agent.v1.SubmitEventsRequest\x1a(.dataguard.agent.v1.SubmitEventsResponseB3Z1dataguard/internal/gen/dataguard/agent/v1;agentv1b\x06proto3"
@@ -1677,7 +1919,7 @@ func file_dataguard_agent_v1_agent_service_proto_rawDescGZIP() []byte {
 }
 
 var file_dataguard_agent_v1_agent_service_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_dataguard_agent_v1_agent_service_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_dataguard_agent_v1_agent_service_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_dataguard_agent_v1_agent_service_proto_goTypes = []any{
 	(TLSMode)(0),                     // 0: dataguard.agent.v1.TLSMode
 	(*EnrollRequest)(nil),            // 1: dataguard.agent.v1.EnrollRequest
@@ -1698,64 +1940,72 @@ var file_dataguard_agent_v1_agent_service_proto_goTypes = []any{
 	(*SourceDefinition)(nil),         // 16: dataguard.agent.v1.SourceDefinition
 	(*SourceList)(nil),               // 17: dataguard.agent.v1.SourceList
 	(*GetSourcesResponse)(nil),       // 18: dataguard.agent.v1.GetSourcesResponse
-	(*PullJobsRequest)(nil),          // 19: dataguard.agent.v1.PullJobsRequest
-	(*ScanJob)(nil),                  // 20: dataguard.agent.v1.ScanJob
-	(*PullJobsResponse)(nil),         // 21: dataguard.agent.v1.PullJobsResponse
-	(*SubmitScanResultRequest)(nil),  // 22: dataguard.agent.v1.SubmitScanResultRequest
-	(*SubmitScanResultResponse)(nil), // 23: dataguard.agent.v1.SubmitScanResultResponse
-	(*SubmitEventsRequest)(nil),      // 24: dataguard.agent.v1.SubmitEventsRequest
-	(*SubmitEventsResponse)(nil),     // 25: dataguard.agent.v1.SubmitEventsResponse
-	(*Envelope)(nil),                 // 26: dataguard.agent.v1.Envelope
-	(*AuditSourceHealth)(nil),        // 27: dataguard.agent.v1.AuditSourceHealth
-	(*SourceReport)(nil),             // 28: dataguard.agent.v1.SourceReport
-	(Engine)(0),                      // 29: dataguard.agent.v1.Engine
-	(*ScanResult)(nil),               // 30: dataguard.agent.v1.ScanResult
-	(*AuditEvent)(nil),               // 31: dataguard.agent.v1.AuditEvent
+	(*PolicyKeyEndorsement)(nil),     // 19: dataguard.agent.v1.PolicyKeyEndorsement
+	(*SignedEndorsement)(nil),        // 20: dataguard.agent.v1.SignedEndorsement
+	(*GetSigningKeysRequest)(nil),    // 21: dataguard.agent.v1.GetSigningKeysRequest
+	(*GetSigningKeysResponse)(nil),   // 22: dataguard.agent.v1.GetSigningKeysResponse
+	(*PullJobsRequest)(nil),          // 23: dataguard.agent.v1.PullJobsRequest
+	(*ScanJob)(nil),                  // 24: dataguard.agent.v1.ScanJob
+	(*PullJobsResponse)(nil),         // 25: dataguard.agent.v1.PullJobsResponse
+	(*SubmitScanResultRequest)(nil),  // 26: dataguard.agent.v1.SubmitScanResultRequest
+	(*SubmitScanResultResponse)(nil), // 27: dataguard.agent.v1.SubmitScanResultResponse
+	(*SubmitEventsRequest)(nil),      // 28: dataguard.agent.v1.SubmitEventsRequest
+	(*SubmitEventsResponse)(nil),     // 29: dataguard.agent.v1.SubmitEventsResponse
+	(*Envelope)(nil),                 // 30: dataguard.agent.v1.Envelope
+	(*AuditSourceHealth)(nil),        // 31: dataguard.agent.v1.AuditSourceHealth
+	(*SourceReport)(nil),             // 32: dataguard.agent.v1.SourceReport
+	(Engine)(0),                      // 33: dataguard.agent.v1.Engine
+	(*ScanResult)(nil),               // 34: dataguard.agent.v1.ScanResult
+	(*AuditEvent)(nil),               // 35: dataguard.agent.v1.AuditEvent
 }
 var file_dataguard_agent_v1_agent_service_proto_depIdxs = []int32{
-	26, // 0: dataguard.agent.v1.HeartbeatRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	30, // 0: dataguard.agent.v1.HeartbeatRequest.envelope:type_name -> dataguard.agent.v1.Envelope
 	3,  // 1: dataguard.agent.v1.HeartbeatRequest.queue:type_name -> dataguard.agent.v1.QueueHealth
-	27, // 2: dataguard.agent.v1.HeartbeatRequest.audit_sources:type_name -> dataguard.agent.v1.AuditSourceHealth
-	26, // 3: dataguard.agent.v1.ReportSourcesRequest.envelope:type_name -> dataguard.agent.v1.Envelope
-	28, // 4: dataguard.agent.v1.ReportSourcesRequest.sources:type_name -> dataguard.agent.v1.SourceReport
-	26, // 5: dataguard.agent.v1.RenewCertificateRequest.envelope:type_name -> dataguard.agent.v1.Envelope
-	26, // 6: dataguard.agent.v1.GetPolicyRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	31, // 2: dataguard.agent.v1.HeartbeatRequest.audit_sources:type_name -> dataguard.agent.v1.AuditSourceHealth
+	30, // 3: dataguard.agent.v1.ReportSourcesRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	32, // 4: dataguard.agent.v1.ReportSourcesRequest.sources:type_name -> dataguard.agent.v1.SourceReport
+	30, // 5: dataguard.agent.v1.RenewCertificateRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	30, // 6: dataguard.agent.v1.GetPolicyRequest.envelope:type_name -> dataguard.agent.v1.Envelope
 	11, // 7: dataguard.agent.v1.Policy.custom_detectors:type_name -> dataguard.agent.v1.CustomDetector
 	12, // 8: dataguard.agent.v1.Policy.default_budget:type_name -> dataguard.agent.v1.ScanBudget
-	26, // 9: dataguard.agent.v1.GetSourcesRequest.envelope:type_name -> dataguard.agent.v1.Envelope
-	29, // 10: dataguard.agent.v1.SourceDefinition.engine:type_name -> dataguard.agent.v1.Engine
+	30, // 9: dataguard.agent.v1.GetSourcesRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	33, // 10: dataguard.agent.v1.SourceDefinition.engine:type_name -> dataguard.agent.v1.Engine
 	0,  // 11: dataguard.agent.v1.SourceDefinition.tls:type_name -> dataguard.agent.v1.TLSMode
 	16, // 12: dataguard.agent.v1.SourceList.sources:type_name -> dataguard.agent.v1.SourceDefinition
-	26, // 13: dataguard.agent.v1.PullJobsRequest.envelope:type_name -> dataguard.agent.v1.Envelope
-	12, // 14: dataguard.agent.v1.ScanJob.budget:type_name -> dataguard.agent.v1.ScanBudget
-	20, // 15: dataguard.agent.v1.PullJobsResponse.jobs:type_name -> dataguard.agent.v1.ScanJob
-	26, // 16: dataguard.agent.v1.SubmitScanResultRequest.envelope:type_name -> dataguard.agent.v1.Envelope
-	30, // 17: dataguard.agent.v1.SubmitScanResultRequest.result:type_name -> dataguard.agent.v1.ScanResult
-	26, // 18: dataguard.agent.v1.SubmitEventsRequest.envelope:type_name -> dataguard.agent.v1.Envelope
-	31, // 19: dataguard.agent.v1.SubmitEventsRequest.events:type_name -> dataguard.agent.v1.AuditEvent
-	1,  // 20: dataguard.agent.v1.EnrollmentService.Enroll:input_type -> dataguard.agent.v1.EnrollRequest
-	4,  // 21: dataguard.agent.v1.AgentService.Heartbeat:input_type -> dataguard.agent.v1.HeartbeatRequest
-	6,  // 22: dataguard.agent.v1.AgentService.ReportSources:input_type -> dataguard.agent.v1.ReportSourcesRequest
-	8,  // 23: dataguard.agent.v1.AgentService.RenewCertificate:input_type -> dataguard.agent.v1.RenewCertificateRequest
-	10, // 24: dataguard.agent.v1.AgentService.GetPolicy:input_type -> dataguard.agent.v1.GetPolicyRequest
-	15, // 25: dataguard.agent.v1.AgentService.GetSources:input_type -> dataguard.agent.v1.GetSourcesRequest
-	19, // 26: dataguard.agent.v1.AgentService.PullJobs:input_type -> dataguard.agent.v1.PullJobsRequest
-	22, // 27: dataguard.agent.v1.AgentService.SubmitScanResult:input_type -> dataguard.agent.v1.SubmitScanResultRequest
-	24, // 28: dataguard.agent.v1.AgentService.SubmitEvents:input_type -> dataguard.agent.v1.SubmitEventsRequest
-	2,  // 29: dataguard.agent.v1.EnrollmentService.Enroll:output_type -> dataguard.agent.v1.EnrollResponse
-	5,  // 30: dataguard.agent.v1.AgentService.Heartbeat:output_type -> dataguard.agent.v1.HeartbeatResponse
-	7,  // 31: dataguard.agent.v1.AgentService.ReportSources:output_type -> dataguard.agent.v1.ReportSourcesResponse
-	9,  // 32: dataguard.agent.v1.AgentService.RenewCertificate:output_type -> dataguard.agent.v1.RenewCertificateResponse
-	14, // 33: dataguard.agent.v1.AgentService.GetPolicy:output_type -> dataguard.agent.v1.GetPolicyResponse
-	18, // 34: dataguard.agent.v1.AgentService.GetSources:output_type -> dataguard.agent.v1.GetSourcesResponse
-	21, // 35: dataguard.agent.v1.AgentService.PullJobs:output_type -> dataguard.agent.v1.PullJobsResponse
-	23, // 36: dataguard.agent.v1.AgentService.SubmitScanResult:output_type -> dataguard.agent.v1.SubmitScanResultResponse
-	25, // 37: dataguard.agent.v1.AgentService.SubmitEvents:output_type -> dataguard.agent.v1.SubmitEventsResponse
-	29, // [29:38] is the sub-list for method output_type
-	20, // [20:29] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	30, // 13: dataguard.agent.v1.GetSigningKeysRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	20, // 14: dataguard.agent.v1.GetSigningKeysResponse.endorsements:type_name -> dataguard.agent.v1.SignedEndorsement
+	30, // 15: dataguard.agent.v1.PullJobsRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	12, // 16: dataguard.agent.v1.ScanJob.budget:type_name -> dataguard.agent.v1.ScanBudget
+	24, // 17: dataguard.agent.v1.PullJobsResponse.jobs:type_name -> dataguard.agent.v1.ScanJob
+	30, // 18: dataguard.agent.v1.SubmitScanResultRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	34, // 19: dataguard.agent.v1.SubmitScanResultRequest.result:type_name -> dataguard.agent.v1.ScanResult
+	30, // 20: dataguard.agent.v1.SubmitEventsRequest.envelope:type_name -> dataguard.agent.v1.Envelope
+	35, // 21: dataguard.agent.v1.SubmitEventsRequest.events:type_name -> dataguard.agent.v1.AuditEvent
+	1,  // 22: dataguard.agent.v1.EnrollmentService.Enroll:input_type -> dataguard.agent.v1.EnrollRequest
+	4,  // 23: dataguard.agent.v1.AgentService.Heartbeat:input_type -> dataguard.agent.v1.HeartbeatRequest
+	6,  // 24: dataguard.agent.v1.AgentService.ReportSources:input_type -> dataguard.agent.v1.ReportSourcesRequest
+	8,  // 25: dataguard.agent.v1.AgentService.RenewCertificate:input_type -> dataguard.agent.v1.RenewCertificateRequest
+	10, // 26: dataguard.agent.v1.AgentService.GetPolicy:input_type -> dataguard.agent.v1.GetPolicyRequest
+	15, // 27: dataguard.agent.v1.AgentService.GetSources:input_type -> dataguard.agent.v1.GetSourcesRequest
+	21, // 28: dataguard.agent.v1.AgentService.GetSigningKeys:input_type -> dataguard.agent.v1.GetSigningKeysRequest
+	23, // 29: dataguard.agent.v1.AgentService.PullJobs:input_type -> dataguard.agent.v1.PullJobsRequest
+	26, // 30: dataguard.agent.v1.AgentService.SubmitScanResult:input_type -> dataguard.agent.v1.SubmitScanResultRequest
+	28, // 31: dataguard.agent.v1.AgentService.SubmitEvents:input_type -> dataguard.agent.v1.SubmitEventsRequest
+	2,  // 32: dataguard.agent.v1.EnrollmentService.Enroll:output_type -> dataguard.agent.v1.EnrollResponse
+	5,  // 33: dataguard.agent.v1.AgentService.Heartbeat:output_type -> dataguard.agent.v1.HeartbeatResponse
+	7,  // 34: dataguard.agent.v1.AgentService.ReportSources:output_type -> dataguard.agent.v1.ReportSourcesResponse
+	9,  // 35: dataguard.agent.v1.AgentService.RenewCertificate:output_type -> dataguard.agent.v1.RenewCertificateResponse
+	14, // 36: dataguard.agent.v1.AgentService.GetPolicy:output_type -> dataguard.agent.v1.GetPolicyResponse
+	18, // 37: dataguard.agent.v1.AgentService.GetSources:output_type -> dataguard.agent.v1.GetSourcesResponse
+	22, // 38: dataguard.agent.v1.AgentService.GetSigningKeys:output_type -> dataguard.agent.v1.GetSigningKeysResponse
+	25, // 39: dataguard.agent.v1.AgentService.PullJobs:output_type -> dataguard.agent.v1.PullJobsResponse
+	27, // 40: dataguard.agent.v1.AgentService.SubmitScanResult:output_type -> dataguard.agent.v1.SubmitScanResultResponse
+	29, // 41: dataguard.agent.v1.AgentService.SubmitEvents:output_type -> dataguard.agent.v1.SubmitEventsResponse
+	32, // [32:42] is the sub-list for method output_type
+	22, // [22:32] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_dataguard_agent_v1_agent_service_proto_init() }
@@ -1774,7 +2024,7 @@ func file_dataguard_agent_v1_agent_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dataguard_agent_v1_agent_service_proto_rawDesc), len(file_dataguard_agent_v1_agent_service_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   25,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

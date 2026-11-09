@@ -658,6 +658,11 @@ export interface components {
              * @description Contract version of the last accepted heartbeat
              */
             contractVersion: number;
+            /**
+             * Format: int32
+             * @description Epoch of the policy signing key the agent trusts; it takes a rotated key with its next heartbeat
+             */
+            policyKeyEpoch: number;
             /** @description Why the center does not accept the agent right now, such as CONTRACT_UNSUPPORTED. Absent when nothing is wrong. */
             problemCode?: string;
             /** Format: date-time */
