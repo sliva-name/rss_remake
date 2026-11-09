@@ -44,6 +44,7 @@ func TestFailuresAreVisibleInMetrics(t *testing.T) {
 	observer.Request("SubmitEvents", connect.NewError(connect.CodeUnavailable, "down"))
 	observer.Request("Heartbeat", nil)
 	observer.Request("SubmitEvents", egress.ErrBlocked)
+	observer.Request("PullJobs", connect.NewError(connect.CodeFailedPrecondition, "CONTRACT_UNSUPPORTED"))
 	observer.Rejected("policy", "rollback")
 
 	samples, err := observer.Gather()
@@ -60,6 +61,7 @@ func TestFailuresAreVisibleInMetrics(t *testing.T) {
 		"dataguard_agent_source_refused|code=TARGET_NOT_ALLOWED|source_id=" + refused:                           1,
 		"dataguard_agent_center_requests_total|code=unavailable|procedure=SubmitEvents":                         1,
 		"dataguard_agent_center_requests_total|code=blocked|procedure=SubmitEvents":                             1,
+		"dataguard_agent_center_requests_total|code=failed_precondition|procedure=PullJobs":                     1,
 		"dataguard_agent_center_requests_total|code=ok|procedure=Heartbeat":                                     1,
 		"dataguard_agent_center_documents_rejected_total|document=policy|reason=rollback":                       1,
 		"dataguard_agent_certificate_expiry_timestamp_seconds":                                                  1_800_000_000,

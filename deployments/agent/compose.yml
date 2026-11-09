@@ -1,0 +1,22 @@
+# A DataGuard agent on a host in the customer's network (INSTALL.md). It needs
+# agent.yaml and the center's CA certificate next to this file; the audit log
+# directories of the databases are added below, read-only. Enroll once:
+#   docker compose run --rm -T agent enroll --config /etc/dataguard/agent.yaml --token-file /dev/stdin < token.txt
+# then start it:
+#   docker compose up -d
+name: dataguard-agent
+
+services:
+  agent:
+    image: dataguard/agent:${DG_VERSION:-0.1.0}
+    volumes:
+      - ./agent.yaml:/etc/dataguard/agent.yaml:ro
+      - ./ca.crt:/etc/dataguard/ca/ca.crt:ro
+      - state:/var/lib/dataguard
+      # One line per allowed audit directory of agent.yaml, for example:
+      # - /var/log/postgresql:/var/log/postgresql:ro
+    restart: unless-stopped
+
+volumes:
+  # The agent's identity, keys and event queue. Losing it means enrolling again.
+  state:

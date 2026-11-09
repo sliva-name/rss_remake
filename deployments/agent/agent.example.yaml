@@ -1,0 +1,14 @@
+# Copy to agent.yaml. Sources are added in the dashboard; this file limits what
+# the center may point the agent at (ADR-0006).
+center:
+  url: https://dataguard.example.com:8443
+  ca_file: /etc/dataguard/ca/ca.crt
+state_dir: /var/lib/dataguard
+allowed:
+  # Networks, addresses, names and *.domains of the databases the agent may open.
+  hosts: ["10.20.0.0/16", "db.internal"]
+  # Directories the agent may read audit logs from, mounted read-only.
+  audit_directories: [/var/log/postgresql]
+# Optional: Prometheus metrics, closed by default. Prefer 127.0.0.1.
+# metrics:
+#   address: 127.0.0.1:9464

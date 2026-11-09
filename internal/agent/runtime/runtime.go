@@ -14,6 +14,7 @@ import (
 	"dataguard/internal/agent/center"
 	"dataguard/internal/agent/identity"
 	"dataguard/internal/agent/telemetry"
+	"dataguard/internal/contract/codes"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/platform/retry"
@@ -113,6 +114,10 @@ func (c *Control) synchronize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// A rotated key first: the policy and the list are already signed by it.
+	if err := c.refreshPolicyKeys(ctx, latest.GetPolicyKeyEpoch()); err != nil {
+		return err
+	}
 	if err := c.refreshPolicy(ctx, latest.GetLatestPolicyVersion()); err != nil {
 		return err
 	}
@@ -154,9 +159,30 @@ func (c *Control) refreshSources(ctx context.Context, latest uint64) error {
 	return nil
 }
 
+func (c *Control) refreshPolicyKeys(ctx context.Context, latest uint32) error {
+	if latest <= c.options.Identity.PolicyKeyEpoch() {
+		return nil
+	}
+	chain, err := c.options.Client.GetSigningKeys(ctx)
+	if err != nil {
+		return rpcError("get signing keys", err)
+	}
+	epoch, err := c.options.Identity.AcceptPolicyKeys(chain)
+	if err != nil {
+		// Like a forged policy: the agent keeps the key it trusts and refuses
+		// whatever the unendorsed key signs.
+		reason := rejection(err)
+		c.options.Logger.Error("policy key rejected", "reason", reason)
+		c.options.Metrics.Rejected("policy_keys", reason)
+		return nil
+	}
+	c.options.Logger.Info("policy key rotated", "version", epoch)
+	return nil
+}
+
 func rejection(err error) string {
 	switch {
-	case errors.Is(err, pki.ErrBadSignature):
+	case errors.Is(err, pki.ErrBadSignature), errors.Is(err, pki.ErrBrokenChain):
 		return "bad_signature"
 	case errors.Is(err, identity.ErrPolicyRollback), errors.Is(err, identity.ErrSourcesRollback):
 		return "rollback"
@@ -166,11 +192,19 @@ func rejection(err error) string {
 }
 
 func (c *Control) heartbeat(ctx context.Context) (*agentv1.HeartbeatResponse, error) {
-	request := &agentv1.HeartbeatRequest{AgentVersion: c.options.Version}
+	request := &agentv1.HeartbeatRequest{
+		AgentVersion: c.options.Version, PolicyKeyEpoch: c.options.Identity.PolicyKeyEpoch(),
+		AppliedPolicyVersion: c.options.Identity.PolicyVersion(), AppliedSourcesVersion: c.options.Identity.SourcesVersion(),
+	}
 	if c.options.Health != nil {
 		request.Queue, request.AuditSources = c.options.Health.Health()
 	}
 	response, err := c.options.Client.Heartbeat(ctx, request)
+	if connect.CodeOf(err) == connect.CodeFailedPrecondition {
+		// The center does not, or does not yet, speak this agent's contract. Events
+		// wait in the queue until the agent or the center is upgraded.
+		c.options.Logger.Error("center refused the agent version", "code", codes.ContractUnsupported, "version", c.options.Version)
+	}
 	if err != nil {
 		return nil, rpcError("heartbeat", err)
 	}

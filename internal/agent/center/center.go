@@ -140,6 +140,7 @@ func Enroll(ctx context.Context, url, caFile string, request *agentv1.EnrollRequ
 		return nil, err
 	}
 	transport := connecthttp.NewTransport(httpClient(&tls.Config{RootCAs: roots}), url)
+	request.SchemaVersion = schemaVersion
 	return agentv1connect.NewEnrollmentServiceClient(connect.NewClient(transport, egressInterceptor)).Enroll(ctx, request)
 }
 
@@ -192,6 +193,11 @@ func (c *Client) GetPolicy(ctx context.Context) (*agentv1.GetPolicyResponse, err
 
 func (c *Client) GetSources(ctx context.Context) (*agentv1.GetSourcesResponse, error) {
 	return c.rpc.GetSources(ctx, &agentv1.GetSourcesRequest{Envelope: c.envelope()})
+}
+
+func (c *Client) GetSigningKeys(ctx context.Context) ([]*agentv1.SignedEndorsement, error) {
+	response, err := c.rpc.GetSigningKeys(ctx, &agentv1.GetSigningKeysRequest{Envelope: c.envelope()})
+	return response.GetEndorsements(), err
 }
 
 func (c *Client) PullJobs(ctx context.Context, maxJobs uint32) ([]*agentv1.ScanJob, error) {

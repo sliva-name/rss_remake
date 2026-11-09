@@ -1,6 +1,7 @@
 // Display names only. Decisions such as a coverage status come from the backend;
 // this file never derives one.
 
+import type { Schemas } from "./api";
 import failures from "./failures.json";
 
 const categories: Record<string, string> = {
@@ -201,6 +202,45 @@ export const ago = (value: string | undefined, now = Date.now()): string => {
 };
 
 export const shortId = (id: string): string => id.slice(0, 8);
+
+// Operator actions as nouns, so the journal does not guess anyone's gender.
+const operatorActions: Record<string, string> = {
+  "tenant.create": "Создание организации",
+  "environment.create": "Создание среды",
+  "enrollment_token.issue": "Выпуск токена регистрации",
+  "agent.enroll": "Регистрация агента",
+  "agent.revoke": "Отзыв агента",
+  "source.create": "Добавление источника",
+  "source.update": "Изменение источника",
+  "source.delete": "Удаление источника",
+  "scan.request": "Запуск сканирования",
+  "policy.publish": "Публикация политики",
+};
+
+export const operatorAction = (id: string): string => operatorActions[id] ?? id;
+
+const sourceSettings: Record<string, string> = {
+  name: "имя",
+  host: "адрес",
+  port: "порт",
+  database: "база",
+  username: "пользователь",
+  tls: "режим TLS",
+  audit_directory: "каталог журналов",
+  max_connections: "лимит соединений",
+  password: "пароль",
+};
+
+// What the journal knows beyond the action itself: names of changed settings, a
+// version. It never holds values.
+export function operatorActionDetails(action: Schemas["OperatorAction"]): string {
+  const { changes, version, reason } = action.details;
+  if (action.action === "source.update" && changes) return `Изменено: ${changes.split(",").map((name) => sourceSettings[name] ?? name).join(", ")}`;
+  if (action.action === "policy.publish" && reason === "restore") return `Версия ${version}: центр восстановлен из резервной копии, политика из неё опубликована заново`;
+  if (action.action === "policy.publish" && version) return `Версия ${version}`;
+  if (action.action === "agent.enroll") return "По токену, который выпустил этот пользователь";
+  return "";
+}
 
 // A label in the middle of a phrase. Only the first letter changes, so an
 // abbreviation such as СУБД stays as it is.

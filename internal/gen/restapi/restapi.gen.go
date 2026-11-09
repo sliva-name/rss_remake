@@ -100,6 +100,72 @@ func (e ObjectStatus) Valid() bool {
 	}
 }
 
+// Defines values for OperatorActionAction.
+const (
+	OperatorActionActionAgentEnroll          OperatorActionAction = "agent.enroll"
+	OperatorActionActionAgentRevoke          OperatorActionAction = "agent.revoke"
+	OperatorActionActionEnrollmentTokenIssue OperatorActionAction = "enrollment_token.issue"
+	OperatorActionActionEnvironmentCreate    OperatorActionAction = "environment.create"
+	OperatorActionActionPolicyPublish        OperatorActionAction = "policy.publish"
+	OperatorActionActionScanRequest          OperatorActionAction = "scan.request"
+	OperatorActionActionSourceCreate         OperatorActionAction = "source.create"
+	OperatorActionActionSourceDelete         OperatorActionAction = "source.delete"
+	OperatorActionActionSourceUpdate         OperatorActionAction = "source.update"
+	OperatorActionActionTenantCreate         OperatorActionAction = "tenant.create"
+)
+
+// Valid indicates whether the value is a known member of the OperatorActionAction enum.
+func (e OperatorActionAction) Valid() bool {
+	switch e {
+	case OperatorActionActionAgentEnroll:
+		return true
+	case OperatorActionActionAgentRevoke:
+		return true
+	case OperatorActionActionEnrollmentTokenIssue:
+		return true
+	case OperatorActionActionEnvironmentCreate:
+		return true
+	case OperatorActionActionPolicyPublish:
+		return true
+	case OperatorActionActionScanRequest:
+		return true
+	case OperatorActionActionSourceCreate:
+		return true
+	case OperatorActionActionSourceDelete:
+		return true
+	case OperatorActionActionSourceUpdate:
+		return true
+	case OperatorActionActionTenantCreate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OperatorActionObjectKind.
+const (
+	OperatorActionObjectKindAgent       OperatorActionObjectKind = "agent"
+	OperatorActionObjectKindEnvironment OperatorActionObjectKind = "environment"
+	OperatorActionObjectKindSource      OperatorActionObjectKind = "source"
+	OperatorActionObjectKindTenant      OperatorActionObjectKind = "tenant"
+)
+
+// Valid indicates whether the value is a known member of the OperatorActionObjectKind enum.
+func (e OperatorActionObjectKind) Valid() bool {
+	switch e {
+	case OperatorActionObjectKindAgent:
+		return true
+	case OperatorActionObjectKindEnvironment:
+		return true
+	case OperatorActionObjectKindSource:
+		return true
+	case OperatorActionObjectKindTenant:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Permission.
 const (
 	ActivateSource        Permission = "activateSource"
@@ -129,6 +195,7 @@ const (
 	ListCatalogColumns    Permission = "listCatalogColumns"
 	ListCatalogTables     Permission = "listCatalogTables"
 	ListEnvironments      Permission = "listEnvironments"
+	ListOperatorActions   Permission = "listOperatorActions"
 	ListPolicyVersions    Permission = "listPolicyVersions"
 	ListRiskSignals       Permission = "listRiskSignals"
 	ListScans             Permission = "listScans"
@@ -198,6 +265,8 @@ func (e Permission) Valid() bool {
 	case ListCatalogTables:
 		return true
 	case ListEnvironments:
+		return true
+	case ListOperatorActions:
 		return true
 	case ListPolicyVersions:
 		return true
@@ -357,11 +426,20 @@ type AccessSummary struct {
 
 // Agent defines model for Agent.
 type Agent struct {
-	CertificateExpires time.Time          `json:"certificateExpires"`
-	CreatedAt          time.Time          `json:"createdAt"`
-	EnvironmentId      openapi_types.UUID `json:"environmentId"`
-	Id                 openapi_types.UUID `json:"id"`
-	LastSeenAt         *time.Time         `json:"lastSeenAt,omitempty"`
+	CertificateExpires time.Time `json:"certificateExpires"`
+
+	// ContractVersion Contract version of the last accepted heartbeat
+	ContractVersion int32              `json:"contractVersion"`
+	CreatedAt       time.Time          `json:"createdAt"`
+	EnvironmentId   openapi_types.UUID `json:"environmentId"`
+	Id              openapi_types.UUID `json:"id"`
+	LastSeenAt      *time.Time         `json:"lastSeenAt,omitempty"`
+
+	// PolicyKeyEpoch Epoch of the policy signing key the agent trusts; it takes a rotated key with its next heartbeat
+	PolicyKeyEpoch int32 `json:"policyKeyEpoch"`
+
+	// ProblemCode Why the center does not accept the agent right now, such as CONTRACT_UNSUPPORTED. Absent when nothing is wrong.
+	ProblemCode *string `json:"problemCode,omitempty"`
 
 	// SealingPublicKey Uncompressed P-256 point the browser seals passwords to. Absent for agents enrolled before managed sources.
 	SealingPublicKey *[]byte     `json:"sealingPublicKey,omitempty"`
@@ -648,6 +726,35 @@ type NewTenant struct {
 
 // ObjectStatus defines model for ObjectStatus.
 type ObjectStatus string
+
+// OperatorAction defines model for OperatorAction.
+type OperatorAction struct {
+	Action    OperatorActionAction `json:"action"`
+	ActorName string               `json:"actorName"`
+
+	// ActorSubject Subject of the account at the identity provider; empty for the platform itself
+	ActorSubject string    `json:"actorSubject"`
+	At           time.Time `json:"at"`
+
+	// Details Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had).
+	Details map[string]string  `json:"details"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// ObjectId The object acted on. A token is issued for an environment, a scan is requested for a source and a policy belongs to the organization, so those carry the environment, the source and the organization.
+	ObjectId openapi_types.UUID `json:"objectId"`
+
+	// ObjectKind What objectId refers to
+	ObjectKind OperatorActionObjectKind `json:"objectKind"`
+
+	// ObjectLabel The object's name when it happened; empty when the object has none
+	ObjectLabel string `json:"objectLabel"`
+}
+
+// OperatorActionAction defines model for OperatorAction.Action.
+type OperatorActionAction string
+
+// OperatorActionObjectKind What objectId refers to
+type OperatorActionObjectKind string
 
 // Permission An operationId of this API.
 type Permission string
@@ -959,6 +1066,16 @@ type ListCatalogTablesParams struct {
 	Offset    *int  `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ListOperatorActionsParams defines parameters for ListOperatorActions.
+type ListOperatorActionsParams struct {
+	// Before Continue after the entry with this id
+	Before *openapi_types.UUID `form:"before,omitempty" json:"before,omitempty"`
+
+	// ObjectId Only actions on this object
+	ObjectId *openapi_types.UUID `form:"objectId,omitempty" json:"objectId,omitempty"`
+	Limit    *int                `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListScansParams defines parameters for ListScans.
 type ListScansParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1058,6 +1175,9 @@ type ServerInterface interface {
 
 	// (GET /me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+
+	// (GET /operator-actions)
+	ListOperatorActions(w http.ResponseWriter, r *http.Request, params ListOperatorActionsParams)
 
 	// (GET /policy)
 	GetPolicy(w http.ResponseWriter, r *http.Request)
@@ -2146,6 +2266,65 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListOperatorActions operation middleware
+func (siw *ServerInterfaceWrapper) ListOperatorActions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOperatorActionsParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "objectId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "objectId", r.URL.Query(), &params.ObjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "objectId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "objectId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOperatorActions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPolicy operation middleware
 func (siw *ServerInterfaceWrapper) GetPolicy(w http.ResponseWriter, r *http.Request) {
 
@@ -2663,6 +2842,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/policy", wrapper.PublishPolicy)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy/versions", wrapper.ListPolicyVersions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/policy/versions/{version}", wrapper.GetPolicyVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/operator-actions", wrapper.ListOperatorActions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/analytics/signals", wrapper.ListRiskSignals)
 
 	return m
@@ -3133,6 +3313,28 @@ func (response GetCurrentUser200JSONResponse) VisitGetCurrentUserResponse(w http
 	return err
 }
 
+type ListOperatorActionsRequestObject struct {
+	Params ListOperatorActionsParams
+}
+
+type ListOperatorActionsResponseObject interface {
+	VisitListOperatorActionsResponse(w http.ResponseWriter) error
+}
+
+type ListOperatorActions200JSONResponse []OperatorAction
+
+func (response ListOperatorActions200JSONResponse) VisitListOperatorActionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetPolicyRequestObject struct {
 }
 
@@ -3558,6 +3760,9 @@ type StrictServerInterface interface {
 
 	// (GET /me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+
+	// (GET /operator-actions)
+	ListOperatorActions(ctx context.Context, request ListOperatorActionsRequestObject) (ListOperatorActionsResponseObject, error)
 
 	// (GET /policy)
 	GetPolicy(ctx context.Context, request GetPolicyRequestObject) (GetPolicyResponseObject, error)
@@ -4189,6 +4394,32 @@ func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
 		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListOperatorActions operation middleware
+func (sh *strictHandler) ListOperatorActions(w http.ResponseWriter, r *http.Request, params ListOperatorActionsParams) {
+	var request ListOperatorActionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOperatorActions(ctx, request.(ListOperatorActionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOperatorActions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOperatorActionsResponseObject); ok {
+		if err := validResponse.VisitListOperatorActionsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

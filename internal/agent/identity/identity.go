@@ -50,8 +50,11 @@ type persistedState struct {
 	TenantID        uuid.UUID `json:"tenant_id"`
 	AgentID         uuid.UUID `json:"agent_id"`
 	PolicyPublicKey []byte    `json:"policy_public_key"`
-	PolicyVersion   uint64    `json:"policy_version"`
-	SourcesVersion  uint64    `json:"sources_version"`
+	// PolicyKeyEpoch is zero in state written before key rotation, which
+	// means the first key, epoch 1.
+	PolicyKeyEpoch uint32 `json:"policy_key_epoch,omitempty"`
+	PolicyVersion  uint64 `json:"policy_version"`
+	SourcesVersion uint64 `json:"sources_version"`
 }
 
 // Store is the agent's local identity. It is safe for concurrent use because
@@ -74,6 +77,7 @@ type Enrollment struct {
 	CertificatePEM  []byte
 	CACertificate   []byte
 	PolicyPublicKey []byte
+	PolicyKeyEpoch  uint32
 	// SealingKey opens passwords sealed to this agent. It never leaves the agent.
 	SealingKey *ecdh.PrivateKey
 }
@@ -115,6 +119,7 @@ func Save(directory string, enrollment Enrollment) error {
 	}
 	return writeState(directory, persistedState{
 		TenantID: enrollment.TenantID, AgentID: enrollment.AgentID, PolicyPublicKey: enrollment.PolicyPublicKey,
+		PolicyKeyEpoch: max(enrollment.PolicyKeyEpoch, 1),
 	})
 }
 
@@ -225,10 +230,46 @@ func (s *Store) PolicyVersion() uint64 {
 	return s.state.PolicyVersion
 }
 
+// policyKey is the trusted policy key; a rotation may replace it at any time.
+func (s *Store) policyKey() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.PolicyPublicKey
+}
+
+// PolicyKeyEpoch is the epoch of the trusted policy key.
+func (s *Store) PolicyKeyEpoch() uint32 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return max(s.state.PolicyKeyEpoch, 1)
+}
+
+// AcceptPolicyKeys follows the center's endorsements from the trusted key to
+// the newest one and trusts it from then on. Each step is signed by the key
+// before it, so the center cannot introduce a key the old one did not endorse
+// (ADR-0014). The earlier key is not kept: whatever it signs afterwards is
+// refused.
+func (s *Store) AcceptPolicyKeys(chain []*agentv1.SignedEndorsement) (uint32, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	epoch := max(s.state.PolicyKeyEpoch, 1)
+	key, next, err := pki.FollowEndorsements(s.state.PolicyPublicKey, epoch, chain)
+	if err != nil || next == epoch {
+		return epoch, err
+	}
+	updated := s.state
+	updated.PolicyPublicKey, updated.PolicyKeyEpoch = key, next
+	if err := writeState(s.directory, updated); err != nil {
+		return epoch, err
+	}
+	s.state = updated
+	return next, nil
+}
+
 // AcceptPolicy verifies the signature, the owning tenant and the version
 // before storing. Only then does the policy count as applied.
 func (s *Store) AcceptPolicy(payload, signature []byte) (*agentv1.Policy, error) {
-	if err := pki.VerifyPolicy(s.state.PolicyPublicKey, payload, signature); err != nil {
+	if err := pki.VerifyPolicy(s.policyKey(), payload, signature); err != nil {
 		return nil, err
 	}
 	policy, err := decode[agentv1.Policy](payload, policyDocument.name)
@@ -261,7 +302,7 @@ func (s *Store) SourcesVersion() uint64 {
 // storing, like AcceptPolicy. The list is persisted so the agent keeps serving
 // its sources after a restart while the center is down.
 func (s *Store) AcceptSources(payload, signature []byte) (*agentv1.SourceList, error) {
-	if err := pki.VerifyPolicy(s.state.PolicyPublicKey, pki.SourceListSigningInput(payload), signature); err != nil {
+	if err := pki.VerifyPolicy(s.policyKey(), pki.SourceListSigningInput(payload), signature); err != nil {
 		return nil, err
 	}
 	list, err := decode[agentv1.SourceList](payload, sourcesDocument.name)

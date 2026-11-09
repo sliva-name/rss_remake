@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
+	"dataguard/internal/core/oplog"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 )
 
@@ -34,17 +36,24 @@ type Signed struct {
 	Version   uint64
 	Payload   []byte
 	Signature []byte
+	// KeyEpoch is the epoch of the policy key that made Signature.
+	KeyEpoch uint32
 }
 
 // Repository stores policy versions of one tenant.
 type Repository interface {
-	// Publish assigns the next version inside the transaction. encode receives
-	// that version so the signature covers it.
-	Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (Signed, error)) (uint64, error)
+	// Publish assigns the next version inside the transaction, at least
+	// atLeast. encode receives that version so the signature covers it, and
+	// returns the journal entry to write in the same transaction. With atLeast
+	// set, a version already at or above it means there is nothing to publish:
+	// Publish returns that version and calls nothing.
+	Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, atLeast uint64, encode func(version uint64) (Signed, oplog.Entry, error)) (uint64, error)
 	Latest(ctx context.Context, tenantID uuid.UUID) (Signed, error)
 	// History lists every version, newest first.
 	History(ctx context.Context, tenantID uuid.UUID) ([]Published, error)
 	Version(ctx context.Context, tenantID uuid.UUID, version uint64) (Signed, error)
+	// Resign replaces the signature of a stored version.
+	Resign(ctx context.Context, tenantID uuid.UUID, signed Signed) error
 }
 
 // Published is a stored version with who published it and when.
@@ -54,10 +63,22 @@ type Published struct {
 	CreatedAt time.Time
 }
 
-// Signer signs serialized policies.
+// Signer signs serialized policies with the current policy key and checks
+// signatures made by the keys of earlier epochs.
 type Signer interface {
 	Sign(payload []byte) []byte
+	Epoch() uint32
+	Verify(epoch uint32, payload, signature []byte) error
 }
+
+var (
+	// ErrTampered means a stored policy does not match its signature: it was
+	// changed in the database, not published.
+	ErrTampered = errors.New("stored policy does not match its signature")
+	// ErrKeyRotated means another server instance already signs with a newer
+	// key than this one loaded at start: this instance must be restarted.
+	ErrKeyRotated = errors.New("the policy key was rotated after this server started")
+)
 
 type Service struct {
 	repository Repository
@@ -73,7 +94,34 @@ func (s *Service) Publish(ctx context.Context, tenantID uuid.UUID, createdBy str
 	if err := validateDetectors(detectors); err != nil {
 		return 0, err
 	}
-	return s.repository.Publish(ctx, tenantID, createdBy, func(version uint64) (Signed, error) {
+	return s.repository.Publish(ctx, tenantID, createdBy, 0, s.encode(ctx, tenantID, detectors, budget, ""))
+}
+
+// CatchUp publishes the latest policy again above the version an agent already
+// applied. An agent is ahead only when the center was restored from a backup
+// older than the agent's policy, and it refuses anything older than it has:
+// the restored policy has to come back as a newer version. The platform itself
+// publishes it, and the journal says why.
+func (s *Service) CatchUp(ctx context.Context, tenantID uuid.UUID, applied uint64) error {
+	restored := &agentv1.Policy{}
+	latest, err := s.repository.Latest(ctx, tenantID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		// A backup from before the first policy: the agent goes back to none.
+	case err != nil:
+		return err
+	default:
+		if restored, err = Decode(latest); err != nil {
+			return err
+		}
+	}
+	_, err = s.repository.Publish(oplog.WithActor(ctx, oplog.Actor{}), tenantID, "", applied+1,
+		s.encode(oplog.WithActor(ctx, oplog.Actor{}), tenantID, restored.GetCustomDetectors(), restored.GetDefaultBudget(), oplog.ReasonRestore))
+	return err
+}
+
+func (s *Service) encode(ctx context.Context, tenantID uuid.UUID, detectors []*agentv1.CustomDetector, budget *agentv1.ScanBudget, reason string) func(version uint64) (Signed, oplog.Entry, error) {
+	return func(version uint64) (Signed, oplog.Entry, error) {
 		payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(&agentv1.Policy{
 			Version:         version,
 			TenantId:        tenantID.String(),
@@ -81,14 +129,47 @@ func (s *Service) Publish(ctx context.Context, tenantID uuid.UUID, createdBy str
 			DefaultBudget:   budget,
 		})
 		if err != nil {
-			return Signed{}, fmt.Errorf("encode policy: %w", err)
+			return Signed{}, oplog.Entry{}, fmt.Errorf("encode policy: %w", err)
 		}
-		return Signed{Version: version, Payload: payload, Signature: s.signer.Sign(payload)}, nil
-	})
+		// The policy belongs to the organization, so the organization is the object.
+		entry := oplog.New(ctx, oplog.PolicyPublish, tenantID, "").With(oplog.DetailVersion, strconv.FormatUint(version, 10))
+		if reason != "" {
+			entry = entry.With(oplog.DetailReason, reason)
+		}
+		return Signed{Version: version, Payload: payload, Signature: s.signer.Sign(payload), KeyEpoch: s.signer.Epoch()}, entry, nil
+	}
 }
 
+// Latest returns the newest version signed by the current key. A version signed
+// before the key was rotated is checked with the key that signed it and signed
+// again: agents trust only the current key, so a leaked old key signs nothing
+// they accept (ADR-0014).
 func (s *Service) Latest(ctx context.Context, tenantID uuid.UUID) (Signed, error) {
-	return s.repository.Latest(ctx, tenantID)
+	signed, err := s.repository.Latest(ctx, tenantID)
+	if err != nil || signed.KeyEpoch == s.signer.Epoch() {
+		return signed, err
+	}
+	if signed.KeyEpoch > s.signer.Epoch() {
+		return Signed{}, ErrKeyRotated
+	}
+	if err := s.signer.Verify(signed.KeyEpoch, signed.Payload, signed.Signature); err != nil {
+		return Signed{}, ErrTampered
+	}
+	signed.Signature, signed.KeyEpoch = s.signer.Sign(signed.Payload), s.signer.Epoch()
+	if err := s.repository.Resign(ctx, tenantID, signed); err != nil {
+		return Signed{}, err
+	}
+	return signed, nil
+}
+
+// LatestVersion is the newest version number, without its signature: enough for
+// a heartbeat to tell an agent whether to fetch.
+func (s *Service) LatestVersion(ctx context.Context, tenantID uuid.UUID) (uint64, error) {
+	signed, err := s.repository.Latest(ctx, tenantID)
+	if errors.Is(err, ErrNotFound) {
+		return 0, nil
+	}
+	return signed.Version, err
 }
 
 func (s *Service) History(ctx context.Context, tenantID uuid.UUID) ([]Published, error) {

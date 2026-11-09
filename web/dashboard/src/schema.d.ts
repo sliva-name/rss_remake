@@ -485,6 +485,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/operator-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The journal of what operators did in the organization, newest first. It names fields and versions, never data values or passwords. */
+        get: operations["listOperatorActions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/signals": {
         parameters: {
             query?: never;
@@ -533,6 +550,33 @@ export interface components {
             customDetectors: number;
             hasScanBudget: boolean;
         };
+        OperatorAction: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            at: string;
+            /** @description Subject of the account at the identity provider; empty for the platform itself */
+            actorSubject: string;
+            actorName: string;
+            /** @enum {string} */
+            action: "tenant.create" | "environment.create" | "enrollment_token.issue" | "agent.enroll" | "agent.revoke" | "source.create" | "source.update" | "source.delete" | "scan.request" | "policy.publish";
+            /**
+             * @description What objectId refers to
+             * @enum {string}
+             */
+            objectKind: "tenant" | "environment" | "agent" | "source";
+            /**
+             * Format: uuid
+             * @description The object acted on. A token is issued for an environment, a scan is requested for a source and a policy belongs to the organization, so those carry the environment, the source and the organization.
+             */
+            objectId: string;
+            /** @description The object's name when it happened; empty when the object has none */
+            objectLabel: string;
+            /** @description Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had). */
+            details: {
+                [key: string]: string;
+            };
+        };
         RiskSignal: {
             /** @enum {string} */
             kind: "VOLUME_SPIKE" | "NEW_CATEGORY" | "FAILED_ACCESS";
@@ -567,7 +611,7 @@ export interface components {
          * @description An operationId of this API.
          * @enum {string}
          */
-        Permission: "getCurrentUser" | "getPreference" | "savePreference" | "exportAuditEvents" | "listPolicyVersions" | "getPolicyVersion" | "listRiskSignals" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "activateSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
+        Permission: "getCurrentUser" | "getPreference" | "savePreference" | "exportAuditEvents" | "listPolicyVersions" | "getPolicyVersion" | "listRiskSignals" | "listOperatorActions" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "activateSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
         NewTenant: {
             name: string;
         };
@@ -609,6 +653,18 @@ export interface components {
             /** @enum {string} */
             status: "active" | "revoked";
             version: string;
+            /**
+             * Format: int32
+             * @description Contract version of the last accepted heartbeat
+             */
+            contractVersion: number;
+            /**
+             * Format: int32
+             * @description Epoch of the policy signing key the agent trusts; it takes a rotated key with its next heartbeat
+             */
+            policyKeyEpoch: number;
+            /** @description Why the center does not accept the agent right now, such as CONTRACT_UNSUPPORTED. Absent when nothing is wrong. */
+            problemCode?: string;
             /** Format: date-time */
             certificateExpires: string;
             /** Format: date-time */
@@ -1883,6 +1939,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    listOperatorActions: {
+        parameters: {
+            query?: {
+                /** @description Continue after the entry with this id */
+                before?: string;
+                /** @description Only actions on this object */
+                objectId?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entries, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorAction"][];
                 };
             };
         };

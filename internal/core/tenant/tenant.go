@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"dataguard/internal/core/oplog"
 )
 
 const (
@@ -45,9 +47,10 @@ type Environment struct {
 // Repository persists tenants. Except for ListTenants, which is a platform
 // operation, all access is scoped to one tenant.
 type Repository interface {
-	CreateTenant(ctx context.Context, tenant Tenant) error
+	// CreateTenant and CreateEnvironment write entry in the same transaction.
+	CreateTenant(ctx context.Context, tenant Tenant, entry oplog.Entry) error
 	ListTenants(ctx context.Context) ([]Tenant, error)
-	CreateEnvironment(ctx context.Context, environment Environment) error
+	CreateEnvironment(ctx context.Context, environment Environment, entry oplog.Entry) error
 	ListEnvironments(ctx context.Context, tenantID uuid.UUID) ([]Environment, error)
 }
 
@@ -65,7 +68,7 @@ func (s *Service) CreateTenant(ctx context.Context, name string) (Tenant, error)
 		return Tenant{}, err
 	}
 	created := Tenant{ID: uuid.Must(uuid.NewV7()), Name: name, CreatedAt: time.Now().UTC()}
-	if err := s.repository.CreateTenant(ctx, created); err != nil {
+	if err := s.repository.CreateTenant(ctx, created, oplog.New(ctx, oplog.TenantCreate, created.ID, name)); err != nil {
 		return Tenant{}, err
 	}
 	return created, nil
@@ -84,7 +87,7 @@ func (s *Service) CreateEnvironment(ctx context.Context, tenantID uuid.UUID, nam
 		return Environment{}, fmt.Errorf("%w: unknown environment kind", ErrInvalid)
 	}
 	created := Environment{ID: uuid.Must(uuid.NewV7()), TenantID: tenantID, Name: name, Kind: kind, CreatedAt: time.Now().UTC()}
-	if err := s.repository.CreateEnvironment(ctx, created); err != nil {
+	if err := s.repository.CreateEnvironment(ctx, created, oplog.New(ctx, oplog.EnvironmentCreate, created.ID, name)); err != nil {
 		return Environment{}, err
 	}
 	return created, nil

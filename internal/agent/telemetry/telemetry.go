@@ -83,8 +83,8 @@ func New() *Agent {
 		delivered: registry.Counter("events_delivered_total",
 			"Events the center confirmed durable and the queue released."),
 		rejected: registry.Counter("center_documents_rejected_total",
-			"Policies and source lists from the center that failed verification.",
-			metrics.Enum("document", "policy", "sources"), metrics.Enum("reason", "bad_signature", "rollback", "invalid")),
+			"Policies, source lists and policy key endorsements from the center that failed verification.",
+			metrics.Enum("document", "policy", "sources", "policy_keys"), metrics.Enum("reason", "bad_signature", "rollback", "invalid")),
 	}
 }
 

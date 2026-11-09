@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -38,6 +40,8 @@ const (
 	defaultPartitions     = "12"
 	defaultRetention      = "168h"
 	defaultMigrateWait    = "2m"
+	oidcTimeout           = 10 * time.Second
+	defaultOIDCWait       = "2m"
 )
 
 func main() {
@@ -49,7 +53,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: dataguard-server migrate|pki-init|serve|ready")
+		return errors.New("usage: dataguard-server migrate|pki-init|rotate-policy-key|serve|ready")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -59,6 +63,8 @@ func run() error {
 		return migrateWhenReachable(ctx)
 	case "pki-init":
 		return pkiInit(os.Args[2:])
+	case "rotate-policy-key":
+		return rotatePolicyKey(os.Args[2:])
 	case "serve":
 		return serve(ctx)
 	case "ready":
@@ -93,12 +99,13 @@ func migrateWhenReachable(ctx context.Context) error {
 }
 
 func migrate(ctx context.Context) error {
-	if err := postgres.Migrate(ctx, mustEnv("DG_PG_MIGRATION_DSN"), migrations.Postgres, "postgres"); err != nil {
+	dsn := mustPostgresDSN("DG_PG_MIGRATION_DSN", "DG_PG_MIGRATION_PASSWORD")
+	if err := postgres.Migrate(ctx, dsn, migrations.Postgres, "postgres"); err != nil {
 		return err
 	}
 	owner := clickhouse.Settings{
 		Address: mustEnv("DG_CH_ADDR"), Database: mustEnv("DG_CH_DATABASE"),
-		Username: mustEnv("DG_CH_MIGRATION_USER"), Password: mustEnv("DG_CH_MIGRATION_PASSWORD"),
+		Username: mustEnv("DG_CH_MIGRATION_USER"), Password: mustSecret("DG_CH_MIGRATION_PASSWORD"),
 	}
 	if err := clickhouse.Migrate(ctx, owner, mustEnv("DG_CH_USER"), migrations.ClickHouse, "clickhouse"); err != nil {
 		return err
@@ -123,7 +130,7 @@ func migrateBroker(ctx context.Context) error {
 	}
 	runtime := brokerSettings()
 	admin := runtime
-	admin.User, admin.Password = mustEnv("DG_BROKER_ADMIN_USER"), mustEnv("DG_BROKER_ADMIN_PASSWORD")
+	admin.User, admin.Password = mustEnv("DG_BROKER_ADMIN_USER"), mustSecret("DG_BROKER_ADMIN_PASSWORD")
 	return broker.Ensure(ctx, admin, broker.Setup{
 		Topic: runtime.Topic, Group: runtime.Group, Partitions: int32(partitions), Replication: int16(replication),
 		Retention: retention, User: runtime.User, Password: runtime.Password,
@@ -134,7 +141,7 @@ func brokerSettings() broker.Settings {
 	return broker.Settings{
 		Brokers: strings.Split(mustEnv("DG_BROKERS"), ","),
 		Topic:   envOr("DG_BROKER_TOPIC", defaultTopic), Group: envOr("DG_BROKER_GROUP", defaultGroup),
-		User: mustEnv("DG_BROKER_USER"), Password: mustEnv("DG_BROKER_PASSWORD"), CAFile: os.Getenv("DG_BROKER_CA_FILE"),
+		User: mustEnv("DG_BROKER_USER"), Password: mustSecret("DG_BROKER_PASSWORD"), CAFile: os.Getenv("DG_BROKER_CA_FILE"),
 	}
 }
 
@@ -149,7 +156,7 @@ func pkiInit(args []string) error {
 	flags := flag.NewFlagSet("pki-init", flag.ContinueOnError)
 	directory := flags.String("dir", "", "directory for the CA, server and policy keys")
 	hosts := flags.String("hosts", "", "comma-separated server names and addresses")
-	keepExisting := flags.Bool("keep-existing", false, "succeed without changes if the CA already exists")
+	keepExisting := flags.Bool("keep-existing", false, "keep an existing CA and keys, renewing only the server certificate when due")
 	publicDirectory := flags.String("public-dir", "", "directory that receives a copy of the CA certificate for agents")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -157,10 +164,20 @@ func pkiInit(args []string) error {
 	if *directory == "" || *hosts == "" {
 		return errors.New("--dir and --hosts are required")
 	}
+	hostList := strings.Split(*hosts, ",")
 	if _, err := os.Stat(filepath.Join(*directory, pki.CAKeyFile)); !*keepExisting || err != nil {
-		if err := pki.Bootstrap(*directory, strings.Split(*hosts, ",")); err != nil {
+		if err := pki.Bootstrap(*directory, hostList); err != nil {
 			return err
 		}
+	} else if renewed, err := pki.EnsureServerCertificate(*directory, hostList, time.Now()); err != nil {
+		return err
+	} else if renewed {
+		fmt.Fprintln(os.Stderr, "dataguard-server: server certificate issued anew")
+	}
+	if finished, err := pki.FinishPolicyKeyRotation(*directory); err != nil {
+		return err
+	} else if finished {
+		fmt.Fprintln(os.Stderr, "dataguard-server: an interrupted policy key rotation was finished")
 	}
 	if *publicDirectory == "" {
 		return nil
@@ -173,6 +190,114 @@ func pkiInit(args []string) error {
 	return os.WriteFile(filepath.Join(filepath.Clean(*publicDirectory), pki.CACertFile), certificate, 0o644)
 }
 
+// rotatePolicyKey replaces the key that signs policies and source lists. Every
+// server instance must restart afterwards to sign with the new key; agents take
+// it with their next heartbeat (ADR-0014).
+func rotatePolicyKey(args []string) error {
+	flags := flag.NewFlagSet("rotate-policy-key", flag.ContinueOnError)
+	directory := flags.String("dir", "", "the PKI directory of pki-init")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *directory == "" {
+		return errors.New("--dir is required")
+	}
+	epoch, err := pki.RotatePolicyKey(*directory)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "dataguard-server: policy key epoch %d is current, restart every server instance\n", epoch)
+	return nil
+}
+
+// apiCertificate is the dashboard's certificate, issued by the customer for the
+// address people open. Without it the API speaks plain HTTP, which only suits
+// a stand on loopback.
+func apiCertificate() (*pki.FileCertificate, error) {
+	certFile, keyFile := os.Getenv("DG_API_TLS_CERT_FILE"), os.Getenv("DG_API_TLS_KEY_FILE")
+	switch {
+	case certFile == "" && keyFile == "":
+		return nil, nil
+	case certFile == "" || keyFile == "":
+		return nil, errors.New("DG_API_TLS_CERT_FILE and DG_API_TLS_KEY_FILE go together")
+	}
+	return pki.LoadFileCertificate(certFile, keyFile)
+}
+
+// oidcClient reaches an identity provider whose certificate is issued by the
+// customer's own CA (DG_OIDC_CA_FILE), in addition to the public ones. Without
+// the setting the default client is used.
+func oidcClient() (*http.Client, error) {
+	caFile := os.Getenv("DG_OIDC_CA_FILE")
+	if caFile == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(filepath.Clean(caFile)) //nolint:gosec // The operator chooses this path in the server's configuration.
+	if err != nil {
+		return nil, fmt.Errorf("DG_OIDC_CA_FILE: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, errors.New("DG_OIDC_CA_FILE has no certificates")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	return &http.Client{Transport: transport, Timeout: oidcTimeout}, nil
+}
+
+// discoverProvider waits for the identity provider, which may start next to the
+// server and answer only after it, instead of exiting into a restart loop. The
+// wait is bounded by DG_OIDC_WAIT, so a wrong address still fails visibly.
+func discoverProvider(ctx context.Context, issuer, clientID string, client *http.Client) (*api.OIDCAuthenticator, error) {
+	wait, err := time.ParseDuration(envOr("DG_OIDC_WAIT", defaultOIDCWait))
+	if err != nil {
+		return nil, fmt.Errorf("DG_OIDC_WAIT: %w", err)
+	}
+	deadline := time.Now().Add(wait)
+	for attempt := 0; ; attempt++ {
+		authenticator, err := api.NewOIDCAuthenticator(ctx, issuer, os.Getenv("DG_OIDC_DISCOVERY_URL"), clientID, client)
+		if err == nil || time.Now().After(deadline) {
+			return authenticator, err
+		}
+		fmt.Fprintln(os.Stderr, "dataguard-server: the identity provider is not ready yet, retrying")
+		if !retry.Sleep(ctx, retry.Backoff{Base: time.Second, Max: 5 * time.Second}.Delay(attempt)) {
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// readyClient reaches the local API. Over HTTPS it trusts exactly the
+// configured certificate under its own name, so the check needs neither the
+// customer's CA nor skipping verification.
+func readyClient() (*http.Client, string, error) {
+	certFile := os.Getenv("DG_API_TLS_CERT_FILE")
+	if certFile == "" {
+		return http.DefaultClient, "http", nil
+	}
+	pem, err := os.ReadFile(filepath.Clean(certFile)) //nolint:gosec // The operator chooses this path in the server's configuration.
+	if err != nil {
+		return nil, "", fmt.Errorf("DG_API_TLS_CERT_FILE: %w", err)
+	}
+	leaf, err := pki.ReadCertificate(certFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("DG_API_TLS_CERT_FILE: %w", err)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(pem)
+	serverName := ""
+	switch {
+	case len(leaf.DNSNames) > 0:
+		serverName = leaf.DNSNames[0]
+	case len(leaf.IPAddresses) > 0:
+		serverName = leaf.IPAddresses[0].String()
+	}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: serverName, MinVersion: tls.VersionTLS12}}
+	return &http.Client{Transport: transport}, "https", nil
+}
+
 // ready asks the local API for readiness. It exists because the image has no
 // shell or HTTP client for a container healthcheck.
 func ready(ctx context.Context) error {
@@ -183,13 +308,17 @@ func ready(ctx context.Context) error {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/readyz", http.NoBody)
+	client, scheme, err := readyClient()
 	if err != nil {
 		return err
 	}
-	response, err := http.DefaultClient.Do(request)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+net.JoinHostPort(host, port)+"/readyz", http.NoBody)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return err
 	}
@@ -202,7 +331,7 @@ func ready(ctx context.Context) error {
 
 func serve(ctx context.Context) error {
 	logger := safelog.New(os.Stdout, slog.LevelInfo)
-	store, err := postgres.Open(ctx, mustEnv("DG_PG_DSN"))
+	store, err := postgres.Open(ctx, mustPostgresDSN("DG_PG_DSN", "DG_PG_PASSWORD"))
 	if err != nil {
 		return err
 	}
@@ -210,7 +339,7 @@ func serve(ctx context.Context) error {
 
 	events, err := clickhouse.Open(ctx, clickhouse.Settings{
 		Address: mustEnv("DG_CH_ADDR"), Database: mustEnv("DG_CH_DATABASE"),
-		Username: mustEnv("DG_CH_USER"), Password: mustEnv("DG_CH_PASSWORD"),
+		Username: mustEnv("DG_CH_USER"), Password: mustSecret("DG_CH_PASSWORD"),
 	})
 	if err != nil {
 		return err
@@ -218,7 +347,11 @@ func serve(ctx context.Context) error {
 	defer func() { _ = events.Close() }()
 
 	issuer, clientID := mustEnv("DG_OIDC_ISSUER"), mustEnv("DG_OIDC_CLIENT_ID")
-	authenticator, err := api.NewOIDCAuthenticator(ctx, issuer, os.Getenv("DG_OIDC_DISCOVERY_URL"), clientID)
+	providerClient, err := oidcClient()
+	if err != nil {
+		return err
+	}
+	authenticator, err := discoverProvider(ctx, issuer, clientID, providerClient)
 	if err != nil {
 		return err
 	}
@@ -230,6 +363,10 @@ func serve(ctx context.Context) error {
 	defer publisher.Close()
 
 	pkiDirectory := mustEnv("DG_PKI_DIR")
+	dashboardCertificate, err := apiCertificate()
+	if err != nil {
+		return err
+	}
 	metrics := telemetry.New()
 	application, err := app.Build(app.Options{
 		Store: store, Events: events, Broker: publisher, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
@@ -245,7 +382,10 @@ func serve(ctx context.Context) error {
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error { consumer.Run(groupContext); return nil })
 	group.Go(func() error {
-		return app.Serve(groupContext, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), os.Getenv("DG_METRICS_ADDR"), pkiDirectory, metrics)
+		return app.Serve(groupContext, application, app.ServeOptions{
+			APIAddress: mustEnv("DG_API_ADDR"), APICertificate: dashboardCertificate,
+			AgentAddress: mustEnv("DG_AGENT_ADDR"), MetricsAddress: os.Getenv("DG_METRICS_ADDR"),
+		}, metrics, logger)
 	})
 	return group.Wait()
 }

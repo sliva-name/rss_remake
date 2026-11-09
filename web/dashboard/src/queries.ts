@@ -38,6 +38,9 @@ export const queries = {
       queryFn: version === null ? skipToken : () => api.policyVersion(version),
       meta: { needs: "getPolicyVersion" },
     }),
+  // Without an object: the whole journal, newest first.
+  operatorActions: (objectId?: string) =>
+    queryOptions({ queryKey: ["operator-actions", objectId ?? ""], queryFn: () => api.operatorActions(objectId), meta: { needs: "listOperatorActions" } }),
   table: (id: string) => queryOptions({ queryKey: ["table", id], queryFn: () => api.table(id), meta: { needs: "getCatalogTable" } }),
   column: (id: string) => queryOptions({ queryKey: ["column", id], queryFn: () => api.column(id), meta: { needs: "getCatalogColumn" } }),
 };

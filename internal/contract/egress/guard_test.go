@@ -30,6 +30,7 @@ func outboundRoots() []proto.Message {
 		&agentv1.RenewCertificateRequest{},
 		&agentv1.GetPolicyRequest{},
 		&agentv1.GetSourcesRequest{},
+		&agentv1.GetSigningKeysRequest{},
 		&agentv1.PullJobsRequest{},
 		&agentv1.SubmitScanResultRequest{},
 		&agentv1.SubmitEventsRequest{},

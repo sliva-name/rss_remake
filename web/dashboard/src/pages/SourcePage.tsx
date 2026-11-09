@@ -19,6 +19,7 @@ import { useMe } from "../me";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
 import { FavoriteButton, type ObjectRef, useRememberVisit } from "../workspace";
+import { ObjectJournal } from "./Journal";
 import { useSourceActions } from "./SourcesList";
 
 const supportTone: Record<string, Tone> = { SUPPORT_AVAILABLE: "ok", SUPPORT_NOT_CONFIGURED: "warn", SUPPORT_UNKNOWN: "warn", SUPPORT_UNAVAILABLE: "neutral" };
@@ -154,6 +155,7 @@ export function SourcePage() {
     { id: "overview", label: "Обзор", content: <Overview source={data} /> },
     { id: "tables", label: "Таблицы", needs: "listCatalogTables", content: <Tables sourceId={data.id} /> },
     { id: "scans", label: "Сканирования", needs: "listScans", content: <Scans sourceId={data.id} /> },
+    { id: "journal", label: "Журнал действий", needs: "listOperatorActions", content: <ObjectJournal objectId={data.id} /> },
   ];
 
   return (

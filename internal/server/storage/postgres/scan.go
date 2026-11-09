@@ -11,27 +11,34 @@ import (
 
 	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/asset"
+	"dataguard/internal/core/oplog"
 	"dataguard/internal/core/scan"
 )
 
-func (s *Store) SourceExists(ctx context.Context, tenantID, sourceID uuid.UUID) (bool, error) {
-	var exists bool
+func (s *Store) ScannableSource(ctx context.Context, tenantID, sourceID uuid.UUID) (string, bool, error) {
+	var name string
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		// A draft exists only to be checked: it cannot be scanned until saved.
-		return tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sources WHERE id = $1 AND deleted_at IS NULL AND NOT draft)`, sourceID).Scan(&exists)
+		const query = `SELECT source_key FROM sources WHERE id = $1 AND deleted_at IS NULL AND NOT draft`
+		return tx.QueryRow(ctx, query, sourceID).Scan(&name)
 	})
-	if err != nil {
-		return false, storageError("check source", err)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
 	}
-	return exists, nil
+	if err != nil {
+		return "", false, storageError("check source", err)
+	}
+	return name, true, nil
 }
 
-func (s *Store) CreateJob(ctx context.Context, job scan.Job) error {
+func (s *Store) CreateJob(ctx context.Context, job scan.Job, entry oplog.Entry) error {
 	err := s.inTenant(ctx, job.TenantID, func(tx pgx.Tx) error {
 		const insert = `INSERT INTO scan_jobs (id, tenant_id, source_id, status, requested_by, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6)`
-		_, err := tx.Exec(ctx, insert, job.ID, job.TenantID, job.SourceID, job.Status, job.RequestedBy, job.CreatedAt)
-		return err
+		if _, err := tx.Exec(ctx, insert, job.ID, job.TenantID, job.SourceID, job.Status, job.RequestedBy, job.CreatedAt); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, job.TenantID, entry)
 	})
 	if err != nil {
 		return storageError("create scan job", err)

@@ -1,0 +1,246 @@
+# A DataGuard center on one host (INSTALL.md). Settings come from .env next to
+# this file, passwords from files in DG_SECRETS_DIR (prepare.sh writes them), the
+# dashboard certificate from DG_TLS_DIR. Only the dashboard, the agent endpoint
+# and, with the keycloak profile, Keycloak are published.
+name: dataguard
+
+services:
+  center-postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_DB: dataguard
+      POSTGRES_USER: dg_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/center_pg_admin_password
+      CENTER_PG_APP_PASSWORD_FILE: /run/secrets/center_pg_app_password
+      KEYCLOAK_DB_PASSWORD_FILE: /run/secrets/keycloak_db_password
+    secrets: [center_pg_admin_password, center_pg_app_password, keycloak_db_password]
+    volumes:
+      - ../center/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U dg_owner -d dataguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  center-clickhouse:
+    image: clickhouse/clickhouse-server:26.8.36.3-alpine
+    environment:
+      CLICKHOUSE_DB: dataguard
+      CLICKHOUSE_USER: dg_ch_admin
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/center_ch_admin_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CENTER_CH_APP_PASSWORD_FILE: /run/secrets/center_ch_app_password
+    secrets: [center_ch_admin_password, center_ch_app_password]
+    volumes:
+      - ../center/clickhouse-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - clickhouse-data:/var/lib/clickhouse
+    ulimits:
+      nofile: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://$$(hostname):8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # One broker node (ADR-0009). Unlike the stand it keeps fsync on: the topic is
+  # the buffer the center relies on while ClickHouse is down.
+  center-redpanda:
+    image: redpandadata/redpanda:v26.2.6@sha256:8b1076e0d61bfceb66594dc01536427ce0b529f8ead35fdab9763ab6085891ce
+    # The image takes its first user from a variable only; the variable is set
+    # inside the container from the secret file, out of the Docker API's view.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - RP_BOOTSTRAP_USER="dg_broker_admin:$$(cat /run/secrets/center_broker_admin_password):SCRAM-SHA-256" exec /entrypoint.sh "$$@"
+      - redpanda-entrypoint
+    command:
+      - redpanda
+      - start
+      - --smp=${DG_BROKER_CPUS:-1}
+      - --memory=${DG_BROKER_MEMORY:-2G}
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --kafka-addr=internal://0.0.0.0:9092
+      - --advertise-kafka-addr=internal://center-redpanda:9092
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=center-redpanda:33145
+      - --default-log-level=warn
+    secrets: [center_broker_admin_password]
+    volumes:
+      - ./redpanda/bootstrap.yaml:/etc/redpanda/.bootstrap.yaml:ro
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    restart: unless-stopped
+
+  # The bundled identity provider, for installations without their own. It is
+  # published on the dashboard's host under its own port and keeps its data in
+  # the center's PostgreSQL. Inside the network the public host name leads to it,
+  # so the server checks tokens at the same address browsers sign in at.
+  keycloak:
+    profiles: [keycloak]
+    image: quay.io/keycloak/keycloak:26.8.2
+    entrypoint:
+      - /bin/bash
+      - -c
+      - >-
+        KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/keycloak_admin_password)"
+        KC_DB_PASSWORD="$$(cat /run/secrets/keycloak_db_password)"
+        exec /opt/keycloak/bin/kc.sh "$$@"
+      - keycloak-entrypoint
+    command:
+      - start
+      - --import-realm
+      - --hostname=${DG_KEYCLOAK_URL:-}
+      - --https-port=${DG_KEYCLOAK_PORT:-8444}
+      - --http-enabled=false
+      - --https-certificate-file=/run/secrets/dashboard_crt
+      - --https-certificate-key-file=/run/secrets/dashboard_key
+      - --health-enabled=true
+      # Health answers on port 9000 inside the container only, over plain HTTP
+      # so the healthcheck needs no TLS client; the port is not published.
+      - --http-management-scheme=http
+      - --db=postgres
+      - --db-url=jdbc:postgresql://center-postgres:5432/keycloak
+      - --db-username=keycloak
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: dg_admin
+      # The realm file reads it for its redirect addresses.
+      DG_PUBLIC_URL: ${DG_PUBLIC_URL}
+    secrets: [keycloak_admin_password, keycloak_db_password, dashboard_crt, dashboard_key]
+    volumes:
+      - ./keycloak/dataguard-realm.json:/opt/keycloak/data/import/dataguard-realm.json:ro
+      - ../keycloak/themes/dataguard:/opt/keycloak/themes/dataguard:ro
+    networks:
+      default:
+        aliases: ["${DG_PUBLIC_HOST:-keycloak.invalid}"]
+    ports: ["${DG_KEYCLOAK_PORT:-8444}:${DG_KEYCLOAK_PORT:-8444}"]
+    depends_on:
+      center-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    restart: unless-stopped
+
+  pki-init:
+    image: dataguard/server:${DG_VERSION}
+    command: ["pki-init", "--dir", "/var/lib/dataguard/pki", "--hosts", "${DG_AGENT_HOSTS}", "--keep-existing"]
+    volumes:
+      - pki:/var/lib/dataguard/pki
+    restart: "no"
+
+  migrate:
+    image: dataguard/server:${DG_VERSION}
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      center-postgres:
+        condition: service_healthy
+      center-clickhouse:
+        condition: service_healthy
+      center-redpanda:
+        condition: service_healthy
+    command: ["migrate"]
+    environment:
+      DG_PG_MIGRATION_DSN: postgres://dg_owner@center-postgres:5432/dataguard?sslmode=disable
+      DG_PG_MIGRATION_PASSWORD_FILE: /run/secrets/center_pg_admin_password
+      DG_CH_ADDR: center-clickhouse:9000
+      DG_CH_DATABASE: dataguard
+      DG_CH_USER: dg_ch_app
+      DG_CH_MIGRATION_USER: dg_ch_admin
+      DG_CH_MIGRATION_PASSWORD_FILE: /run/secrets/center_ch_admin_password
+      DG_BROKERS: center-redpanda:9092
+      DG_BROKER_USER: dg_broker_app
+      DG_BROKER_PASSWORD_FILE: /run/secrets/center_broker_app_password
+      DG_BROKER_ADMIN_USER: dg_broker_admin
+      DG_BROKER_ADMIN_PASSWORD_FILE: /run/secrets/center_broker_admin_password
+      DG_BROKER_REPLICATION: ${DG_BROKER_REPLICATION:-1}
+    secrets: [center_pg_admin_password, center_ch_admin_password, center_broker_app_password, center_broker_admin_password]
+    restart: "no"
+
+  server:
+    image: dataguard/server:${DG_VERSION}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+        required: false
+    environment:
+      DG_PG_DSN: postgres://dg_runtime@center-postgres:5432/dataguard?sslmode=disable
+      DG_PG_PASSWORD_FILE: /run/secrets/center_pg_app_password
+      DG_CH_ADDR: center-clickhouse:9000
+      DG_CH_DATABASE: dataguard
+      DG_CH_USER: dg_ch_app
+      DG_CH_PASSWORD_FILE: /run/secrets/center_ch_app_password
+      DG_BROKERS: center-redpanda:9092
+      DG_BROKER_USER: dg_broker_app
+      DG_BROKER_PASSWORD_FILE: /run/secrets/center_broker_app_password
+      DG_API_TLS_CERT_FILE: /run/secrets/dashboard_crt
+      DG_API_TLS_KEY_FILE: /run/secrets/dashboard_key
+      DG_OIDC_ISSUER: ${DG_OIDC_ISSUER}
+      DG_OIDC_CLIENT_ID: ${DG_OIDC_CLIENT_ID:-dataguard-dashboard}
+      DG_OIDC_CA_FILE: ${DG_OIDC_CA_FILE:-}
+      # Not published: scrape it from the host's network or add a port.
+      DG_METRICS_ADDR: ":9100"
+    secrets: [center_pg_app_password, center_ch_app_password, center_broker_app_password, dashboard_crt, dashboard_key, oidc_ca]
+    ports:
+      - "${DG_DASHBOARD_PORT:-443}:8080"
+      - "${DG_AGENT_PORT:-8443}:8443"
+    volumes:
+      - pki:/var/lib/dataguard/pki:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/dataguard-server", "ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # docker compose --profile backup run --rm backup backup|restore (INSTALL.md).
+  # The PostgreSQL image has pg_dump, pg_restore and tar; the platform's do not.
+  backup:
+    profiles: [backup]
+    image: postgres:17.11-bookworm
+    entrypoint: ["/bin/bash", "/opt/dataguard/backup.sh"]
+    depends_on:
+      center-postgres:
+        condition: service_healthy
+    secrets: [center_pg_admin_password]
+    volumes:
+      - ../backup.sh:/opt/dataguard/backup.sh:ro
+      - pki:/pki
+      - ${DG_BACKUP_DIR:-./backup}:/backup
+    restart: "no"
+
+secrets:
+  center_pg_admin_password: {file: "${DG_SECRETS_DIR:-./secrets}/center_pg_admin_password"}
+  center_pg_app_password: {file: "${DG_SECRETS_DIR:-./secrets}/center_pg_app_password"}
+  center_ch_admin_password: {file: "${DG_SECRETS_DIR:-./secrets}/center_ch_admin_password"}
+  center_ch_app_password: {file: "${DG_SECRETS_DIR:-./secrets}/center_ch_app_password"}
+  center_broker_admin_password: {file: "${DG_SECRETS_DIR:-./secrets}/center_broker_admin_password"}
+  center_broker_app_password: {file: "${DG_SECRETS_DIR:-./secrets}/center_broker_app_password"}
+  keycloak_admin_password: {file: "${DG_SECRETS_DIR:-./secrets}/keycloak_admin_password"}
+  keycloak_db_password: {file: "${DG_SECRETS_DIR:-./secrets}/keycloak_db_password"}
+  # Mounted one by one rather than as a directory: the directory stays closed to
+  # other users of the host, and the containers' own users still read the files.
+  # A certificate copied over the file takes effect without a restart; a file
+  # replaced by a new one needs docker compose restart server keycloak.
+  dashboard_crt: {file: "${DG_TLS_DIR:-./tls}/dashboard.crt"}
+  dashboard_key: {file: "${DG_TLS_DIR:-./tls}/dashboard.key"}
+  # Empty unless the identity provider's certificate comes from your own CA.
+  oidc_ca: {file: "${DG_TLS_DIR:-./tls}/oidc-ca.crt"}
+
+volumes:
+  postgres-data:
+  clickhouse-data:
+  redpanda-data:
+  pki:

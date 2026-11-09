@@ -50,6 +50,7 @@ func Enroll(ctx context.Context, settings *config.Config, token, version string)
 		CertificatePEM:  response.GetCertificatePem(),
 		CACertificate:   response.GetCaCertificatePem(),
 		PolicyPublicKey: response.GetPolicyPublicKey(),
+		PolicyKeyEpoch:  response.GetPolicyKeyEpoch(),
 		SealingKey:      sealingKey,
 	})
 }

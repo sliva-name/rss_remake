@@ -11,10 +11,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/asset"
 	"dataguard/internal/core/audit"
 	"dataguard/internal/core/coverage"
 	"dataguard/internal/core/fleet"
+	"dataguard/internal/core/oplog"
 	"dataguard/internal/core/policy"
 	"dataguard/internal/core/preference"
 	"dataguard/internal/core/scan"
@@ -36,6 +38,7 @@ type Services struct {
 	Events      audit.Reader
 	Coverage    *coverage.Service
 	Preferences *preference.Service
+	Journal     *oplog.Service
 }
 
 // Server implements the generated strict interface.
@@ -48,6 +51,7 @@ type Server struct {
 	events      audit.Reader
 	coverage    *coverage.Service
 	preferences *preference.Service
+	journal     *oplog.Service
 	signals     *signalCache
 }
 
@@ -77,7 +81,7 @@ func New(services Services) *Server {
 	return &Server{
 		tenants: services.Tenants, fleet: services.Fleet, policies: services.Policies,
 		scans: services.Scans, catalog: services.Catalog, events: services.Events, coverage: services.Coverage,
-		preferences: services.Preferences, signals: &signalCache{},
+		preferences: services.Preferences, journal: services.Journal, signals: &signalCache{},
 	}
 }
 
@@ -286,11 +290,15 @@ func toEnvironment(item tenant.Environment) restapi.Environment {
 func toAgent(item fleet.Agent) restapi.Agent {
 	agent := restapi.Agent{
 		Id: item.ID, EnvironmentId: item.EnvironmentID, Status: restapi.AgentStatus(item.Status),
-		Version: item.Version, CertificateExpires: item.CertificateExpires,
-		LastSeenAt: item.LastSeenAt, CreatedAt: item.CreatedAt,
+		Version: item.Version, ContractVersion: int32(item.ContractVersion), PolicyKeyEpoch: int32(item.PolicyKeyEpoch),
+		CertificateExpires: item.CertificateExpires,
+		LastSeenAt:         item.LastSeenAt, CreatedAt: item.CreatedAt,
 	}
 	if len(item.SealingPublicKey) > 0 {
 		agent.SealingPublicKey = &item.SealingPublicKey
+	}
+	if item.RefusedContractVersion != nil {
+		agent.ProblemCode = new(codes.ContractUnsupported)
 	}
 	return agent
 }

@@ -16,6 +16,7 @@ var (
 	tenantReaders  = []string{RoleTenantAdmin, RoleSecurityAnalyst, RoleAuditor}
 	tenantAdmins   = []string{RoleTenantAdmin}
 	scanRequesters = []string{RoleTenantAdmin, RoleSecurityAnalyst}
+	journalReaders = []string{RoleTenantAdmin, RoleAuditor}
 	platformOnly   = []string{RolePlatformAdmin}
 	anyRole        = []string{RolePlatformAdmin, RoleTenantAdmin, RoleSecurityAnalyst, RoleAuditor}
 )
@@ -66,6 +67,8 @@ var accessRules = map[string]accessRule{
 	"GetPolicyVersion":      {roles: tenantReaders, tenantScoped: true},
 	"ExportAuditEvents":     {roles: tenantReaders, tenantScoped: true},
 	"ListRiskSignals":       {roles: tenantReaders, tenantScoped: true},
+	// Who changed what is for those who administer or audit the organization.
+	"ListOperatorActions": {roles: journalReaders, tenantScoped: true},
 	// Personal settings belong to an account inside an organization; the row
 	// policy ties every read and write to the caller.
 	"GetPreference":  {roles: tenantReaders, tenantScoped: true},

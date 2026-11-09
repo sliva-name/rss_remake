@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"dataguard/internal/core/asset"
+	"dataguard/internal/core/oplog"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 )
 
@@ -68,7 +69,8 @@ type Outcome struct {
 
 // Repository persists jobs and the catalog.
 type Repository interface {
-	CreateJob(ctx context.Context, job Job) error
+	// CreateJob writes entry in the same transaction.
+	CreateJob(ctx context.Context, job Job, entry oplog.Entry) error
 	ListJobs(ctx context.Context, tenantID uuid.UUID, limit int) ([]Job, error)
 	// LeaseJobs hands runnable jobs of this agent's sources to it.
 	LeaseJobs(ctx context.Context, tenantID, agentID uuid.UUID, maxJobs int) ([]Job, error)
@@ -77,9 +79,10 @@ type Repository interface {
 	Complete(ctx context.Context, tenantID, agentID, jobID uuid.UUID, build func(existing []asset.Table) (Outcome, error)) error
 }
 
-// Sources checks that a source exists for the tenant.
+// Sources finds the source a scan is asked for.
 type Sources interface {
-	SourceExists(ctx context.Context, tenantID, sourceID uuid.UUID) (bool, error)
+	// ScannableSource returns the name of a saved, live source.
+	ScannableSource(ctx context.Context, tenantID, sourceID uuid.UUID) (name string, found bool, err error)
 }
 
 type Service struct {
@@ -93,7 +96,7 @@ func NewService(repository Repository, sources Sources) *Service {
 
 // Request queues a scan.
 func (s *Service) Request(ctx context.Context, tenantID, sourceID uuid.UUID, requestedBy string) (Job, error) {
-	exists, err := s.sources.SourceExists(ctx, tenantID, sourceID)
+	name, exists, err := s.sources.ScannableSource(ctx, tenantID, sourceID)
 	if err != nil {
 		return Job{}, err
 	}
@@ -104,7 +107,7 @@ func (s *Service) Request(ctx context.Context, tenantID, sourceID uuid.UUID, req
 		ID: uuid.Must(uuid.NewV7()), TenantID: tenantID, SourceID: sourceID, Status: StatusPending,
 		RequestedBy: requestedBy, CreatedAt: time.Now().UTC(),
 	}
-	if err := s.repository.CreateJob(ctx, job); err != nil {
+	if err := s.repository.CreateJob(ctx, job, oplog.New(ctx, oplog.ScanRequest, sourceID, name)); err != nil {
 		return Job{}, err
 	}
 	return job, nil

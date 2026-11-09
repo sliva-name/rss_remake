@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
+	"dataguard/internal/core/oplog"
 	agentv1 "dataguard/internal/gen/dataguard/agent/v1"
 	"dataguard/internal/platform/pki"
 )
@@ -83,7 +84,12 @@ func (s *Service) CreateSource(ctx context.Context, tenantID uuid.UUID, source S
 	}
 	source.ID = uuid.Must(uuid.NewV7())
 	source.TenantID = tenantID
-	if err := s.repository.CreateSource(ctx, source); err != nil {
+	// A draft only checks the connection; the journal records it once it is saved.
+	var entry *oplog.Entry
+	if !source.Draft {
+		entry = new(oplog.New(ctx, oplog.SourceCreate, source.ID, source.Key))
+	}
+	if err := s.repository.CreateSource(ctx, source, entry); err != nil {
 		return Source{}, err
 	}
 	return source, nil
@@ -106,13 +112,18 @@ func (s *Service) UpdateSource(ctx context.Context, tenantID, sourceID uuid.UUID
 	if err := validateSource(&update); err != nil {
 		return Source{}, err
 	}
-	if len(update.SealedPassword) == 0 {
+	newPassword := len(update.SealedPassword) > 0
+	if !newPassword {
 		if bindingChanged(current, update) {
 			return Source{}, fmt.Errorf("%w: connection settings changed, enter the password again", ErrInvalid)
 		}
 		update.SealedPassword = current.SealedPassword
 	}
-	if err := s.repository.UpdateSource(ctx, update); err != nil {
+	var entry *oplog.Entry
+	if changes := changedSettings(current, update, newPassword); !current.Draft && len(changes) > 0 {
+		entry = new(oplog.New(ctx, oplog.SourceUpdate, update.ID, update.Key).With(oplog.DetailChanges, strings.Join(changes, ",")))
+	}
+	if err := s.repository.UpdateSource(ctx, update, entry); err != nil {
 		return Source{}, err
 	}
 	return update, nil
@@ -123,15 +134,53 @@ func bindingChanged(current, update Source) bool {
 		current.Username != update.Username || current.TLS != update.TLS
 }
 
+// changedSettings names what an update changes, for the journal. A new password
+// is named, never shown: the center cannot read it anyway.
+func changedSettings(current, update Source, newPassword bool) []string {
+	var changes []string
+	for _, setting := range []struct {
+		name    string
+		changed bool
+	}{
+		{"name", current.Key != update.Key},
+		{"host", current.Host != update.Host},
+		{"port", current.Port != update.Port},
+		{"database", current.Database != update.Database},
+		{"username", current.Username != update.Username},
+		{"tls", current.TLS != update.TLS},
+		{"audit_directory", current.AuditDirectory != update.AuditDirectory},
+		{"max_connections", current.MaxConnections != update.MaxConnections},
+		{"password", newPassword},
+	} {
+		if setting.changed {
+			changes = append(changes, setting.name)
+		}
+	}
+	return changes
+}
+
 // DeleteSource stops the agent serving the source; its history stays.
 func (s *Service) DeleteSource(ctx context.Context, tenantID, sourceID uuid.UUID) error {
-	return s.repository.DeleteSource(ctx, tenantID, sourceID)
+	current, err := s.repository.GetSource(ctx, tenantID, sourceID)
+	if err != nil {
+		return err
+	}
+	var entry *oplog.Entry
+	if !current.Draft {
+		entry = new(oplog.New(ctx, oplog.SourceDelete, sourceID, current.Key))
+	}
+	return s.repository.DeleteSource(ctx, tenantID, sourceID, entry)
 }
 
 // ActivateSource turns a checked draft into a source the agent scans and
-// audits. Activating a source that is not a draft is a no-op.
+// audits; for the journal that is when the source is created. Activating a
+// source that is not a draft is a no-op.
 func (s *Service) ActivateSource(ctx context.Context, tenantID, sourceID uuid.UUID) (Source, error) {
-	if err := s.repository.ActivateSource(ctx, tenantID, sourceID); err != nil {
+	current, err := s.repository.GetSource(ctx, tenantID, sourceID)
+	if err != nil || !current.Draft {
+		return current, err
+	}
+	if err := s.repository.ActivateSource(ctx, tenantID, sourceID, oplog.New(ctx, oplog.SourceCreate, sourceID, current.Key)); err != nil {
 		return Source{}, err
 	}
 	return s.repository.GetSource(ctx, tenantID, sourceID)

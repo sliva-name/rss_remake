@@ -48,6 +48,16 @@ make agent-up
 make agent-reset
 ```
 
+Резервная копия центра — база PostgreSQL и том PKI — пишется в `deployments/dev/.state/backup`, каталог можно задать через `BACKUP_DIR`. Восстановление останавливает сервер, заменяет базу и том содержимым копии и запускает сервер снова. Что входит в копию и что сделать после восстановления, описано в ADR-0015.
+
+```bash
+make backup
+```
+
+```bash
+make restore
+```
+
 Интеграционные тесты поднимают сервер внутри процесса теста, на базах стенда:
 
 ```bash
@@ -66,12 +76,18 @@ make test-e2e
 make test-performance
 ```
 
+Тест установки ставит центр из `deployments/production` по `docs/INSTALL.md` отдельным compose-проектом на портах 25643–25645, рядом со стендом. Он заводит организацию через Keycloak из комплекта, регистрирует агента из `deployments/agent`, делает резервную копию, восстанавливается из неё и меняет ключ политик. Занимает около полутора минут.
+
+```bash
+make test-install
+```
+
 ## CI
 
 GitHub Actions запускает те же команды, что и локально (`.github/workflows/ci.yml`):
 
 - на каждый push и PR — `make check`, проверку, что сгенерированный код совпадает с контрактами, сборку и тесты Dashboard;
-- для PR и `main` — поднятие стенда (`make dev-up`), затем `make test-integration` и `make test-e2e`. При падении сохраняются журналы контейнеров платформы и скриншоты браузера. Журналы СУБД и Keycloak не сохраняются: в них могут быть пароли стенда.
+- для PR и `main` — поднятие стенда (`make dev-up`), затем `make test-integration`, `make test-e2e` и `make test-install`. При падении сохраняются журналы контейнеров платформы и скриншоты браузера. Журналы СУБД и Keycloak не сохраняются: в них могут быть пароли стенда.
 
 Нагрузочные тесты (`.github/workflows/performance.yml`) запускаются раз в неделю и вручную. На диск runner GitHub эталонные 100 млн событий не помещаются, поэтому там засевается 20 млн. Эталонный прогон делается на машине стенда.
 
@@ -82,6 +98,8 @@ make proto
 ```
 
 ## Запуск
+
+Промышленная установка центра и агентов, требования к ресурсам, обновление, резервные копии и замена ключей описаны в [docs/INSTALL.md](docs/INSTALL.md). Ниже — справочник по образам и настройкам.
 
 Образы собираются из `Dockerfile` в корне репозитория: цель `server` — сервер с Dashboard, цель `agent` — агент.
 
@@ -95,22 +113,26 @@ docker build --target agent -t dataguard/agent .
 
 Готовая связка сервисов — `deployments/dev/compose.yml`. Сервер настраивается переменными окружения:
 
-- `DG_PG_DSN` — роль без `BYPASSRLS`;
-- `DG_PG_MIGRATION_DSN` — владелец схемы;
+- `DG_PG_DSN` — роль без `BYPASSRLS`, адрес в форме `postgres://пользователь@хост:порт/база?sslmode=...`, пароль — в `DG_PG_PASSWORD_FILE`;
+- `DG_PG_MIGRATION_DSN` и `DG_PG_MIGRATION_PASSWORD_FILE` — владелец схемы;
 - `DG_PKI_DIR`, `DG_API_ADDR`, `DG_AGENT_ADDR`;
+- `DG_API_TLS_CERT_FILE` и `DG_API_TLS_KEY_FILE` — сертификат Dashboard и API, который заказчик выпускает на адрес, открываемый в браузере. С ними порт `DG_API_ADDR` принимает только HTTPS и отдаёт HSTS. Продлённый сертификат сервер подхватывает без перезапуска. Без них порт работает по HTTP, это годится только для стенда на loopback;
 - `DG_OIDC_ISSUER` и `DG_OIDC_CLIENT_ID`;
 - `DG_OIDC_DISCOVERY_URL` — необязательно: адрес провайдера, если сервер видит его не так, как браузер;
-- `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD`;
-- `DG_CH_MIGRATION_USER` и `DG_CH_MIGRATION_PASSWORD`;
-- `DG_BROKERS`, `DG_BROKER_USER`, `DG_BROKER_PASSWORD` — брокер Redpanda и учётная запись сервера в нём. Необязательно: `DG_BROKER_TOPIC`, `DG_BROKER_GROUP`, `DG_BROKER_CA_FILE` для TLS;
-- для `migrate` ещё `DG_BROKER_ADMIN_USER`, `DG_BROKER_ADMIN_PASSWORD` и `DG_BROKER_REPLICATION`: 1 только для стенда, при установке 3 узла и 3. Необязательно: `DG_BROKER_PARTITIONS` (12) и `DG_BROKER_RETENTION` (`168h`);
+- `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD_FILE`;
+- `DG_CH_MIGRATION_USER` и `DG_CH_MIGRATION_PASSWORD_FILE`;
+- `DG_BROKERS`, `DG_BROKER_USER`, `DG_BROKER_PASSWORD_FILE` — брокер Redpanda и учётная запись сервера в нём. Необязательно: `DG_BROKER_TOPIC`, `DG_BROKER_GROUP`, `DG_BROKER_CA_FILE` для TLS;
+- для `migrate` ещё `DG_BROKER_ADMIN_USER`, `DG_BROKER_ADMIN_PASSWORD_FILE` и `DG_BROKER_REPLICATION`: 1 только для стенда, при установке 3 узла и 3. Необязательно: `DG_BROKER_PARTITIONS` (12) и `DG_BROKER_RETENTION` (`168h`);
 - `DG_METRICS_ADDR` — необязательно: адрес порта метрик Prometheus, например `:9100`. Порт без аутентификации, открывайте его только во внутренней сети.
+
+Пароли передаются файлами: переменная с окончанием `_FILE` называет файл секрета, например `/run/secrets/center_pg_app_password`. Переменную окружения видит любой, у кого есть доступ к Docker API, а смонтированный файл — нет. Пароль можно передать и самой переменной без `_FILE`, например `DG_CH_PASSWORD`, но только вне промышленной установки. Если заданы оба способа, сервер не запустится.
 
 Страницы входа рисует провайдер OIDC, а не Dashboard. Для Keycloak есть тема в стиле Dashboard: `deployments/keycloak/themes/dataguard`. Каталог копируется в `/opt/keycloak/themes/dataguard`, в realm выставляется тема входа `dataguard` и русский язык, как в `deployments/dev/keycloak/dataguard-realm.json`. Цвета темы — копия цветов Dashboard, тест Dashboard следит, чтобы они не разошлись. Другой провайдер OIDC показывает свои страницы.
 
 Подкоманды образа сервера:
 
-- `pki-init --dir DIR --hosts HOSTS [--keep-existing] [--public-dir DIR]`;
+- `pki-init --dir DIR --hosts HOSTS [--keep-existing] [--public-dir DIR]` — с `--keep-existing` сохраняет CA и ключи, но перевыпускает сертификат сервера, если прошла половина срока или изменился список имён;
+- `rotate-policy-key --dir DIR` — заменяет ключ подписи политик и списков источников (ADR-0014). После неё перезапустите все экземпляры сервера, агенты возьмут новый ключ со следующим heartbeat;
 - `migrate`;
 - `serve` — запускается по умолчанию;
 - `ready` — проверка для healthcheck.

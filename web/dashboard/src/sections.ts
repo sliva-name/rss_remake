@@ -1,6 +1,7 @@
 import {
   Building2,
   Database,
+  History,
   Layers,
   LayoutDashboard,
   type LucideIcon,
@@ -39,6 +40,7 @@ export const sections: readonly Section[] = [
   { path: "/policy", title: "Политика", icon: ShieldCheck, group: "Контроль", needs: ["getPolicy"], owns: [] },
   { path: "/environments", title: "Среды", icon: Layers, group: "Администрирование", needs: ["listEnvironments"], owns: [] },
   { path: "/tenants", title: "Организации", icon: Building2, group: "Администрирование", needs: ["listTenants"], owns: [] },
+  { path: "/journal", title: "Журнал действий", icon: History, group: "Администрирование", needs: ["listOperatorActions"], owns: [] },
 ];
 
 // Earlier addresses keep working: links people saved or sent still open the

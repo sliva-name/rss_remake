@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -179,11 +178,10 @@ func Bootstrap(dir string, hosts []string) error {
 	if err := os.MkdirAll(dir, directoryMode); err != nil {
 		return fmt.Errorf("create pki directory: %w", err)
 	}
-	caCert, caKey, err := createCA(dir)
-	if err != nil {
+	if err := createCA(dir); err != nil {
 		return err
 	}
-	if err := createServerCertificate(dir, caCert, caKey, hosts); err != nil {
+	if _, err := EnsureServerCertificate(dir, hosts, time.Now()); err != nil {
 		return err
 	}
 	return createPolicyKey(dir)
@@ -195,17 +193,16 @@ const (
 	CAKeyFile      = "ca.key"
 	ServerCertFile = "server.crt"
 	ServerKeyFile  = "server.key"
-	PolicyKeyFile  = "policy.key"
 )
 
-func createCA(dir string) (*x509.Certificate, crypto.Signer, error) {
+func createCA(dir string) error {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate ca key: %w", err)
+		return fmt.Errorf("generate ca key: %w", err)
 	}
 	serial, err := newSerial()
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	now := time.Now().UTC()
 	template := &x509.Certificate{
@@ -220,48 +217,9 @@ func createCA(dir string) (*x509.Certificate, crypto.Signer, error) {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("sign ca certificate: %w", err)
+		return fmt.Errorf("sign ca certificate: %w", err)
 	}
-	if err := writeKeyPair(dir, CACertFile, CAKeyFile, der, key); err != nil {
-		return nil, nil, err
-	}
-	certificate, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parse ca certificate: %w", err)
-	}
-	return certificate, key, nil
-}
-
-func createServerCertificate(dir string, ca *x509.Certificate, caKey crypto.Signer, hosts []string) error {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return fmt.Errorf("generate server key: %w", err)
-	}
-	serial, err := newSerial()
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	template := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "dataguard-server"},
-		NotBefore:    now.Add(-time.Minute),
-		NotAfter:     now.Add(serverLifetime),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	for _, host := range hosts {
-		if ip := net.ParseIP(host); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else {
-			template.DNSNames = append(template.DNSNames, host)
-		}
-	}
-	der, err := x509.CreateCertificate(rand.Reader, template, ca, key.Public(), caKey)
-	if err != nil {
-		return fmt.Errorf("sign server certificate: %w", err)
-	}
-	return writeKeyPair(dir, ServerCertFile, ServerKeyFile, der, key)
+	return writeKeyPair(dir, CACertFile, CAKeyFile, der, key)
 }
 
 func createPolicyKey(dir string) error {

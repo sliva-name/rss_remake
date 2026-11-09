@@ -6,10 +6,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"dataguard/internal/core/oplog"
 	"dataguard/internal/core/policy"
 )
 
-func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (policy.Signed, error)) (uint64, error) {
+func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, atLeast uint64, encode func(version uint64) (policy.Signed, oplog.Entry, error)) (uint64, error) {
 	var version uint64
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		// The advisory lock serializes publishers of one tenant, so two concurrent
@@ -22,13 +23,21 @@ func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy strin
 		if err := tx.QueryRow(ctx, next).Scan(&version); err != nil {
 			return err
 		}
-		signed, err := encode(version)
+		if atLeast > 0 && version > atLeast {
+			// Another server, or another agent's heartbeat, got there first.
+			version--
+			return nil
+		}
+		version = max(version, atLeast)
+		signed, entry, err := encode(version)
 		if err != nil {
 			return err
 		}
-		const insert = `INSERT INTO policies (tenant_id, version, payload, signature, created_by) VALUES ($1, $2, $3, $4, $5)`
-		_, err = tx.Exec(ctx, insert, tenantID, version, signed.Payload, signed.Signature, createdBy)
-		return err
+		const insert = `INSERT INTO policies (tenant_id, version, payload, signature, created_by, key_epoch) VALUES ($1, $2, $3, $4, $5, $6)`
+		if _, err := tx.Exec(ctx, insert, tenantID, version, signed.Payload, signed.Signature, createdBy, signed.KeyEpoch); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, tenantID, entry)
 	})
 	if err != nil {
 		return 0, storageError("publish policy", err)
@@ -54,8 +63,8 @@ func (s *Store) History(ctx context.Context, tenantID uuid.UUID) ([]policy.Publi
 func (s *Store) Version(ctx context.Context, tenantID uuid.UUID, version uint64) (policy.Signed, error) {
 	var signed policy.Signed
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		const query = `SELECT version, payload, signature FROM policies WHERE version = $1`
-		return tx.QueryRow(ctx, query, version).Scan(&signed.Version, &signed.Payload, &signed.Signature)
+		const query = `SELECT version, payload, signature, key_epoch FROM policies WHERE version = $1`
+		return tx.QueryRow(ctx, query, version).Scan(&signed.Version, &signed.Payload, &signed.Signature, &signed.KeyEpoch)
 	})
 	if err := readError("read policy version", err, policy.ErrNotFound); err != nil {
 		return policy.Signed{}, err
@@ -66,11 +75,25 @@ func (s *Store) Version(ctx context.Context, tenantID uuid.UUID, version uint64)
 func (s *Store) Latest(ctx context.Context, tenantID uuid.UUID) (policy.Signed, error) {
 	var signed policy.Signed
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		const query = `SELECT version, payload, signature FROM policies ORDER BY version DESC LIMIT 1`
-		return tx.QueryRow(ctx, query).Scan(&signed.Version, &signed.Payload, &signed.Signature)
+		const query = `SELECT version, payload, signature, key_epoch FROM policies ORDER BY version DESC LIMIT 1`
+		return tx.QueryRow(ctx, query).Scan(&signed.Version, &signed.Payload, &signed.Signature, &signed.KeyEpoch)
 	})
 	if err := readError("read policy", err, policy.ErrNotFound); err != nil {
 		return policy.Signed{}, err
 	}
 	return signed, nil
+}
+
+// Resign is idempotent: Ed25519 signs the same payload the same way, so two
+// servers re-signing at once write the same row.
+func (s *Store) Resign(ctx context.Context, tenantID uuid.UUID, signed policy.Signed) error {
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		const update = `UPDATE policies SET signature = $2, key_epoch = $3 WHERE version = $1`
+		_, err := tx.Exec(ctx, update, signed.Version, signed.Signature, signed.KeyEpoch)
+		return err
+	})
+	if err != nil {
+		return storageError("re-sign policy", err)
+	}
+	return nil
 }

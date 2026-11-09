@@ -54,3 +54,13 @@ func TestPathTraversalStaysInTheDirectory(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	_ = recorder
 }
+
+// Over HTTPS every answer tells the browser to stay on HTTPS for this address.
+func TestDashboardOverHTTPSAsksBrowsersToStayOnIt(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handler := strictTransport(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	handler.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+	if got := recorder.Header().Get("Strict-Transport-Security"); got != hstsMaxAge {
+		t.Fatalf("Strict-Transport-Security = %q", got)
+	}
+}

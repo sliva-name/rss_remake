@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"dataguard/internal/core/audit"
+	"dataguard/internal/core/oplog"
 	"dataguard/internal/core/policy"
 	"dataguard/internal/core/preference"
 	"dataguard/internal/core/risk"
@@ -137,6 +138,28 @@ func (s *Server) ListPolicyVersions(ctx context.Context, _ restapi.ListPolicyVer
 		})
 	}
 	return response, nil
+}
+
+func (s *Server) ListOperatorActions(ctx context.Context, request restapi.ListOperatorActionsRequestObject) (restapi.ListOperatorActionsResponseObject, error) {
+	query := oplog.Query{Before: request.Params.Before, ObjectID: request.Params.ObjectId}
+	if request.Params.Limit != nil {
+		query.Limit = *request.Params.Limit
+	}
+	entries, err := s.journal.List(ctx, tenantOf(ctx), query)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.ListOperatorActions200JSONResponse(convertAll(entries, func(entry oplog.Recorded) restapi.OperatorAction {
+		details := entry.Details
+		if details == nil {
+			details = map[string]string{}
+		}
+		return restapi.OperatorAction{
+			Id: entry.ID, At: entry.At, ActorSubject: entry.Actor.Subject, ActorName: entry.Actor.Name,
+			Action: restapi.OperatorActionAction(entry.Action), ObjectKind: restapi.OperatorActionObjectKind(entry.Action.ObjectKind()),
+			ObjectId: entry.ObjectID, ObjectLabel: entry.ObjectLabel, Details: details,
+		}
+	})), nil
 }
 
 func (s *Server) GetPolicyVersion(ctx context.Context, request restapi.GetPolicyVersionRequestObject) (restapi.GetPolicyVersionResponseObject, error) {
