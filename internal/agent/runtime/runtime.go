@@ -192,7 +192,10 @@ func rejection(err error) string {
 }
 
 func (c *Control) heartbeat(ctx context.Context) (*agentv1.HeartbeatResponse, error) {
-	request := &agentv1.HeartbeatRequest{AgentVersion: c.options.Version, PolicyKeyEpoch: c.options.Identity.PolicyKeyEpoch()}
+	request := &agentv1.HeartbeatRequest{
+		AgentVersion: c.options.Version, PolicyKeyEpoch: c.options.Identity.PolicyKeyEpoch(),
+		AppliedPolicyVersion: c.options.Identity.PolicyVersion(), AppliedSourcesVersion: c.options.Identity.SourcesVersion(),
+	}
 	if c.options.Health != nil {
 		request.Queue, request.AuditSources = c.options.Health.Health()
 	}

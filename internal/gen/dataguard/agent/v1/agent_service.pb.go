@@ -307,8 +307,13 @@ type HeartbeatRequest struct {
 	// The epoch of the policy key the agent trusts, so the center can show which
 	// agents still have to take a rotated key.
 	PolicyKeyEpoch uint32 `protobuf:"varint,5,opt,name=policy_key_epoch,json=policyKeyEpoch,proto3" json:"policy_key_epoch,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The versions the agent applied. Ahead of the center's only after the
+	// center was restored from an older backup: the center then raises its own
+	// above them, because the agent refuses anything older than it has.
+	AppliedPolicyVersion  uint64 `protobuf:"varint,6,opt,name=applied_policy_version,json=appliedPolicyVersion,proto3" json:"applied_policy_version,omitempty"`
+	AppliedSourcesVersion uint64 `protobuf:"varint,7,opt,name=applied_sources_version,json=appliedSourcesVersion,proto3" json:"applied_sources_version,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *HeartbeatRequest) Reset() {
@@ -372,6 +377,20 @@ func (x *HeartbeatRequest) GetAuditSources() []*AuditSourceHealth {
 func (x *HeartbeatRequest) GetPolicyKeyEpoch() uint32 {
 	if x != nil {
 		return x.PolicyKeyEpoch
+	}
+	return 0
+}
+
+func (x *HeartbeatRequest) GetAppliedPolicyVersion() uint64 {
+	if x != nil {
+		return x.AppliedPolicyVersion
+	}
+	return 0
+}
+
+func (x *HeartbeatRequest) GetAppliedSourcesVersion() uint64 {
+	if x != nil {
+		return x.AppliedSourcesVersion
 	}
 	return 0
 }
@@ -1788,13 +1807,15 @@ const file_dataguard_agent_v1_agent_service_proto_rawDesc = "" +
 	"\vQueueHealth\x12%\n" +
 	"\x0epending_events\x18\x01 \x01(\x04R\rpendingEvents\x12#\n" +
 	"\rpending_bytes\x18\x02 \x01(\x04R\fpendingBytes\x12%\n" +
-	"\x0ecapacity_bytes\x18\x03 \x01(\x04R\rcapacityBytes\"\xa4\x02\n" +
+	"\x0ecapacity_bytes\x18\x03 \x01(\x04R\rcapacityBytes\"\x92\x03\n" +
 	"\x10HeartbeatRequest\x128\n" +
 	"\benvelope\x18\x01 \x01(\v2\x1c.dataguard.agent.v1.EnvelopeR\benvelope\x12)\n" +
 	"\ragent_version\x18\x02 \x01(\tB\x04\xc0\xf3\x18\x05R\fagentVersion\x125\n" +
 	"\x05queue\x18\x03 \x01(\v2\x1f.dataguard.agent.v1.QueueHealthR\x05queue\x12J\n" +
 	"\raudit_sources\x18\x04 \x03(\v2%.dataguard.agent.v1.AuditSourceHealthR\fauditSources\x12(\n" +
-	"\x10policy_key_epoch\x18\x05 \x01(\rR\x0epolicyKeyEpoch\"\xa7\x01\n" +
+	"\x10policy_key_epoch\x18\x05 \x01(\rR\x0epolicyKeyEpoch\x124\n" +
+	"\x16applied_policy_version\x18\x06 \x01(\x04R\x14appliedPolicyVersion\x126\n" +
+	"\x17applied_sources_version\x18\a \x01(\x04R\x15appliedSourcesVersion\"\xa7\x01\n" +
 	"\x11HeartbeatResponse\x122\n" +
 	"\x15latest_policy_version\x18\x01 \x01(\x04R\x13latestPolicyVersion\x124\n" +
 	"\x16latest_sources_version\x18\x02 \x01(\x04R\x14latestSourcesVersion\x12(\n" +

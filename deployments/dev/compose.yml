@@ -303,6 +303,22 @@ services:
       retries: 30
     restart: unless-stopped
 
+  # make backup and make restore. The platform's images have no shell, the
+  # PostgreSQL image has pg_dump, pg_restore and tar.
+  backup:
+    profiles: [backup]
+    image: postgres:17.11-bookworm
+    entrypoint: ["/bin/bash", "/opt/dataguard/backup.sh"]
+    depends_on:
+      center-postgres:
+        condition: service_healthy
+    secrets: [center_pg_admin_password]
+    volumes:
+      - ../backup.sh:/opt/dataguard/backup.sh:ro
+      - center-pki:/pki
+      - ${DG_BACKUP_DIR:-./.state/backup}:/backup
+    restart: "no"
+
   # Started after enrollment: make agent-enroll TOKEN_FILE=..., then make agent-up.
   agent:
     profiles: [agent]

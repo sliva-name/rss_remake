@@ -66,7 +66,8 @@ type App struct {
 	Policies *policy.Service
 	Scans    *scan.Service
 	// Events stores what the broker consumer reads.
-	Events *audit.Service
+	Events  *audit.Service
+	Journal *oplog.Service
 
 	APIHandler   http.Handler
 	AgentHandler http.Handler
@@ -102,10 +103,11 @@ func Build(options Options) (*App, error) {
 	fleetService := fleet.NewService(options.Store, agentapi.Issuer{Authority: authority}, signer)
 	policies := policy.NewService(options.Store, signer)
 	scans := scan.NewService(options.Store, options.Store)
+	journal := oplog.NewService(options.Store)
 	services := api.Services{
 		Tenants: tenants, Fleet: fleetService, Policies: policies, Scans: scans, Catalog: options.Store,
 		Events: options.Events, Coverage: coverage.NewService(fleetService, options.Store, options.Events),
-		Preferences: preference.NewService(options.Store), Journal: oplog.NewService(options.Store),
+		Preferences: preference.NewService(options.Store), Journal: journal,
 	}
 
 	apiRoutes, err := apiHandler(options, services)
@@ -119,6 +121,7 @@ func Build(options Options) (*App, error) {
 		Policies:   policies,
 		Scans:      scans,
 		Events:     events,
+		Journal:    journal,
 		APIHandler: apiRoutes,
 		AgentHandler: agentapi.Handler(agentapi.Dependencies{
 			Fleet: fleetService, Policies: policies, Scans: scans, Logger: options.Logger,

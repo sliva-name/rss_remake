@@ -102,9 +102,10 @@ func (s *Store) TouchAgent(ctx context.Context, tenantID, agentID uuid.UUID, bea
 	var sourcesVersion uint64
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		const update = `UPDATE agents SET last_seen_at = now(), version = $2, contract_version = $3, refused_contract_version = NULL,
-				policy_key_epoch = $4
+				policy_key_epoch = $4,
+				sources_version = CASE WHEN $5 > sources_version THEN $5 + 1 ELSE sources_version END
 			WHERE id = $1 RETURNING sources_version`
-		return tx.QueryRow(ctx, update, agentID, beat.Version, beat.Contract, beat.PolicyKeyEpoch).Scan(&sourcesVersion)
+		return tx.QueryRow(ctx, update, agentID, beat.Version, beat.Contract, beat.PolicyKeyEpoch, int64(beat.AppliedSourcesVersion)).Scan(&sourcesVersion)
 	})
 	if err := readError("touch agent", err, fleet.ErrNotFound); err != nil {
 		return 0, err

@@ -248,7 +248,8 @@ func (h *agentHandler) Heartbeat(ctx context.Context, request *agentv1.Heartbeat
 	sourcesVersion, err := h.dependencies.Fleet.Heartbeat(ctx, identity.TenantID, identity.AgentID, fleet.Heartbeat{
 		Version: request.GetAgentVersion(), Contract: request.GetEnvelope().GetSchemaVersion(),
 		// Agents older than key rotation do not report it: they trust epoch 1.
-		PolicyKeyEpoch: max(request.GetPolicyKeyEpoch(), 1),
+		PolicyKeyEpoch:        max(request.GetPolicyKeyEpoch(), 1),
+		AppliedSourcesVersion: request.GetAppliedSourcesVersion(),
 	})
 	if err != nil {
 		return nil, h.internal("heartbeat", err)
@@ -259,6 +260,14 @@ func (h *agentHandler) Heartbeat(ctx context.Context, request *agentv1.Heartbeat
 	latest, err := h.dependencies.Policies.LatestVersion(ctx, identity.TenantID)
 	if err != nil {
 		return nil, h.internal("read policy", err)
+	}
+	if applied := request.GetAppliedPolicyVersion(); applied > latest {
+		// The center was restored from a backup older than this agent's policy.
+		h.dependencies.Logger.Warn("agent is ahead of the restored center, policy published again", "agent_id", identity.AgentID.String())
+		if err := h.dependencies.Policies.CatchUp(ctx, identity.TenantID, applied); err != nil {
+			return nil, h.internal("publish restored policy", err)
+		}
+		latest = applied + 1
 	}
 	return &agentv1.HeartbeatResponse{
 		LatestPolicyVersion: latest, LatestSourcesVersion: sourcesVersion, PolicyKeyEpoch: h.dependencies.PolicyKeys.Epoch(),

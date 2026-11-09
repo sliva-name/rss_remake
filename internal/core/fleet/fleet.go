@@ -65,6 +65,11 @@ type Heartbeat struct {
 	Version        string
 	Contract       uint32
 	PolicyKeyEpoch uint32
+	// AppliedSourcesVersion is ahead of the center's only after the center was
+	// restored from a backup older than the agent's list. The center then moves
+	// its version past it, or the agent would refuse the restored list as a
+	// rollback.
+	AppliedSourcesVersion uint64
 }
 
 type Capability struct {

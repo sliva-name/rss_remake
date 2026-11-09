@@ -10,7 +10,7 @@ import (
 	"dataguard/internal/core/policy"
 )
 
-func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (policy.Signed, oplog.Entry, error)) (uint64, error) {
+func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, atLeast uint64, encode func(version uint64) (policy.Signed, oplog.Entry, error)) (uint64, error) {
 	var version uint64
 	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		// The advisory lock serializes publishers of one tenant, so two concurrent
@@ -23,6 +23,12 @@ func (s *Store) Publish(ctx context.Context, tenantID uuid.UUID, createdBy strin
 		if err := tx.QueryRow(ctx, next).Scan(&version); err != nil {
 			return err
 		}
+		if atLeast > 0 && version > atLeast {
+			// Another server, or another agent's heartbeat, got there first.
+			version--
+			return nil
+		}
+		version = max(version, atLeast)
 		signed, entry, err := encode(version)
 		if err != nil {
 			return err

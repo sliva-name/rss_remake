@@ -736,7 +736,7 @@ type OperatorAction struct {
 	ActorSubject string    `json:"actorSubject"`
 	At           time.Time `json:"at"`
 
-	// Details Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent.
+	// Details Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had).
 	Details map[string]string  `json:"details"`
 	Id      openapi_types.UUID `json:"id"`
 

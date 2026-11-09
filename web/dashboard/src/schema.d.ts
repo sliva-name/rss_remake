@@ -572,7 +572,7 @@ export interface components {
             objectId: string;
             /** @description The object's name when it happened; empty when the object has none */
             objectLabel: string;
-            /** @description Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent. */
+            /** @description Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had). */
             details: {
                 [key: string]: string;
             };

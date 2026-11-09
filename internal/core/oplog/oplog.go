@@ -65,7 +65,13 @@ const (
 	DetailVersion = "version"
 	// DetailEnvironment is the environment a token or an agent belongs to.
 	DetailEnvironment = "environment"
+	// DetailReason says why the platform itself acted.
+	DetailReason = "reason"
 )
+
+// ReasonRestore: the center was restored from a backup older than what agents
+// had applied, and the platform published the restored state again above it.
+const ReasonRestore = "restore"
 
 // Actor is who acted, as the identity provider named them at the time. The zero
 // Actor is the platform itself.

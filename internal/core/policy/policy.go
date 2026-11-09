@@ -42,10 +42,12 @@ type Signed struct {
 
 // Repository stores policy versions of one tenant.
 type Repository interface {
-	// Publish assigns the next version inside the transaction. encode receives
-	// that version so the signature covers it, and returns the journal entry
-	// to write in the same transaction.
-	Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, encode func(version uint64) (Signed, oplog.Entry, error)) (uint64, error)
+	// Publish assigns the next version inside the transaction, at least
+	// atLeast. encode receives that version so the signature covers it, and
+	// returns the journal entry to write in the same transaction. With atLeast
+	// set, a version already at or above it means there is nothing to publish:
+	// Publish returns that version and calls nothing.
+	Publish(ctx context.Context, tenantID uuid.UUID, createdBy string, atLeast uint64, encode func(version uint64) (Signed, oplog.Entry, error)) (uint64, error)
 	Latest(ctx context.Context, tenantID uuid.UUID) (Signed, error)
 	// History lists every version, newest first.
 	History(ctx context.Context, tenantID uuid.UUID) ([]Published, error)
@@ -92,7 +94,34 @@ func (s *Service) Publish(ctx context.Context, tenantID uuid.UUID, createdBy str
 	if err := validateDetectors(detectors); err != nil {
 		return 0, err
 	}
-	return s.repository.Publish(ctx, tenantID, createdBy, func(version uint64) (Signed, oplog.Entry, error) {
+	return s.repository.Publish(ctx, tenantID, createdBy, 0, s.encode(ctx, tenantID, detectors, budget, ""))
+}
+
+// CatchUp publishes the latest policy again above the version an agent already
+// applied. An agent is ahead only when the center was restored from a backup
+// older than the agent's policy, and it refuses anything older than it has:
+// the restored policy has to come back as a newer version. The platform itself
+// publishes it, and the journal says why.
+func (s *Service) CatchUp(ctx context.Context, tenantID uuid.UUID, applied uint64) error {
+	restored := &agentv1.Policy{}
+	latest, err := s.repository.Latest(ctx, tenantID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		// A backup from before the first policy: the agent goes back to none.
+	case err != nil:
+		return err
+	default:
+		if restored, err = Decode(latest); err != nil {
+			return err
+		}
+	}
+	_, err = s.repository.Publish(oplog.WithActor(ctx, oplog.Actor{}), tenantID, "", applied+1,
+		s.encode(oplog.WithActor(ctx, oplog.Actor{}), tenantID, restored.GetCustomDetectors(), restored.GetDefaultBudget(), oplog.ReasonRestore))
+	return err
+}
+
+func (s *Service) encode(ctx context.Context, tenantID uuid.UUID, detectors []*agentv1.CustomDetector, budget *agentv1.ScanBudget, reason string) func(version uint64) (Signed, oplog.Entry, error) {
+	return func(version uint64) (Signed, oplog.Entry, error) {
 		payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(&agentv1.Policy{
 			Version:         version,
 			TenantId:        tenantID.String(),
@@ -104,8 +133,11 @@ func (s *Service) Publish(ctx context.Context, tenantID uuid.UUID, createdBy str
 		}
 		// The policy belongs to the organization, so the organization is the object.
 		entry := oplog.New(ctx, oplog.PolicyPublish, tenantID, "").With(oplog.DetailVersion, strconv.FormatUint(version, 10))
+		if reason != "" {
+			entry = entry.With(oplog.DetailReason, reason)
+		}
 		return Signed{Version: version, Payload: payload, Signature: s.signer.Sign(payload), KeyEpoch: s.signer.Epoch()}, entry, nil
-	})
+	}
 }
 
 // Latest returns the newest version signed by the current key. A version signed

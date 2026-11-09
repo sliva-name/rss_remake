@@ -234,8 +234,9 @@ const sourceSettings: Record<string, string> = {
 // What the journal knows beyond the action itself: names of changed settings, a
 // version. It never holds values.
 export function operatorActionDetails(action: Schemas["OperatorAction"]): string {
-  const { changes, version } = action.details;
+  const { changes, version, reason } = action.details;
   if (action.action === "source.update" && changes) return `Изменено: ${changes.split(",").map((name) => sourceSettings[name] ?? name).join(", ")}`;
+  if (action.action === "policy.publish" && reason === "restore") return `Версия ${version}: центр восстановлен из резервной копии, политика из неё опубликована заново`;
   if (action.action === "policy.publish" && version) return `Версия ${version}`;
   if (action.action === "agent.enroll") return "По токену, который выпустил этот пользователь";
   return "";

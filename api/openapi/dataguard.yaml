@@ -652,7 +652,8 @@ components:
           description: >-
             Value-free facts: changes lists the settings an update touched,
             version is a published policy version, environment the environment
-            of an enrolled agent.
+            of an enrolled agent, reason why the platform itself acted (restore:
+            a policy from a restored backup published again above what agents had).
           type: object
           additionalProperties: {type: string}
     RiskSignal:

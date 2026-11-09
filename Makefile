@@ -1,7 +1,7 @@
 GO_TOOL := go tool -modfile=tools/go.mod
 COMPOSE := docker compose --project-name dataguard-dev --env-file deployments/dev/.env -f deployments/dev/compose.yml
 
-.PHONY: check fmt fmt-check lint test test-integration vuln proto proto-lint api dev-env dev-up dev-down build images demo agent-enroll agent-up agent-reset
+.PHONY: check fmt fmt-check lint test test-integration vuln proto proto-lint api dev-env dev-up dev-down build images demo agent-enroll agent-up agent-reset backup restore
 
 check: fmt-check proto-lint lint test vuln
 
@@ -72,6 +72,19 @@ agent-up:
 agent-reset:
 	$(COMPOSE) --profile agent rm --stop --force agent
 	docker volume rm --force dataguard-dev_agent-state
+
+# The center's database and PKI volume into BACKUP_DIR, and back. Restore stops
+# the server first and starts it again after, through pki-init and migrate.
+BACKUP_DIR ?= deployments/dev/.state/backup
+
+backup:
+	mkdir -p "$(BACKUP_DIR)"
+	DG_BACKUP_DIR="$(abspath $(BACKUP_DIR))" $(COMPOSE) --profile backup run --rm --no-deps backup backup
+
+restore:
+	$(COMPOSE) stop server
+	DG_BACKUP_DIR="$(abspath $(BACKUP_DIR))" $(COMPOSE) --profile backup run --rm --no-deps backup restore
+	$(COMPOSE) up --detach --wait server
 
 # Removes the stand with its data: the volumes and the audit logs that the
 # source databases write to the host. A log left behind would be read again
