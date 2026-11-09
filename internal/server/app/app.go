@@ -243,26 +243,68 @@ func (a *App) RenewServerCertificate(ctx context.Context, logger *slog.Logger) {
 	}
 }
 
-// Serve runs the public API, the agent endpoint and, when metricsAddress is set,
+// ServeOptions are where the server listens.
+type ServeOptions struct {
+	// APIAddress serves the dashboard and the REST API: over HTTPS when
+	// APICertificate is set, which an installation needs, over HTTP otherwise.
+	APIAddress     string
+	APICertificate *pki.FileCertificate
+	AgentAddress   string
+	// MetricsAddress may be empty.
+	MetricsAddress string
+}
+
+// APITLSConfig serves the dashboard's certificate. Browsers and the identity
+// provider's redirects reach this port, so TLS 1.2 is still accepted here;
+// the agent endpoint, which only agents reach, requires 1.3.
+func APITLSConfig(certificate *pki.FileCertificate) *tls.Config {
+	return &tls.Config{
+		MinVersion:     tls.VersionTLS12,
+		GetCertificate: certificate.GetCertificate,
+		NextProtos:     []string{"h2", "http/1.1"},
+	}
+}
+
+// hstsMaxAge is a year: browsers keep using HTTPS for the dashboard's address
+// even when someone types http:// or follows such a link.
+const hstsMaxAge = "max-age=31536000"
+
+func strictTransport(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", hstsMaxAge)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Serve runs the public API, the agent endpoint and, when a metrics address is set,
 // the metrics endpoint until ctx ends. Metrics get a port of their own, so a
 // scraper needs no access to the API and the API exposes no metrics.
-func Serve(ctx context.Context, application *App, apiAddress, agentAddress, metricsAddress string, metrics *telemetry.Server, logger *slog.Logger) error {
+func Serve(ctx context.Context, application *App, options ServeOptions, metrics *telemetry.Server, logger *slog.Logger) error {
 	tlsConfig, err := application.AgentTLSConfig()
 	if err != nil {
 		return err
 	}
-	apiServer := &http.Server{Addr: apiAddress, Handler: application.APIHandler, ReadHeaderTimeout: readHeaderTimeout}
-	agentServer := &http.Server{Addr: agentAddress, Handler: application.AgentHandler, ReadHeaderTimeout: readHeaderTimeout, TLSConfig: tlsConfig}
+	apiServer := &http.Server{Addr: options.APIAddress, Handler: application.APIHandler, ReadHeaderTimeout: readHeaderTimeout}
+	if options.APICertificate != nil {
+		apiServer.Handler = strictTransport(application.APIHandler)
+		apiServer.TLSConfig = APITLSConfig(options.APICertificate)
+	}
+	agentServer := &http.Server{Addr: options.AgentAddress, Handler: application.AgentHandler, ReadHeaderTimeout: readHeaderTimeout, TLSConfig: tlsConfig}
 
 	servers := []*http.Server{apiServer, agentServer}
 	group, groupContext := errgroup.WithContext(ctx)
-	group.Go(func() error { return ignoreClosed(apiServer.ListenAndServe()) })
+	group.Go(func() error {
+		if apiServer.TLSConfig != nil {
+			return ignoreClosed(apiServer.ListenAndServeTLS("", ""))
+		}
+		return ignoreClosed(apiServer.ListenAndServe())
+	})
 	group.Go(func() error { return ignoreClosed(agentServer.ListenAndServeTLS("", "")) })
 	group.Go(func() error { application.RenewServerCertificate(groupContext, logger); return nil })
-	if metricsAddress != "" {
+	if options.MetricsAddress != "" {
 		mux := http.NewServeMux()
 		mux.Handle("GET /metrics", metrics.Handler())
-		metricsServer := &http.Server{Addr: metricsAddress, Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
+		metricsServer := &http.Server{Addr: options.MetricsAddress, Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 		servers = append(servers, metricsServer)
 		group.Go(func() error { return ignoreClosed(metricsServer.ListenAndServe()) })
 	}

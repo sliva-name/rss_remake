@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -206,6 +208,49 @@ func rotatePolicyKey(args []string) error {
 	return nil
 }
 
+// apiCertificate is the dashboard's certificate, issued by the customer for the
+// address people open. Without it the API speaks plain HTTP, which only suits
+// a stand on loopback.
+func apiCertificate() (*pki.FileCertificate, error) {
+	certFile, keyFile := os.Getenv("DG_API_TLS_CERT_FILE"), os.Getenv("DG_API_TLS_KEY_FILE")
+	switch {
+	case certFile == "" && keyFile == "":
+		return nil, nil
+	case certFile == "" || keyFile == "":
+		return nil, errors.New("DG_API_TLS_CERT_FILE and DG_API_TLS_KEY_FILE go together")
+	}
+	return pki.LoadFileCertificate(certFile, keyFile)
+}
+
+// readyClient reaches the local API. Over HTTPS it trusts exactly the
+// configured certificate under its own name, so the check needs neither the
+// customer's CA nor skipping verification.
+func readyClient() (*http.Client, string, error) {
+	certFile := os.Getenv("DG_API_TLS_CERT_FILE")
+	if certFile == "" {
+		return http.DefaultClient, "http", nil
+	}
+	pem, err := os.ReadFile(filepath.Clean(certFile)) //nolint:gosec // The operator chooses this path in the server's configuration.
+	if err != nil {
+		return nil, "", fmt.Errorf("DG_API_TLS_CERT_FILE: %w", err)
+	}
+	leaf, err := pki.ReadCertificate(certFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("DG_API_TLS_CERT_FILE: %w", err)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(pem)
+	serverName := ""
+	switch {
+	case len(leaf.DNSNames) > 0:
+		serverName = leaf.DNSNames[0]
+	case len(leaf.IPAddresses) > 0:
+		serverName = leaf.IPAddresses[0].String()
+	}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: serverName, MinVersion: tls.VersionTLS12}}
+	return &http.Client{Transport: transport}, "https", nil
+}
+
 // ready asks the local API for readiness. It exists because the image has no
 // shell or HTTP client for a container healthcheck.
 func ready(ctx context.Context) error {
@@ -216,13 +261,17 @@ func ready(ctx context.Context) error {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/readyz", http.NoBody)
+	client, scheme, err := readyClient()
 	if err != nil {
 		return err
 	}
-	response, err := http.DefaultClient.Do(request)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+net.JoinHostPort(host, port)+"/readyz", http.NoBody)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return err
 	}
@@ -263,6 +312,10 @@ func serve(ctx context.Context) error {
 	defer publisher.Close()
 
 	pkiDirectory := mustEnv("DG_PKI_DIR")
+	dashboardCertificate, err := apiCertificate()
+	if err != nil {
+		return err
+	}
 	metrics := telemetry.New()
 	application, err := app.Build(app.Options{
 		Store: store, Events: events, Broker: publisher, PKIDirectory: pkiDirectory, CertificateTTL: defaultCertificateTTL,
@@ -278,7 +331,10 @@ func serve(ctx context.Context) error {
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error { consumer.Run(groupContext); return nil })
 	group.Go(func() error {
-		return app.Serve(groupContext, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), os.Getenv("DG_METRICS_ADDR"), metrics, logger)
+		return app.Serve(groupContext, application, app.ServeOptions{
+			APIAddress: mustEnv("DG_API_ADDR"), APICertificate: dashboardCertificate,
+			AgentAddress: mustEnv("DG_AGENT_ADDR"), MetricsAddress: os.Getenv("DG_METRICS_ADDR"),
+		}, metrics, logger)
 	})
 	return group.Wait()
 }

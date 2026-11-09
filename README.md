@@ -108,6 +108,7 @@ docker build --target agent -t dataguard/agent .
 - `DG_PG_DSN` — роль без `BYPASSRLS`, адрес в форме `postgres://пользователь@хост:порт/база?sslmode=...`, пароль — в `DG_PG_PASSWORD_FILE`;
 - `DG_PG_MIGRATION_DSN` и `DG_PG_MIGRATION_PASSWORD_FILE` — владелец схемы;
 - `DG_PKI_DIR`, `DG_API_ADDR`, `DG_AGENT_ADDR`;
+- `DG_API_TLS_CERT_FILE` и `DG_API_TLS_KEY_FILE` — сертификат Dashboard и API, который заказчик выпускает на адрес, открываемый в браузере. С ними порт `DG_API_ADDR` принимает только HTTPS и отдаёт HSTS. Продлённый сертификат сервер подхватывает без перезапуска. Без них порт работает по HTTP, это годится только для стенда на loopback;
 - `DG_OIDC_ISSUER` и `DG_OIDC_CLIENT_ID`;
 - `DG_OIDC_DISCOVERY_URL` — необязательно: адрес провайдера, если сервер видит его не так, как браузер;
 - `DG_CH_ADDR`, `DG_CH_DATABASE`, `DG_CH_USER`, `DG_CH_PASSWORD_FILE`;
