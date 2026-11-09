@@ -70,6 +70,9 @@ type App struct {
 
 	APIHandler   http.Handler
 	AgentHandler http.Handler
+
+	pkiDirectory       string
+	serverCertificates *pki.ServerCertificates
 }
 
 // Broker is where ingest hands events over.
@@ -90,6 +93,10 @@ func Build(options Options) (*App, error) {
 	signer, err := pki.LoadPolicySigner(filepath.Join(options.PKIDirectory, pki.PolicyKeyFile))
 	if err != nil {
 		return nil, fmt.Errorf("load policy key: %w", err)
+	}
+	serverCertificates, err := pki.LoadServerCertificates(options.PKIDirectory, authority)
+	if err != nil {
+		return nil, err
 	}
 	tenants := tenant.NewService(options.Store)
 	fleetService := fleet.NewService(options.Store, agentapi.Issuer{Authority: authority}, signer)
@@ -119,6 +126,8 @@ func Build(options Options) (*App, error) {
 			Metrics:       options.Metrics,
 			CACertificate: authority.CertificatePEM(), PolicyPublicKey: signer.PublicKey(),
 		}),
+		pkiDirectory:       options.PKIDirectory,
+		serverCertificates: serverCertificates,
 	}, nil
 }
 
@@ -188,15 +197,10 @@ func originOf(issuer string) string {
 // AgentTLSConfig requires TLS 1.3. Client certificates are optional at the TLS
 // layer only because enrollment happens before an agent has one; anything
 // presented must still chain to the platform CA, and AgentService then refuses
-// requests without it.
-func AgentTLSConfig(pkiDirectory string) (*tls.Config, error) {
-	certificate, err := tls.LoadX509KeyPair(
-		filepath.Join(pkiDirectory, pki.ServerCertFile),
-		filepath.Join(pkiDirectory, pki.ServerKeyFile))
-	if err != nil {
-		return nil, fmt.Errorf("load server certificate: %w", err)
-	}
-	caPEM, err := os.ReadFile(filepath.Join(filepath.Clean(pkiDirectory), pki.CACertFile))
+// requests without it. The server certificate comes from a source that renews
+// it, so the endpoint outlives any one certificate.
+func (a *App) AgentTLSConfig() (*tls.Config, error) {
+	caPEM, err := os.ReadFile(filepath.Join(filepath.Clean(a.pkiDirectory), pki.CACertFile))
 	if err != nil {
 		return nil, fmt.Errorf("read ca: %w", err)
 	}
@@ -205,19 +209,42 @@ func AgentTLSConfig(pkiDirectory string) (*tls.Config, error) {
 		return nil, errors.New("ca file has no certificates")
 	}
 	return &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{certificate},
-		ClientCAs:    clientCAs,
-		ClientAuth:   tls.VerifyClientCertIfGiven,
-		NextProtos:   []string{"h2", "http/1.1"},
+		MinVersion:     tls.VersionTLS13,
+		GetCertificate: a.serverCertificates.GetCertificate,
+		ClientCAs:      clientCAs,
+		ClientAuth:     tls.VerifyClientCertIfGiven,
+		NextProtos:     []string{"h2", "http/1.1"},
 	}, nil
+}
+
+// certificateCheck is how often the server looks at its certificate's age.
+const certificateCheck = time.Hour
+
+// RenewServerCertificate keeps the agent endpoint's certificate fresh until ctx ends.
+func (a *App) RenewServerCertificate(ctx context.Context, logger *slog.Logger) {
+	ticker := time.NewTicker(certificateCheck)
+	defer ticker.Stop()
+	for {
+		renewed, err := a.serverCertificates.RenewIfDue(time.Now())
+		switch {
+		case err != nil:
+			logger.Error("renew server certificate", "error", err)
+		case renewed:
+			logger.Info("server certificate renewed")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // Serve runs the public API, the agent endpoint and, when metricsAddress is set,
 // the metrics endpoint until ctx ends. Metrics get a port of their own, so a
 // scraper needs no access to the API and the API exposes no metrics.
-func Serve(ctx context.Context, application *App, apiAddress, agentAddress, metricsAddress, pkiDirectory string, metrics *telemetry.Server) error {
-	tlsConfig, err := AgentTLSConfig(pkiDirectory)
+func Serve(ctx context.Context, application *App, apiAddress, agentAddress, metricsAddress string, metrics *telemetry.Server, logger *slog.Logger) error {
+	tlsConfig, err := application.AgentTLSConfig()
 	if err != nil {
 		return err
 	}
@@ -228,6 +255,7 @@ func Serve(ctx context.Context, application *App, apiAddress, agentAddress, metr
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error { return ignoreClosed(apiServer.ListenAndServe()) })
 	group.Go(func() error { return ignoreClosed(agentServer.ListenAndServeTLS("", "")) })
+	group.Go(func() error { application.RenewServerCertificate(groupContext, logger); return nil })
 	if metricsAddress != "" {
 		mux := http.NewServeMux()
 		mux.Handle("GET /metrics", metrics.Handler())

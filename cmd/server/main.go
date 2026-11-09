@@ -150,7 +150,7 @@ func pkiInit(args []string) error {
 	flags := flag.NewFlagSet("pki-init", flag.ContinueOnError)
 	directory := flags.String("dir", "", "directory for the CA, server and policy keys")
 	hosts := flags.String("hosts", "", "comma-separated server names and addresses")
-	keepExisting := flags.Bool("keep-existing", false, "succeed without changes if the CA already exists")
+	keepExisting := flags.Bool("keep-existing", false, "keep an existing CA and keys, renewing only the server certificate when due")
 	publicDirectory := flags.String("public-dir", "", "directory that receives a copy of the CA certificate for agents")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -158,10 +158,15 @@ func pkiInit(args []string) error {
 	if *directory == "" || *hosts == "" {
 		return errors.New("--dir and --hosts are required")
 	}
+	hostList := strings.Split(*hosts, ",")
 	if _, err := os.Stat(filepath.Join(*directory, pki.CAKeyFile)); !*keepExisting || err != nil {
-		if err := pki.Bootstrap(*directory, strings.Split(*hosts, ",")); err != nil {
+		if err := pki.Bootstrap(*directory, hostList); err != nil {
 			return err
 		}
+	} else if renewed, err := pki.EnsureServerCertificate(*directory, hostList, time.Now()); err != nil {
+		return err
+	} else if renewed {
+		fmt.Fprintln(os.Stderr, "dataguard-server: server certificate issued anew")
 	}
 	if *publicDirectory == "" {
 		return nil
@@ -246,7 +251,7 @@ func serve(ctx context.Context) error {
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error { consumer.Run(groupContext); return nil })
 	group.Go(func() error {
-		return app.Serve(groupContext, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), os.Getenv("DG_METRICS_ADDR"), pkiDirectory, metrics)
+		return app.Serve(groupContext, application, mustEnv("DG_API_ADDR"), mustEnv("DG_AGENT_ADDR"), os.Getenv("DG_METRICS_ADDR"), metrics, logger)
 	})
 	return group.Wait()
 }

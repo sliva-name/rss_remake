@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -187,15 +188,21 @@ func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir
 		cancel()
 		<-done
 	})
-	tlsConfig, err := app.AgentTLSConfig(pkiDir)
+	tlsConfig, err := application.AgentTLSConfig()
 	if err != nil {
 		t.Fatalf("AgentTLSConfig: %v", err)
 	}
 	gate := &outage{next: application.AgentHandler}
-	agents := httptest.NewUnstartedServer(gate)
-	agents.TLS = tlsConfig
-	agents.EnableHTTP2 = true
-	agents.StartTLS()
+	// The listener gets the server's own TLS configuration. StartTLS would add
+	// its test certificate, which Go prefers over GetCertificate when a client
+	// connects by address and sends no server name.
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents := &httptest.Server{Listener: tls.NewListener(listener, tlsConfig), Config: &http.Server{Handler: gate, ReadHeaderTimeout: 10 * time.Second}}
+	agents.Start()
+	agents.URL = "https://" + listener.Addr().String()
 	t.Cleanup(agents.Close)
 
 	rest := httptest.NewServer(application.APIHandler)
