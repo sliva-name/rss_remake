@@ -1,0 +1,64 @@
+{
+  "realm": "dataguard",
+  "displayName": "DataGuard",
+  "displayNameHtml": "DataGuard",
+  "enabled": true,
+  "loginTheme": "dataguard",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["ru"],
+  "defaultLocale": "ru",
+  "registrationAllowed": false,
+  "sslRequired": "all",
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 900,
+  "roles": {
+    "realm": [
+      {"name": "platform_admin"},
+      {"name": "tenant_admin"},
+      {"name": "security_analyst"},
+      {"name": "auditor"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "dataguard-dashboard",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["${DG_PUBLIC_URL}/*"],
+      "webOrigins": ["${DG_PUBLIC_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${DG_PUBLIC_URL}/"
+      },
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {"user.attribute": "tenant_id", "claim.name": "tenant_id", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "true"}
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {"claim.name": "roles", "multivalued": "true", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "true"}
+        },
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {"included.client.audience": "dataguard-dashboard", "access.token.claim": "true"}
+        }
+      ]
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "config": {"kc.user.profile.config": ["{\"attributes\":[{\"name\":\"username\"},{\"name\":\"email\"}],\"unmanagedAttributePolicy\":\"ENABLED\"}"]}
+      }
+    ]
+  }
+}

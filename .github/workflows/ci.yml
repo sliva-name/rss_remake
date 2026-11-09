@@ -93,6 +93,9 @@ jobs:
         run: make test-integration
       - name: End-to-end tests
         run: make test-e2e
+      # Its own compose project and ports, so it runs beside the stand.
+      - name: Installation from scratch
+        run: make test-install
       # Only the platform's own containers: their logs go through safelog. Database
       # and Keycloak logs are left out, they may echo the stand's passwords.
       - name: Platform logs

@@ -101,7 +101,7 @@ web:
 web-test:
 	cd web/dashboard && npm test
 
-.PHONY: test-e2e test-performance
+.PHONY: test-e2e test-performance test-install
 
 # Drives the containers of dev-up; the test rebuilds the images it needs.
 test-e2e:
@@ -109,3 +109,8 @@ test-e2e:
 
 test-performance:
 	go test -tags=performance -count=1 -v ./tests/performance/
+
+# Installs the center from deployments/production as INSTALL.md describes, apart
+# from the stand, with an agent, a backup and a restore. It builds its images.
+test-install:
+	go test -tags=install -count=1 -timeout 20m -v ./tests/install/

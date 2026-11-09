@@ -62,8 +62,12 @@ type OIDCAuthenticator struct {
 // NewOIDCAuthenticator discovers the provider at issuer. A non-empty discoveryURL
 // is where the server reaches the same provider when the browser and the server
 // see it under different addresses, as in containers. Tokens must still carry
-// issuer, and the provider must announce it.
-func NewOIDCAuthenticator(ctx context.Context, issuer, discoveryURL, clientID string) (*OIDCAuthenticator, error) {
+// issuer, and the provider must announce it. client reaches the provider, for
+// discovery and its signing keys later; nil is the default client.
+func NewOIDCAuthenticator(ctx context.Context, issuer, discoveryURL, clientID string, client *http.Client) (*OIDCAuthenticator, error) {
+	if client != nil {
+		ctx = oidc.ClientContext(ctx, client)
+	}
 	if discoveryURL == "" {
 		discoveryURL = issuer
 	} else {

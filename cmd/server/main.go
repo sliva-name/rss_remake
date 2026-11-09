@@ -40,6 +40,8 @@ const (
 	defaultPartitions     = "12"
 	defaultRetention      = "168h"
 	defaultMigrateWait    = "2m"
+	oidcTimeout           = 10 * time.Second
+	defaultOIDCWait       = "2m"
 )
 
 func main() {
@@ -222,6 +224,51 @@ func apiCertificate() (*pki.FileCertificate, error) {
 	return pki.LoadFileCertificate(certFile, keyFile)
 }
 
+// oidcClient reaches an identity provider whose certificate is issued by the
+// customer's own CA (DG_OIDC_CA_FILE), in addition to the public ones. Without
+// the setting the default client is used.
+func oidcClient() (*http.Client, error) {
+	caFile := os.Getenv("DG_OIDC_CA_FILE")
+	if caFile == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(filepath.Clean(caFile)) //nolint:gosec // The operator chooses this path in the server's configuration.
+	if err != nil {
+		return nil, fmt.Errorf("DG_OIDC_CA_FILE: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, errors.New("DG_OIDC_CA_FILE has no certificates")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	return &http.Client{Transport: transport, Timeout: oidcTimeout}, nil
+}
+
+// discoverProvider waits for the identity provider, which may start next to the
+// server and answer only after it, instead of exiting into a restart loop. The
+// wait is bounded by DG_OIDC_WAIT, so a wrong address still fails visibly.
+func discoverProvider(ctx context.Context, issuer, clientID string, client *http.Client) (*api.OIDCAuthenticator, error) {
+	wait, err := time.ParseDuration(envOr("DG_OIDC_WAIT", defaultOIDCWait))
+	if err != nil {
+		return nil, fmt.Errorf("DG_OIDC_WAIT: %w", err)
+	}
+	deadline := time.Now().Add(wait)
+	for attempt := 0; ; attempt++ {
+		authenticator, err := api.NewOIDCAuthenticator(ctx, issuer, os.Getenv("DG_OIDC_DISCOVERY_URL"), clientID, client)
+		if err == nil || time.Now().After(deadline) {
+			return authenticator, err
+		}
+		fmt.Fprintln(os.Stderr, "dataguard-server: the identity provider is not ready yet, retrying")
+		if !retry.Sleep(ctx, retry.Backoff{Base: time.Second, Max: 5 * time.Second}.Delay(attempt)) {
+			return nil, ctx.Err()
+		}
+	}
+}
+
 // readyClient reaches the local API. Over HTTPS it trusts exactly the
 // configured certificate under its own name, so the check needs neither the
 // customer's CA nor skipping verification.
@@ -300,7 +347,11 @@ func serve(ctx context.Context) error {
 	defer func() { _ = events.Close() }()
 
 	issuer, clientID := mustEnv("DG_OIDC_ISSUER"), mustEnv("DG_OIDC_CLIENT_ID")
-	authenticator, err := api.NewOIDCAuthenticator(ctx, issuer, os.Getenv("DG_OIDC_DISCOVERY_URL"), clientID)
+	providerClient, err := oidcClient()
+	if err != nil {
+		return err
+	}
+	authenticator, err := discoverProvider(ctx, issuer, clientID, providerClient)
 	if err != nil {
 		return err
 	}

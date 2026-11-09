@@ -7,5 +7,11 @@ web/dashboard/dist
 web/dashboard/src/schema.d.ts
 deployments/dev/.env
 deployments/dev/.state
+deployments/production/.env
+deployments/production/secrets
+deployments/production/tls
+deployments/production/backup
+deployments/agent/agent.yaml
+deployments/agent/ca.crt
 *.test
 coverage.out

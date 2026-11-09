@@ -131,7 +131,7 @@ services:
     secrets: [center_pg_admin_password, center_pg_app_password]
     ports: ["127.0.0.1:25442:5432"]
     volumes:
-      - ./center/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - ../center/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - center-postgres-data:/var/lib/postgresql/data
     healthcheck:
       # Over TCP: the init server of the image listens on the socket only.
@@ -153,7 +153,7 @@ services:
       - "127.0.0.1:25123:8123"
       - "127.0.0.1:25900:9000"
     volumes:
-      - ./center/clickhouse-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - ../center/clickhouse-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - center-clickhouse-data:/var/lib/clickhouse
     ulimits:
       nofile: 262144

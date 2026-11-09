@@ -1,6 +1,13 @@
 /bin/
 /deployments/dev/.env
 /deployments/dev/.state/
+# An installation's own settings, passwords, certificates and backups.
+/deployments/production/.env
+/deployments/production/secrets/
+/deployments/production/tls/
+/deployments/production/backup/
+/deployments/agent/agent.yaml
+/deployments/agent/ca.crt
 node_modules/
 /web/dashboard/dist/
 *.test
