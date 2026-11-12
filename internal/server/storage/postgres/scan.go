@@ -33,9 +33,7 @@ func (s *Store) ScannableSource(ctx context.Context, tenantID, sourceID uuid.UUI
 
 func (s *Store) CreateJob(ctx context.Context, job scan.Job, entry oplog.Entry) error {
 	err := s.inTenant(ctx, job.TenantID, func(tx pgx.Tx) error {
-		const insert = `INSERT INTO scan_jobs (id, tenant_id, source_id, status, requested_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6)`
-		if _, err := tx.Exec(ctx, insert, job.ID, job.TenantID, job.SourceID, job.Status, job.RequestedBy, job.CreatedAt); err != nil {
+		if err := insertJob(ctx, tx, job); err != nil {
 			return err
 		}
 		return recordAction(ctx, tx, job.TenantID, entry)
@@ -46,11 +44,97 @@ func (s *Store) CreateJob(ctx context.Context, job scan.Job, entry oplog.Entry) 
 	return nil
 }
 
-const jobColumns = `id, tenant_id, source_id, status, requested_by, failure_code, created_at, started_at, finished_at`
+func insertJob(ctx context.Context, tx pgx.Tx, job scan.Job) error {
+	const insert = `INSERT INTO scan_jobs (id, tenant_id, source_id, status, requested_by, scheduled, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	_, err := tx.Exec(ctx, insert, job.ID, job.TenantID, job.SourceID, job.Status, job.RequestedBy, job.Scheduled, job.CreatedAt)
+	return err
+}
+
+const jobColumns = `id, tenant_id, source_id, status, requested_by, scheduled, failure_code, created_at, started_at, finished_at`
 
 func scanJob(row pgx.Row, job *scan.Job) error {
-	return row.Scan(&job.ID, &job.TenantID, &job.SourceID, &job.Status, &job.RequestedBy, &job.FailureCode,
+	return row.Scan(&job.ID, &job.TenantID, &job.SourceID, &job.Status, &job.RequestedBy, &job.Scheduled, &job.FailureCode,
 		&job.CreatedAt, &job.StartedAt, &job.FinishedAt)
+}
+
+func (s *Store) SetSchedule(ctx context.Context, tenantID, sourceID uuid.UUID, schedule scan.Schedule, entry oplog.Entry) error {
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		// A draft is only being checked: it gets a schedule once it is saved.
+		const update = `UPDATE sources SET scan_every_hours = $2, next_scan_at = $3
+			WHERE id = $1 AND deleted_at IS NULL AND NOT draft
+			RETURNING source_key`
+		if err := tx.QueryRow(ctx, update, sourceID, schedule.EveryHours, schedule.NextRun).Scan(&entry.ObjectLabel); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, tenantID, entry)
+	})
+	return readError("set scan schedule", err, scan.ErrNotFound)
+}
+
+func (s *Store) ClearSchedule(ctx context.Context, tenantID, sourceID uuid.UUID, entry oplog.Entry) error {
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		const read = `SELECT source_key, scan_every_hours IS NOT NULL FROM sources
+			WHERE id = $1 AND deleted_at IS NULL AND NOT draft FOR UPDATE`
+		var scheduled bool
+		if err := tx.QueryRow(ctx, read, sourceID).Scan(&entry.ObjectLabel, &scheduled); err != nil || !scheduled {
+			return err
+		}
+		const clear = `UPDATE sources SET scan_every_hours = NULL, next_scan_at = NULL WHERE id = $1`
+		if _, err := tx.Exec(ctx, clear, sourceID); err != nil {
+			return err
+		}
+		return recordAction(ctx, tx, tenantID, entry)
+	})
+	return readError("clear scan schedule", err, scan.ErrNotFound)
+}
+
+func (s *Store) EnqueueScheduled(ctx context.Context, tenantID uuid.UUID, now time.Time, limit int, next func(scan.Schedule) time.Time) (int, error) {
+	queued := 0
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		// SKIP LOCKED lets every server instance run the scheduler: a source
+		// another instance is queueing is left to it, and once it commits the
+		// next run is ahead and the source is no longer due.
+		const due = `SELECT src.id, src.scan_every_hours, src.next_scan_at,
+				EXISTS (SELECT 1 FROM scan_jobs j WHERE j.source_id = src.id AND j.status IN ('pending', 'running'))
+			FROM sources src JOIN agents a ON a.id = src.agent_id
+			WHERE src.next_scan_at <= $1 AND src.deleted_at IS NULL AND NOT src.draft AND a.status = 'active'
+			ORDER BY src.next_scan_at
+			LIMIT $2
+			FOR UPDATE OF src SKIP LOCKED`
+		type dueSource struct {
+			id       uuid.UUID
+			schedule scan.Schedule
+			busy     bool
+		}
+		sources, err := queryAll(ctx, tx, func(row pgx.Row, item *dueSource) error {
+			return row.Scan(&item.id, &item.schedule.EveryHours, &item.schedule.NextRun, &item.busy)
+		}, due, now, limit)
+		if err != nil {
+			return err
+		}
+		for _, source := range sources {
+			if !source.busy {
+				job := scan.Job{
+					ID: uuid.Must(uuid.NewV7()), TenantID: tenantID, SourceID: source.id, Status: scan.StatusPending,
+					Scheduled: true, CreatedAt: now,
+				}
+				if err := insertJob(ctx, tx, job); err != nil {
+					return err
+				}
+				queued++
+			}
+			const move = `UPDATE sources SET next_scan_at = $2 WHERE id = $1`
+			if _, err := tx.Exec(ctx, move, source.id, next(source.schedule)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, storageError("enqueue scheduled scans", err)
+	}
+	return queued, nil
 }
 
 func (s *Store) ListJobs(ctx context.Context, tenantID uuid.UUID, limit int) ([]scan.Job, error) {

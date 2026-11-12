@@ -194,6 +194,12 @@ func (s *Service) ListSources(ctx context.Context, tenantID uuid.UUID) ([]Source
 	return s.repository.ListSources(ctx, tenantID)
 }
 
+// RemoveStaleDrafts deletes drafts nobody saved or cancelled, such as one left
+// by a closed browser. Their agents stop probing them with the next heartbeat.
+func (s *Service) RemoveStaleDrafts(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	return s.repository.RemoveStaleDrafts(ctx, tenantID, staleDraft)
+}
+
 // RecordProbes stores what an agent observed about its sources.
 func (s *Service) RecordProbes(ctx context.Context, tenantID, agentID uuid.UUID, probes []Probe) error {
 	return s.repository.RecordProbes(ctx, tenantID, agentID, probes)

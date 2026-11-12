@@ -214,8 +214,30 @@ const operatorActions: Record<string, string> = {
   "source.update": "Изменение источника",
   "source.delete": "Удаление источника",
   "scan.request": "Запуск сканирования",
+  "scan_schedule.update": "Настройка расписания сканирования",
+  "scan_schedule.delete": "Отключение расписания сканирования",
   "policy.publish": "Публикация политики",
 };
+
+const plural = new Intl.PluralRules("ru-RU");
+const hourForms: Record<string, string> = { one: "час", few: "часа", many: "часов", other: "часа" };
+const dayForms: Record<string, string> = { one: "день", few: "дня", many: "дней", other: "дня" };
+
+export const scanTrigger = (scan: Schemas["Scan"]): string => (scan.scheduled ? "По расписанию" : "Вручную");
+
+export const capitalized = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+// How often a scan repeats, in words: "каждый день", "раз в 6 часов".
+export function schedulePeriod(hours: number): string {
+  if (hours === 1) return "каждый час";
+  if (hours === 24) return "каждый день";
+  if (hours === 168) return "каждую неделю";
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return `раз в ${days} ${dayForms[plural.select(days)]}`;
+  }
+  return `раз в ${hours} ${hourForms[plural.select(hours)]}`;
+}
 
 export const operatorAction = (id: string): string => operatorActions[id] ?? id;
 
@@ -234,8 +256,9 @@ const sourceSettings: Record<string, string> = {
 // What the journal knows beyond the action itself: names of changed settings, a
 // version. It never holds values.
 export function operatorActionDetails(action: Schemas["OperatorAction"]): string {
-  const { changes, version, reason } = action.details;
+  const { changes, version, reason, every_hours: everyHours } = action.details;
   if (action.action === "source.update" && changes) return `Изменено: ${changes.split(",").map((name) => sourceSettings[name] ?? name).join(", ")}`;
+  if (action.action === "scan_schedule.update" && everyHours) return `Сканировать ${schedulePeriod(Number(everyHours))}`;
   if (action.action === "policy.publish" && reason === "restore") return `Версия ${version}: центр восстановлен из резервной копии, политика из неё опубликована заново`;
   if (action.action === "policy.publish" && version) return `Версия ${version}`;
   if (action.action === "agent.enroll") return "По токену, который выпустил этот пользователь";

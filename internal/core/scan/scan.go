@@ -5,6 +5,8 @@ package scan
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,23 +33,48 @@ const LeaseDuration = 15 * time.Minute
 // MaxAttempts stops a job that keeps killing its agent from looping forever.
 const MaxAttempts = 3
 
+// Bounds of a schedule. An hour is the shortest period: a scan reads every
+// table of the source, so running it more often loads the database for little
+// news. Thirty days is the longest the reports look back.
+const (
+	MinScheduleHours = 1
+	MaxScheduleHours = 720
+	// maxFirstRunDistance keeps the first run within a year of now either way.
+	maxFirstRunDistance = 366 * 24 * time.Hour
+	// scheduleBatch is how many due sources of a tenant one run queues; the
+	// rest wait for the next run.
+	scheduleBatch = 100
+)
+
 var (
 	ErrNotFound = errors.New("not found")
+	ErrInvalid  = errors.New("invalid")
 	// ErrStale means the result is for a job this agent no longer holds.
 	ErrStale = errors.New("job is not running on this agent")
 )
 
 type Job struct {
-	ID          uuid.UUID
-	TenantID    uuid.UUID
-	SourceID    uuid.UUID
-	Status      string
+	ID       uuid.UUID
+	TenantID uuid.UUID
+	SourceID uuid.UUID
+	Status   string
+	// RequestedBy is who asked for the scan; empty when Scheduled.
 	RequestedBy string
+	// Scheduled is a scan the center queued by itself, by the source's schedule.
+	Scheduled   bool
 	FailureCode string
 	CreatedAt   time.Time
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
 }
+
+// Schedule is when the center queues scans of a source by itself.
+type Schedule struct {
+	EveryHours int
+	NextRun    time.Time
+}
+
+func (s Schedule) every() time.Duration { return time.Duration(s.EveryHours) * time.Hour }
 
 // Classification is one finding bound to a stored column.
 type Classification struct {
@@ -77,6 +104,18 @@ type Repository interface {
 	// Complete runs build with the stored tables of the source, inside the
 	// transaction that persists its result, so a concurrent scan cannot interleave.
 	Complete(ctx context.Context, tenantID, agentID, jobID uuid.UUID, build func(existing []asset.Table) (Outcome, error)) error
+	// SetSchedule stores the schedule of a saved, live source and writes entry
+	// with it; entry gets the source's name as its label.
+	SetSchedule(ctx context.Context, tenantID, sourceID uuid.UUID, schedule Schedule, entry oplog.Entry) error
+	// ClearSchedule removes the schedule and writes entry, labelled like
+	// SetSchedule's; a source without one is left as is, without an entry.
+	ClearSchedule(ctx context.Context, tenantID, sourceID uuid.UUID, entry oplog.Entry) error
+	// EnqueueScheduled takes up to limit saved sources of active agents whose
+	// next run is at or before now, queues a scheduled job for each that has
+	// none pending or running, and moves its next run to next(schedule). A
+	// source taken by a concurrent call is skipped, not waited for. It returns
+	// how many jobs it queued.
+	EnqueueScheduled(ctx context.Context, tenantID uuid.UUID, now time.Time, limit int, next func(Schedule) time.Time) (int, error)
 }
 
 // Sources finds the source a scan is asked for.
@@ -115,6 +154,53 @@ func (s *Service) Request(ctx context.Context, tenantID, sourceID uuid.UUID, req
 
 func (s *Service) List(ctx context.Context, tenantID uuid.UUID, limit int) ([]Job, error) {
 	return s.repository.ListJobs(ctx, tenantID, limit)
+}
+
+// SetSchedule makes the center scan the source every everyHours, first at
+// firstRun. A first run in the past only sets the rhythm: the next run is the
+// first moment of it still ahead, so "every day at 02:00" can be given as
+// today at 02:00 at any time of day.
+func (s *Service) SetSchedule(ctx context.Context, tenantID, sourceID uuid.UUID, everyHours int, firstRun time.Time) (Schedule, error) {
+	now := time.Now().UTC()
+	switch {
+	case everyHours < MinScheduleHours || everyHours > MaxScheduleHours:
+		return Schedule{}, fmt.Errorf("%w: a scan can repeat every %d..%d hours", ErrInvalid, MinScheduleHours, MaxScheduleHours)
+	case firstRun.Before(now.Add(-maxFirstRunDistance)) || firstRun.After(now.Add(maxFirstRunDistance)):
+		return Schedule{}, fmt.Errorf("%w: the first run must be within a year of now", ErrInvalid)
+	}
+	schedule := Schedule{EveryHours: everyHours}
+	schedule.NextRun = NextRun(firstRun.UTC(), schedule.every(), now)
+	entry := oplog.New(ctx, oplog.ScanScheduleUpdate, sourceID, "").With(oplog.DetailEveryHours, strconv.Itoa(everyHours))
+	if err := s.repository.SetSchedule(ctx, tenantID, sourceID, schedule, entry); err != nil {
+		return Schedule{}, err
+	}
+	return schedule, nil
+}
+
+// ClearSchedule leaves the source's scans to be started by hand.
+func (s *Service) ClearSchedule(ctx context.Context, tenantID, sourceID uuid.UUID) error {
+	return s.repository.ClearSchedule(ctx, tenantID, sourceID, oplog.New(ctx, oplog.ScanScheduleDelete, sourceID, ""))
+}
+
+// RunSchedules queues the scans of a tenant whose time has come and returns
+// how many it queued. A source whose previous scan still waits or runs gets no
+// second one: an agent offline for a week would otherwise come back to a week
+// of scans. Runs missed while the server was down are made up by one scan, not
+// one per missed run.
+func (s *Service) RunSchedules(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	now := time.Now().UTC()
+	return s.repository.EnqueueScheduled(ctx, tenantID, now, scheduleBatch, func(schedule Schedule) time.Time {
+		return NextRun(schedule.NextRun, schedule.every(), now)
+	})
+}
+
+// NextRun is the first moment after now of the rhythm that passes anchor every
+// period; anchor itself when it is still ahead.
+func NextRun(anchor time.Time, period time.Duration, now time.Time) time.Time {
+	if anchor.After(now) {
+		return anchor
+	}
+	return anchor.Add((now.Sub(anchor)/period + 1) * period)
 }
 
 // Lease gives an agent its next jobs.

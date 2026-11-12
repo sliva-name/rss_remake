@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { api, type Schemas } from "../api";
 import { Categories, CoverageState, FailureNote, Mono, ScanState, SensitiveShare, sensitiveShareHint, SourceState, TableName } from "../components/domain";
+import { ScanSchedulePanel } from "../components/scan-schedule";
 import { Badge, type Tone } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { FilterInput } from "../components/ui/form";
@@ -13,7 +14,7 @@ import { Facts, Panel } from "../components/ui/panel";
 import { EmptyState, ErrorState, Loadable, Loading } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { type TabItem, Tabs } from "../components/ui/tabs";
-import { ago, capability, count, dateTime, engine, percent, support, tableKind } from "../labels";
+import { ago, capability, count, dateTime, engine, percent, scanTrigger, support, tableKind } from "../labels";
 import { ObjectLink, paths, useUrlFilters } from "../links";
 import { useMe } from "../me";
 import { useCan } from "../permissions";
@@ -111,29 +112,32 @@ function Tables({ sourceId }: { sourceId: string }) {
   );
 }
 
-function Scans({ sourceId }: { sourceId: string }) {
+function Scans({ source }: { source: Schemas["Source"] }) {
   const scans = useQuery(queries.scans());
   return (
-    <Panel flush>
-      <Loadable query={scans} isEmpty={(rows) => !rows.some((row) => row.sourceId === sourceId)} empty={<EmptyState title="Среди последних 20 сканирований этого источника нет" />}>
-        {(rows) => (
-          <ul className="divide-y divide-border">
-            {rows.filter((row) => row.sourceId === sourceId).map((scan) => (
-              <li key={scan.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3 text-sm">
-                <div className="flex flex-col gap-1">
-                  <ScanState status={scan.status} />
-                  <FailureNote code={scan.failureCode} />
-                </div>
-                <div className="text-right text-[13px] text-fg-2">
-                  <div>Запущено {dateTime(scan.createdAt)}</div>
-                  {scan.finishedAt && <div>Завершено {dateTime(scan.finishedAt)}</div>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Loadable>
-    </Panel>
+    <div className="flex flex-col gap-6">
+      {!source.draft && <ScanSchedulePanel source={source} />}
+      <Panel flush>
+        <Loadable query={scans} isEmpty={(rows) => !rows.some((row) => row.sourceId === source.id)} empty={<EmptyState title="Среди последних 20 сканирований этого источника нет" />}>
+          {(rows) => (
+            <ul className="divide-y divide-border">
+              {rows.filter((row) => row.sourceId === source.id).map((scan) => (
+                <li key={scan.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3 text-sm">
+                  <div className="flex flex-col gap-1">
+                    <ScanState status={scan.status} />
+                    <FailureNote code={scan.failureCode} />
+                  </div>
+                  <div className="text-right text-[13px] text-fg-2">
+                    <div>{scanTrigger(scan)}, {dateTime(scan.createdAt)}</div>
+                    {scan.finishedAt && <div>Завершено {dateTime(scan.finishedAt)}</div>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Loadable>
+      </Panel>
+    </div>
   );
 }
 
@@ -154,7 +158,7 @@ export function SourcePage() {
   const tabs: TabItem[] = [
     { id: "overview", label: "Обзор", content: <Overview source={data} /> },
     { id: "tables", label: "Таблицы", needs: "listCatalogTables", content: <Tables sourceId={data.id} /> },
-    { id: "scans", label: "Сканирования", needs: "listScans", content: <Scans sourceId={data.id} /> },
+    { id: "scans", label: "Сканирования", needs: "listScans", content: <Scans source={data} /> },
     { id: "journal", label: "Журнал действий", needs: "listOperatorActions", content: <ObjectJournal objectId={data.id} /> },
   ];
 

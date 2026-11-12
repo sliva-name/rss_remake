@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
 	"dataguard/internal/core/audit"
@@ -31,6 +32,7 @@ import (
 	"dataguard/internal/platform/pki"
 	"dataguard/internal/server/agentapi"
 	"dataguard/internal/server/api"
+	"dataguard/internal/server/background"
 	"dataguard/internal/server/storage/clickhouse"
 	"dataguard/internal/server/storage/postgres"
 	"dataguard/internal/server/telemetry"
@@ -57,6 +59,9 @@ type Options struct {
 	Metrics *telemetry.Server
 	// WebDirectory is the built dashboard; empty disables serving it.
 	WebDirectory string
+	// TaskPeriod replaces the period of every background task when set, so
+	// tests need not wait for production periods.
+	TaskPeriod time.Duration
 }
 
 // App holds the composed services and handlers.
@@ -74,6 +79,9 @@ type App struct {
 
 	pkiDirectory       string
 	serverCertificates *pki.ServerCertificates
+	logger             *slog.Logger
+	metrics            *telemetry.Server
+	taskPeriod         time.Duration
 }
 
 // Broker is where ingest hands events over.
@@ -131,6 +139,9 @@ func Build(options Options) (*App, error) {
 		}),
 		pkiDirectory:       options.PKIDirectory,
 		serverCertificates: serverCertificates,
+		logger:             options.Logger,
+		metrics:            options.Metrics,
+		taskPeriod:         options.TaskPeriod,
 	}, nil
 }
 
@@ -220,27 +231,62 @@ func (a *App) AgentTLSConfig() (*tls.Config, error) {
 	}, nil
 }
 
-// certificateCheck is how often the server looks at its certificate's age.
-const certificateCheck = time.Hour
+// How often each background task looks for work. A scheduled scan starts at
+// most scheduleCheck late; a draft stays at most draftCheck past its hour.
+const (
+	scheduleCheck    = 30 * time.Second
+	draftCheck       = 5 * time.Minute
+	certificateCheck = time.Hour
+)
 
-// RenewServerCertificate keeps the agent endpoint's certificate fresh until ctx ends.
-func (a *App) RenewServerCertificate(ctx context.Context, logger *slog.Logger) {
-	ticker := time.NewTicker(certificateCheck)
-	defer ticker.Stop()
-	for {
-		renewed, err := a.serverCertificates.RenewIfDue(time.Now())
-		switch {
-		case err != nil:
-			logger.Error("renew server certificate", "error", err)
-		case renewed:
-			logger.Info("server certificate renewed")
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
+// RunBackground runs the server's periodic tasks until ctx ends (ADR-0016).
+func (a *App) RunBackground(ctx context.Context) {
+	background.Run(ctx, []background.Task{
+		{Name: "scan_schedule", Every: a.period(scheduleCheck), Run: a.forEachTenant(func(ctx context.Context, tenantID uuid.UUID) error {
+			queued, err := a.Scans.RunSchedules(ctx, tenantID)
+			a.metrics.ScansScheduled(queued)
+			return err
+		})},
+		{Name: "draft_cleanup", Every: a.period(draftCheck), Run: a.forEachTenant(func(ctx context.Context, tenantID uuid.UUID) error {
+			_, err := a.Fleet.RemoveStaleDrafts(ctx, tenantID)
+			return err
+		})},
+		{Name: "server_certificate", Every: a.period(certificateCheck), Run: a.renewServerCertificate},
+	}, a.metrics, a.logger)
+}
+
+func (a *App) period(production time.Duration) time.Duration {
+	if a.taskPeriod > 0 {
+		return a.taskPeriod
 	}
+	return production
+}
+
+// forEachTenant runs work for every organization in turn, each under its own
+// row security, so a task reads no more than a request of that organization
+// could. One that fails does not stop the rest.
+func (a *App) forEachTenant(work func(ctx context.Context, tenantID uuid.UUID) error) func(context.Context) error {
+	return func(ctx context.Context) error {
+		tenants, err := a.Tenants.ListTenants(ctx)
+		if err != nil {
+			return err
+		}
+		var errs []error
+		for _, organization := range tenants {
+			errs = append(errs, work(ctx, organization.ID))
+		}
+		return errors.Join(errs...)
+	}
+}
+
+// renewServerCertificate keeps the agent endpoint's certificate fresh. Each
+// instance holds its own certificate in memory, so each renews its own.
+func (a *App) renewServerCertificate(context.Context) error {
+	renewed, err := a.serverCertificates.RenewIfDue(time.Now())
+	if renewed {
+		a.logger.Info("server certificate renewed")
+	}
+	return err
 }
 
 // ServeOptions are where the server listens.
@@ -276,10 +322,11 @@ func strictTransport(next http.Handler) http.Handler {
 	})
 }
 
-// Serve runs the public API, the agent endpoint and, when a metrics address is set,
-// the metrics endpoint until ctx ends. Metrics get a port of their own, so a
-// scraper needs no access to the API and the API exposes no metrics.
-func Serve(ctx context.Context, application *App, options ServeOptions, metrics *telemetry.Server, logger *slog.Logger) error {
+// Serve runs the public API, the agent endpoint, the background tasks and,
+// when a metrics address is set, the metrics endpoint until ctx ends. Metrics
+// get a port of their own, so a scraper needs no access to the API and the API
+// exposes no metrics.
+func Serve(ctx context.Context, application *App, options ServeOptions, metrics *telemetry.Server) error {
 	tlsConfig, err := application.AgentTLSConfig()
 	if err != nil {
 		return err
@@ -300,7 +347,7 @@ func Serve(ctx context.Context, application *App, options ServeOptions, metrics 
 		return ignoreClosed(apiServer.ListenAndServe())
 	})
 	group.Go(func() error { return ignoreClosed(agentServer.ListenAndServeTLS("", "")) })
-	group.Go(func() error { application.RenewServerCertificate(groupContext, logger); return nil })
+	group.Go(func() error { application.RunBackground(groupContext); return nil })
 	if options.MetricsAddress != "" {
 		mux := http.NewServeMux()
 		mux.Handle("GET /metrics", metrics.Handler())

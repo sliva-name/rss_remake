@@ -42,6 +42,8 @@ type Server struct {
 	rejected      *metrics.Counter
 	deliveryDelay *metrics.Histogram
 	ingestBatches *metrics.Counter
+	taskRuns      *metrics.Counter
+	scheduled     *metrics.Counter
 }
 
 // New registers the server's metrics.
@@ -71,7 +73,32 @@ func New() *Server {
 		deliveryDelay: registry.Histogram("event_delivery_delay_seconds",
 			"Time from the event in the source log to its storage in the center.", delayBuckets),
 		ingestBatches: registry.Counter("ingest_batches_total", "Event batches stored."),
+		taskRuns: registry.Counter("background_runs_total",
+			"Runs of the server's periodic tasks by task and outcome.",
+			metrics.Code("task"), metrics.Enum("outcome", "ok", "error")),
+		scheduled: registry.Counter("scans_scheduled_total",
+			"Scans the center queued by schedule."),
 	}
+}
+
+// TaskRan implements background.Observer.
+func (s *Server) TaskRan(task string, err error) {
+	if s == nil {
+		return
+	}
+	outcome := "ok"
+	if err != nil {
+		outcome = "error"
+	}
+	s.taskRuns.Inc(task, outcome)
+}
+
+// ScansScheduled counts scans queued by schedule.
+func (s *Server) ScansScheduled(count int) {
+	if s == nil {
+		return
+	}
+	s.scheduled.Add(float64(count))
 }
 
 // Handler serves the metrics.

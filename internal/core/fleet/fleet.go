@@ -17,12 +17,17 @@ import (
 	"github.com/google/uuid"
 
 	"dataguard/internal/core/oplog"
+	"dataguard/internal/core/scan"
 )
 
 const (
 	enrollmentTokenLifetime = 24 * time.Hour
 	secretBytes             = 32
 	tokenSeparator          = "_"
+	// staleDraft is the age past which a draft left behind by a closed browser
+	// is removed. A check takes seconds; an hour is plenty for someone who
+	// stepped away.
+	staleDraft = time.Hour
 )
 
 // Agent statuses.
@@ -102,6 +107,8 @@ type Source struct {
 	UpdatedAt  time.Time
 	// Draft is a source being checked before it is saved: probed, not used.
 	Draft bool
+	// ScanSchedule is nil while scans of the source start only by hand.
+	ScanSchedule *scan.Schedule
 }
 
 // Probe is an agent's report on one of its sources.
@@ -142,6 +149,9 @@ type Repository interface {
 	AgentSourceList(ctx context.Context, tenantID, agentID uuid.UUID) (uint64, []Source, error)
 	// RecordProbes ignores reports on sources the agent does not serve.
 	RecordProbes(ctx context.Context, tenantID, agentID uuid.UUID, probes []Probe) error
+	// RemoveStaleDrafts deletes drafts last changed before olderThan ago, with
+	// their agents' list versions, and returns how many.
+	RemoveStaleDrafts(ctx context.Context, tenantID uuid.UUID, olderThan time.Duration) (int, error)
 }
 
 // CertificateIssuer signs agent certificates.

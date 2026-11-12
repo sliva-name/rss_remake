@@ -385,7 +385,7 @@ func serve(ctx context.Context) error {
 		return app.Serve(groupContext, application, app.ServeOptions{
 			APIAddress: mustEnv("DG_API_ADDR"), APICertificate: dashboardCertificate,
 			AgentAddress: mustEnv("DG_AGENT_ADDR"), MetricsAddress: os.Getenv("DG_METRICS_ADDR"),
-		}, metrics, logger)
+		}, metrics)
 	})
 	return group.Wait()
 }

@@ -108,6 +108,8 @@ const (
 	OperatorActionActionEnvironmentCreate    OperatorActionAction = "environment.create"
 	OperatorActionActionPolicyPublish        OperatorActionAction = "policy.publish"
 	OperatorActionActionScanRequest          OperatorActionAction = "scan.request"
+	OperatorActionActionScanScheduleDelete   OperatorActionAction = "scan_schedule.delete"
+	OperatorActionActionScanScheduleUpdate   OperatorActionAction = "scan_schedule.update"
 	OperatorActionActionSourceCreate         OperatorActionAction = "source.create"
 	OperatorActionActionSourceDelete         OperatorActionAction = "source.delete"
 	OperatorActionActionSourceUpdate         OperatorActionAction = "source.update"
@@ -128,6 +130,10 @@ func (e OperatorActionAction) Valid() bool {
 	case OperatorActionActionPolicyPublish:
 		return true
 	case OperatorActionActionScanRequest:
+		return true
+	case OperatorActionActionScanScheduleDelete:
+		return true
+	case OperatorActionActionScanScheduleUpdate:
 		return true
 	case OperatorActionActionSourceCreate:
 		return true
@@ -173,6 +179,7 @@ const (
 	CreateEnvironment     Permission = "createEnvironment"
 	CreateSource          Permission = "createSource"
 	CreateTenant          Permission = "createTenant"
+	DeleteScanSchedule    Permission = "deleteScanSchedule"
 	DeleteSource          Permission = "deleteSource"
 	ExportAuditEvents     Permission = "exportAuditEvents"
 	GetAccessSummary      Permission = "getAccessSummary"
@@ -206,6 +213,7 @@ const (
 	RevokeAgent           Permission = "revokeAgent"
 	SavePreference        Permission = "savePreference"
 	Search                Permission = "search"
+	SetScanSchedule       Permission = "setScanSchedule"
 	UpdateSource          Permission = "updateSource"
 )
 
@@ -221,6 +229,8 @@ func (e Permission) Valid() bool {
 	case CreateSource:
 		return true
 	case CreateTenant:
+		return true
+	case DeleteScanSchedule:
 		return true
 	case DeleteSource:
 		return true
@@ -287,6 +297,8 @@ func (e Permission) Valid() bool {
 	case SavePreference:
 		return true
 	case Search:
+		return true
+	case SetScanSchedule:
 		return true
 	case UpdateSource:
 		return true
@@ -699,13 +711,21 @@ type NewScan struct {
 	SourceId openapi_types.UUID `json:"sourceId"`
 }
 
+// NewScanSchedule defines model for NewScanSchedule.
+type NewScanSchedule struct {
+	EveryHours int `json:"everyHours"`
+
+	// FirstRunAt Within a year of now either way. A moment in the past only sets the rhythm.
+	FirstRunAt time.Time `json:"firstRunAt"`
+}
+
 // NewSource defines model for NewSource.
 type NewSource struct {
 	AgentId        openapi_types.UUID `json:"agentId"`
 	AuditDirectory *string            `json:"auditDirectory,omitempty"`
 	Database       string             `json:"database"`
 
-	// Draft Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+	// Draft Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. The center removes a draft left unchanged for an hour.
 	Draft          *bool        `json:"draft,omitempty"`
 	Engine         SourceEngine `json:"engine"`
 	Host           string       `json:"host"`
@@ -736,11 +756,11 @@ type OperatorAction struct {
 	ActorSubject string    `json:"actorSubject"`
 	At           time.Time `json:"at"`
 
-	// Details Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had).
+	// Details Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, every_hours the period of a scan schedule, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had).
 	Details map[string]string  `json:"details"`
 	Id      openapi_types.UUID `json:"id"`
 
-	// ObjectId The object acted on. A token is issued for an environment, a scan is requested for a source and a policy belongs to the organization, so those carry the environment, the source and the organization.
+	// ObjectId The object acted on. A token is issued for an environment, a scan is requested and scheduled for a source and a policy belongs to the organization, so those carry the environment, the source and the organization.
 	ObjectId openapi_types.UUID `json:"objectId"`
 
 	// ObjectKind What objectId refers to
@@ -852,10 +872,15 @@ type Scan struct {
 	FailureCode string             `json:"failureCode"`
 	FinishedAt  *time.Time         `json:"finishedAt,omitempty"`
 	Id          openapi_types.UUID `json:"id"`
-	RequestedBy string             `json:"requestedBy"`
-	SourceId    openapi_types.UUID `json:"sourceId"`
-	StartedAt   *time.Time         `json:"startedAt,omitempty"`
-	Status      ScanStatus         `json:"status"`
+
+	// RequestedBy Subject of who asked for the scan; empty when the center queued it by schedule.
+	RequestedBy string `json:"requestedBy"`
+
+	// Scheduled The center queued the scan by the source's schedule.
+	Scheduled bool               `json:"scheduled"`
+	SourceId  openapi_types.UUID `json:"sourceId"`
+	StartedAt *time.Time         `json:"startedAt,omitempty"`
+	Status    ScanStatus         `json:"status"`
 }
 
 // ScanStatus defines model for Scan.Status.
@@ -868,6 +893,12 @@ type ScanBudget struct {
 	MaxDurationSeconds *int   `json:"maxDurationSeconds,omitempty"`
 	MaxRowsPerSecond   *int   `json:"maxRowsPerSecond,omitempty"`
 	MaxRowsPerTable    *int64 `json:"maxRowsPerTable,omitempty"`
+}
+
+// ScanSchedule When the center queues scans of a source by itself. A source without one is scanned only by hand.
+type ScanSchedule struct {
+	EveryHours int       `json:"everyHours"`
+	NextRunAt  time.Time `json:"nextRunAt"`
 }
 
 // SearchHit defines model for SearchHit.
@@ -905,6 +936,9 @@ type Source struct {
 	MaxConnections int                `json:"maxConnections"`
 	Port           int                `json:"port"`
 	ProbedAt       *time.Time         `json:"probedAt,omitempty"`
+
+	// ScanSchedule When the center queues scans of a source by itself. A source without one is scanned only by hand.
+	ScanSchedule *ScanSchedule `json:"scanSchedule,omitempty"`
 
 	// StatusCode Empty when the agent opened the source; otherwise why it did not.
 	StatusCode string    `json:"statusCode"`
@@ -1107,6 +1141,9 @@ type CreateSourceJSONRequestBody = NewSource
 // UpdateSourceJSONRequestBody defines body for UpdateSource for application/json ContentType.
 type UpdateSourceJSONRequestBody = SourceUpdate
 
+// SetScanScheduleJSONRequestBody defines body for SetScanSchedule for application/json ContentType.
+type SetScanScheduleJSONRequestBody = NewScanSchedule
+
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = NewTenant
 
@@ -1223,6 +1260,12 @@ type ServerInterface interface {
 
 	// (POST /sources/{sourceId}/activate)
 	ActivateSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+
+	// (DELETE /sources/{sourceId}/scan-schedule)
+	DeleteScanSchedule(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+
+	// (PUT /sources/{sourceId}/scan-schedule)
+	SetScanSchedule(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
 
 	// (GET /tenants)
 	ListTenants(w http.ResponseWriter, r *http.Request)
@@ -2657,6 +2700,58 @@ func (siw *ServerInterfaceWrapper) ActivateSource(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteScanSchedule operation middleware
+func (siw *ServerInterfaceWrapper) DeleteScanSchedule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", r.PathValue("sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteScanSchedule(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetScanSchedule operation middleware
+func (siw *ServerInterfaceWrapper) SetScanSchedule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", r.PathValue("sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetScanSchedule(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTenants operation middleware
 func (siw *ServerInterfaceWrapper) ListTenants(w http.ResponseWriter, r *http.Request) {
 
@@ -2822,6 +2917,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sources/{sourceId}", wrapper.GetSource)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/sources/{sourceId}", wrapper.UpdateSource)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sources/{sourceId}/activate", wrapper.ActivateSource)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/sources/{sourceId}/scan-schedule", wrapper.DeleteScanSchedule)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/sources/{sourceId}/scan-schedule", wrapper.SetScanSchedule)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/scans", wrapper.ListScans)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scans", wrapper.RequestScan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/catalog/columns", wrapper.ListCatalogColumns)
@@ -3652,6 +3749,45 @@ func (response ActivateSource200JSONResponse) VisitActivateSourceResponse(w http
 	return err
 }
 
+type DeleteScanScheduleRequestObject struct {
+	SourceId openapi_types.UUID `json:"sourceId"`
+}
+
+type DeleteScanScheduleResponseObject interface {
+	VisitDeleteScanScheduleResponse(w http.ResponseWriter) error
+}
+
+type DeleteScanSchedule204Response struct {
+}
+
+func (response DeleteScanSchedule204Response) VisitDeleteScanScheduleResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetScanScheduleRequestObject struct {
+	SourceId openapi_types.UUID `json:"sourceId"`
+	Body     *SetScanScheduleJSONRequestBody
+}
+
+type SetScanScheduleResponseObject interface {
+	VisitSetScanScheduleResponse(w http.ResponseWriter) error
+}
+
+type SetScanSchedule200JSONResponse ScanSchedule
+
+func (response SetScanSchedule200JSONResponse) VisitSetScanScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTenantsRequestObject struct {
 }
 
@@ -3808,6 +3944,12 @@ type StrictServerInterface interface {
 
 	// (POST /sources/{sourceId}/activate)
 	ActivateSource(ctx context.Context, request ActivateSourceRequestObject) (ActivateSourceResponseObject, error)
+
+	// (DELETE /sources/{sourceId}/scan-schedule)
+	DeleteScanSchedule(ctx context.Context, request DeleteScanScheduleRequestObject) (DeleteScanScheduleResponseObject, error)
+
+	// (PUT /sources/{sourceId}/scan-schedule)
+	SetScanSchedule(ctx context.Context, request SetScanScheduleRequestObject) (SetScanScheduleResponseObject, error)
 
 	// (GET /tenants)
 	ListTenants(ctx context.Context, request ListTenantsRequestObject) (ListTenantsResponseObject, error)
@@ -4833,6 +4975,65 @@ func (sh *strictHandler) ActivateSource(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ActivateSourceResponseObject); ok {
 		if err := validResponse.VisitActivateSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteScanSchedule operation middleware
+func (sh *strictHandler) DeleteScanSchedule(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	var request DeleteScanScheduleRequestObject
+
+	request.SourceId = sourceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteScanSchedule(ctx, request.(DeleteScanScheduleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteScanSchedule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteScanScheduleResponseObject); ok {
+		if err := validResponse.VisitDeleteScanScheduleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetScanSchedule operation middleware
+func (sh *strictHandler) SetScanSchedule(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	var request SetScanScheduleRequestObject
+
+	request.SourceId = sourceId
+
+	var body SetScanScheduleJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetScanSchedule(ctx, request.(SetScanScheduleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetScanSchedule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetScanScheduleResponseObject); ok {
+		if err := validResponse.VisitSetScanScheduleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

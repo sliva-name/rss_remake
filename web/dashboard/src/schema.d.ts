@@ -190,6 +190,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sources/{sourceId}/scan-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** @description The center queues a scan of the saved source every everyHours by itself, first at firstRunAt or, when that has passed, at the next moment of the same rhythm. No scan is queued while the previous one of the source still waits or runs, and runs missed while the center was down are made up by one scan. A draft gets a schedule once it is saved. */
+        put: operations["setScanSchedule"];
+        post?: never;
+        /** @description Scans of the source start only by hand again. A source without a schedule is left as is. */
+        delete: operations["deleteScanSchedule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scans": {
         parameters: {
             query?: never;
@@ -559,7 +579,7 @@ export interface components {
             actorSubject: string;
             actorName: string;
             /** @enum {string} */
-            action: "tenant.create" | "environment.create" | "enrollment_token.issue" | "agent.enroll" | "agent.revoke" | "source.create" | "source.update" | "source.delete" | "scan.request" | "policy.publish";
+            action: "tenant.create" | "environment.create" | "enrollment_token.issue" | "agent.enroll" | "agent.revoke" | "source.create" | "source.update" | "source.delete" | "scan.request" | "scan_schedule.update" | "scan_schedule.delete" | "policy.publish";
             /**
              * @description What objectId refers to
              * @enum {string}
@@ -567,12 +587,12 @@ export interface components {
             objectKind: "tenant" | "environment" | "agent" | "source";
             /**
              * Format: uuid
-             * @description The object acted on. A token is issued for an environment, a scan is requested for a source and a policy belongs to the organization, so those carry the environment, the source and the organization.
+             * @description The object acted on. A token is issued for an environment, a scan is requested and scheduled for a source and a policy belongs to the organization, so those carry the environment, the source and the organization.
              */
             objectId: string;
             /** @description The object's name when it happened; empty when the object has none */
             objectLabel: string;
-            /** @description Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had). */
+            /** @description Value-free facts: changes lists the settings an update touched, version is a published policy version, environment the environment of an enrolled agent, every_hours the period of a scan schedule, reason why the platform itself acted (restore: a policy from a restored backup published again above what agents had). */
             details: {
                 [key: string]: string;
             };
@@ -611,7 +631,7 @@ export interface components {
          * @description An operationId of this API.
          * @enum {string}
          */
-        Permission: "getCurrentUser" | "getPreference" | "savePreference" | "exportAuditEvents" | "listPolicyVersions" | "getPolicyVersion" | "listRiskSignals" | "listOperatorActions" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "activateSource" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
+        Permission: "getCurrentUser" | "getPreference" | "savePreference" | "exportAuditEvents" | "listPolicyVersions" | "getPolicyVersion" | "listRiskSignals" | "listOperatorActions" | "listTenants" | "createTenant" | "listEnvironments" | "createEnvironment" | "createEnrollmentToken" | "listAgents" | "getAgent" | "revokeAgent" | "listSources" | "getSource" | "createSource" | "updateSource" | "deleteSource" | "activateSource" | "setScanSchedule" | "deleteScanSchedule" | "listScans" | "requestScan" | "listCatalogColumns" | "getCatalogColumn" | "listCatalogTables" | "getCatalogTable" | "getCatalogSummary" | "listCatalogChanges" | "listAuditEvents" | "getAuditCoverage" | "getAccessSummary" | "getAccessTimeline" | "search" | "listAccessByPrincipal" | "listAccessByCategory" | "getPolicy" | "publishPolicy";
         NewTenant: {
             name: string;
         };
@@ -706,7 +726,7 @@ export interface components {
             /** Format: uuid */
             agentId: string;
             /**
-             * @description Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+             * @description Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. The center removes a draft left unchanged for an hour.
              * @default false
              */
             draft: boolean;
@@ -735,6 +755,21 @@ export interface components {
             updatedAt: string;
             /** @description A connection check that has not been saved yet. */
             draft: boolean;
+            scanSchedule?: components["schemas"]["ScanSchedule"];
+        };
+        NewScanSchedule: {
+            everyHours: number;
+            /**
+             * Format: date-time
+             * @description Within a year of now either way. A moment in the past only sets the rhythm.
+             */
+            firstRunAt: string;
+        };
+        /** @description When the center queues scans of a source by itself. A source without one is scanned only by hand. */
+        ScanSchedule: {
+            everyHours: number;
+            /** Format: date-time */
+            nextRunAt: string;
         };
         NewScan: {
             /** Format: uuid */
@@ -747,7 +782,10 @@ export interface components {
             sourceId: string;
             /** @enum {string} */
             status: "pending" | "running" | "completed" | "partial" | "failed" | "cancelled";
+            /** @description Subject of who asked for the scan; empty when the center queued it by schedule. */
             requestedBy: string;
+            /** @description The center queued the scan by the source's schedule. */
+            scheduled: boolean;
             failureCode: string;
             /** Format: date-time */
             createdAt: string;
@@ -1454,6 +1492,52 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Source"];
                 };
+            };
+        };
+    };
+    setScanSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewScanSchedule"];
+            };
+        };
+        responses: {
+            /** @description The schedule with its next run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanSchedule"];
+                };
+            };
+        };
+    };
+    deleteScanSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -1,6 +1,7 @@
 package telemetry_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,6 +31,25 @@ func TestRequestsAreCountedByRouteTemplate(t *testing.T) {
 		if strings.Contains(key, "0190a8c4") || strings.Contains(key, "crm.public") {
 			t.Fatalf("a path value reached a label: %s", key)
 		}
+	}
+}
+
+// A periodic task that keeps failing must show on the metrics endpoint, not
+// only in the log.
+func TestBackgroundRunsAreCountedByOutcome(t *testing.T) {
+	metrics := telemetry.New()
+	metrics.TaskRan("scan_schedule", nil)
+	metrics.TaskRan("scan_schedule", errors.New("database unavailable"))
+	metrics.TaskRan("scan_schedule", errors.New("database unavailable"))
+	metrics.ScansScheduled(3)
+	samples, err := metrics.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if samples["dataguard_server_background_runs_total|outcome=ok|task=scan_schedule"] != 1 ||
+		samples["dataguard_server_background_runs_total|outcome=error|task=scan_schedule"] != 2 ||
+		samples["dataguard_server_scans_scheduled_total"] != 3 {
+		t.Fatalf("samples = %v", samples)
 	}
 }
 
