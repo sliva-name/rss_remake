@@ -104,7 +104,7 @@ func writeError(w http.ResponseWriter, logger *slog.Logger, err error) {
 	case errors.Is(err, tenant.ErrConflict), errors.Is(err, fleet.ErrConflict):
 		writeProblem(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, tenant.ErrInvalid), errors.Is(err, fleet.ErrInvalid), errors.Is(err, policy.ErrInvalid),
-		errors.Is(err, preference.ErrInvalid), errors.Is(err, errInvalidParameter):
+		errors.Is(err, preference.ErrInvalid), errors.Is(err, scan.ErrInvalid), errors.Is(err, errInvalidParameter):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 	default:
 		logger.Error("request failed", "error", err, "code", string(safeerr.CodeOf(err)))
@@ -307,11 +307,15 @@ func toSource(item fleet.Source) restapi.Source {
 	capabilities := convertAll(item.Capabilities, func(capability fleet.Capability) restapi.Capability {
 		return restapi.Capability{Capability: capability.Capability, Support: capability.Support, ReasonCode: capability.ReasonCode}
 	})
-	return restapi.Source{
+	source := restapi.Source{
 		Id: item.ID, AgentId: item.AgentID, Key: item.Key, Engine: item.Engine,
 		Host: item.Host, Port: item.Port, Database: item.Database, Username: item.Username,
 		Tls: restapi.TlsMode(item.TLS), AuditDirectory: item.AuditDirectory, MaxConnections: item.MaxConnections,
 		StatusCode: item.StatusCode, ProbedAt: item.ProbedAt,
 		EngineVersion: item.EngineVersion, Capabilities: capabilities, UpdatedAt: item.UpdatedAt, Draft: item.Draft,
 	}
+	if item.ScanSchedule != nil {
+		source.ScanSchedule = new(toScanSchedule(*item.ScanSchedule))
+	}
+	return source
 }

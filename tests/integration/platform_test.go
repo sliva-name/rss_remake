@@ -153,7 +153,12 @@ type instance struct {
 	storeDown *atomic.Bool
 }
 
-// serve runs an instance with its broker consumer, as dataguard-server serve does.
+// taskPeriod runs background tasks often enough that a test sees their work
+// within a second.
+const taskPeriod = 200 * time.Millisecond
+
+// serve runs an instance with its broker consumer and background tasks, as
+// dataguard-server serve does.
 func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir string, authn staticAuthenticator, settings broker.Settings) instance {
 	t.Helper()
 	metrics := servertelemetry.New()
@@ -164,11 +169,21 @@ func serve(t *testing.T, store *postgres.Store, events *clickhouse.Store, pkiDir
 	t.Cleanup(publisher.Close)
 	application, err := app.Build(app.Options{
 		Store: store, Events: events, Broker: publisher, PKIDirectory: pkiDir, CertificateTTL: time.Hour,
-		Authenticator: authn, Logger: safelog.Discard(), Metrics: metrics,
+		Authenticator: authn, Logger: safelog.Discard(), Metrics: metrics, TaskPeriod: taskPeriod,
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
+	tasksContext, stopTasks := context.WithCancel(t.Context())
+	tasksDone := make(chan struct{})
+	go func() {
+		defer close(tasksDone)
+		application.RunBackground(tasksContext)
+	}()
+	t.Cleanup(func() {
+		stopTasks()
+		<-tasksDone
+	})
 	storeDown := &atomic.Bool{}
 	write := func(ctx context.Context, events []audit.Event) error {
 		if storeDown.Load() {

@@ -65,8 +65,28 @@ func (s *Server) RequestScan(ctx context.Context, request restapi.RequestScanReq
 func toScan(job scan.Job) restapi.Scan {
 	return restapi.Scan{
 		Id: job.ID, SourceId: job.SourceID, Status: restapi.ScanStatus(job.Status), RequestedBy: job.RequestedBy,
-		FailureCode: job.FailureCode, CreatedAt: job.CreatedAt, StartedAt: job.StartedAt, FinishedAt: job.FinishedAt,
+		Scheduled: job.Scheduled, FailureCode: job.FailureCode, CreatedAt: job.CreatedAt, StartedAt: job.StartedAt,
+		FinishedAt: job.FinishedAt,
 	}
+}
+
+func (s *Server) SetScanSchedule(ctx context.Context, request restapi.SetScanScheduleRequestObject) (restapi.SetScanScheduleResponseObject, error) {
+	schedule, err := s.scans.SetSchedule(ctx, tenantOf(ctx), request.SourceId, request.Body.EveryHours, request.Body.FirstRunAt)
+	if err != nil {
+		return nil, err
+	}
+	return restapi.SetScanSchedule200JSONResponse(toScanSchedule(schedule)), nil
+}
+
+func (s *Server) DeleteScanSchedule(ctx context.Context, request restapi.DeleteScanScheduleRequestObject) (restapi.DeleteScanScheduleResponseObject, error) {
+	if err := s.scans.ClearSchedule(ctx, tenantOf(ctx), request.SourceId); err != nil {
+		return nil, err
+	}
+	return restapi.DeleteScanSchedule204Response{}, nil
+}
+
+func toScanSchedule(schedule scan.Schedule) restapi.ScanSchedule {
+	return restapi.ScanSchedule{EveryHours: schedule.EveryHours, NextRunAt: schedule.NextRun}
 }
 
 func (s *Server) ListCatalogColumns(ctx context.Context, request restapi.ListCatalogColumnsRequestObject) (restapi.ListCatalogColumnsResponseObject, error) {

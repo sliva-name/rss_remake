@@ -11,6 +11,7 @@ import (
 	"dataguard/internal/contract/codes"
 	"dataguard/internal/core/fleet"
 	"dataguard/internal/core/oplog"
+	"dataguard/internal/core/scan"
 )
 
 func (s *Store) CreateEnrollmentToken(ctx context.Context, tenantID, environmentID uuid.UUID, hash []byte, expiresAt time.Time, entry oplog.Entry) error {
@@ -157,18 +158,53 @@ func (s *Store) updateAgent(ctx context.Context, tenantID uuid.UUID, op, stateme
 }
 
 const sourceColumns = `id, tenant_id, agent_id, source_key, engine, host, port, database_name, username,
-	tls_mode, audit_directory, max_connections, sealed_password, engine_version, status_code, probed_at, updated_at, draft`
+	tls_mode, audit_directory, max_connections, sealed_password, engine_version, status_code, probed_at, updated_at, draft,
+	scan_every_hours, next_scan_at`
 
 func scanSource(row pgx.Row, item *fleet.Source) error {
-	return row.Scan(&item.ID, &item.TenantID, &item.AgentID, &item.Key, &item.Engine, &item.Host, &item.Port,
+	var everyHours *int
+	var nextScan *time.Time
+	if err := row.Scan(&item.ID, &item.TenantID, &item.AgentID, &item.Key, &item.Engine, &item.Host, &item.Port,
 		&item.Database, &item.Username, &item.TLS, &item.AuditDirectory, &item.MaxConnections, &item.SealedPassword,
-		&item.EngineVersion, &item.StatusCode, &item.ProbedAt, &item.UpdatedAt, &item.Draft)
+		&item.EngineVersion, &item.StatusCode, &item.ProbedAt, &item.UpdatedAt, &item.Draft, &everyHours, &nextScan); err != nil {
+		return err
+	}
+	if everyHours != nil && nextScan != nil {
+		item.ScanSchedule = &scan.Schedule{EveryHours: *everyHours, NextRun: *nextScan}
+	}
+	return nil
 }
 
-// staleDraft is the age past which a draft left behind by a closed browser is
-// removed, the next time a source is added to its agent. A check takes
-// seconds; an hour is plenty for someone who stepped away.
-const staleDraft = time.Hour
+// RemoveStaleDrafts deletes the drafts of a tenant last changed before
+// olderThan ago, in one version bump per agent, which frees their names.
+func (s *Store) RemoveStaleDrafts(ctx context.Context, tenantID uuid.UUID, olderThan time.Duration) (int, error) {
+	var agents []uuid.UUID
+	err := s.inTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		const sweep = `UPDATE sources SET deleted_at = now(), sealed_password = NULL
+			WHERE draft AND deleted_at IS NULL AND updated_at < now() - make_interval(secs => $1)
+			RETURNING agent_id`
+		var err error
+		agents, err = queryAll(ctx, tx, func(row pgx.Row, id *uuid.UUID) error { return row.Scan(id) }, sweep, olderThan.Seconds())
+		if err != nil {
+			return err
+		}
+		bumped := map[uuid.UUID]bool{}
+		for _, agentID := range agents {
+			if bumped[agentID] {
+				continue
+			}
+			bumped[agentID] = true
+			if err := bumpSourcesVersion(ctx, tx, agentID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, storageError("remove stale drafts", err)
+	}
+	return len(agents), nil
+}
 
 // bumpSourcesVersion makes the agent fetch its list again. Callers run it in
 // the transaction that changed the list.
@@ -187,13 +223,6 @@ func recordIf(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, entry *oplog.E
 
 func (s *Store) CreateSource(ctx context.Context, source fleet.Source, entry *oplog.Entry) error {
 	err := s.inTenant(ctx, source.TenantID, func(tx pgx.Tx) error {
-		// Drafts nobody saved or cancelled leave the agent's list here, in the
-		// same version bump, and free their names.
-		const sweep = `UPDATE sources SET deleted_at = now(), sealed_password = NULL
-			WHERE agent_id = $1 AND draft AND deleted_at IS NULL AND updated_at < now() - $2::interval`
-		if _, err := tx.Exec(ctx, sweep, source.AgentID, staleDraft.String()); err != nil {
-			return err
-		}
 		const insert = `INSERT INTO sources (id, tenant_id, agent_id, source_key, engine, host, port, database_name,
 				username, tls_mode, audit_directory, max_connections, sealed_password, draft)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`

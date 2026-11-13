@@ -15,7 +15,7 @@ import { EmptyState, Loadable } from "../components/ui/state";
 import { DataTable, type TableColumn } from "../components/ui/table";
 import { Tabs } from "../components/ui/tabs";
 import { useNotify } from "../components/ui/toast";
-import { ago, capability, count, dateTime, engine, failure, percent, shortId, support } from "../labels";
+import { ago, capability, capitalized, count, dateTime, engine, failure, percent, scanTrigger, schedulePeriod, shortId, support } from "../labels";
 import { ObjectLink, paths } from "../links";
 import { useCan } from "../permissions";
 import { queries, usePermittedQuery } from "../queries";
@@ -109,6 +109,13 @@ function SourcesTab({ tenantId }: { tenantId: string }) {
       cell: ({ row }) => {
         const state = coverageOf(row.original.id);
         return state?.lastScanStatus ? <div><ScanState status={state.lastScanStatus} /><div className="text-xs text-fg-2">{ago(state.lastScanAt)}</div></div> : <span className="text-fg-3">Не было</span>;
+      },
+    },
+    {
+      id: "schedule", header: "Расписание", accessorFn: (row) => row.scanSchedule?.nextRunAt ?? "",
+      cell: ({ row }) => {
+        const schedule = row.original.scanSchedule;
+        return schedule ? <div><div className="whitespace-nowrap">{capitalized(schedulePeriod(schedule.everyHours))}</div><div className="text-xs text-fg-2">следующий {ago(schedule.nextRunAt)}</div></div> : <span className="text-fg-3">Вручную</span>;
       },
     },
     { id: "address", header: "Адрес", accessorFn: (row) => row.host, cell: ({ row }) => <Mono className="text-fg-2">{row.original.host}:{row.original.port}/{row.original.database}</Mono> },
@@ -235,6 +242,7 @@ function ScansTab() {
   const columns = useMemo<TableColumn<Schemas["Scan"]>[]>(() => [
     { id: "source", header: "Источник", enableHiding: false, cell: ({ row }) => <SourceName id={row.original.sourceId} /> },
     { id: "status", header: "Статус", cell: ({ row }) => <ScanState status={row.original.status} /> },
+    { id: "trigger", header: "Запуск", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{scanTrigger(row.original)}</span> },
     { id: "created", header: "Запущено", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{dateTime(row.original.createdAt)}</span> },
     { id: "finished", header: "Завершено", cell: ({ row }) => <span className="whitespace-nowrap text-fg-2">{dateTime(row.original.finishedAt)}</span> },
     { id: "reason", header: "Причина", cell: ({ row }) => <FailureNote code={row.original.failureCode} /> },

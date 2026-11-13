@@ -79,6 +79,9 @@ export const api = {
   revokeAgent: (id: string) => request<void>("POST", `/agents/${id}/revoke`),
   scans: () => request<Schemas["Scan"][]>("GET", "/scans", { limit: 20 }),
   requestScan: (sourceId: string) => request<Schemas["Scan"]>("POST", "/scans", undefined, { sourceId }),
+  setScanSchedule: (sourceId: string, body: Schemas["NewScanSchedule"]) =>
+    request<Schemas["ScanSchedule"]>("PUT", `/sources/${sourceId}/scan-schedule`, undefined, body),
+  deleteScanSchedule: (sourceId: string) => request<void>("DELETE", `/sources/${sourceId}/scan-schedule`),
   environments: () => request<Schemas["Environment"][]>("GET", "/environments"),
   createEnvironment: (body: Schemas["NewEnvironment"]) =>
     request<Schemas["Environment"]>("POST", "/environments", undefined, body),

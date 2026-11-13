@@ -16,15 +16,16 @@ const pages = [
   { path: "/classification?tab=findings", heading: "Классификация", expect: ["Уверенность", "ИНН", "dg_users"] },
   { path: "/audit", heading: "Журнал событий", expect: ["Доказательство", "Запрос выполнен", "dg_app"] },
   { path: "/principals", heading: "Пользователи СУБД", expect: ["employee-123", "Подтверждено приложением", "Не идентифицирован"] },
-  { path: "/sources", heading: "Источники", expect: ["Подключено", "Наблюдается", "Добавить источник"] },
+  { path: "/sources", heading: "Источники", expect: ["Подключено", "Наблюдается", "Добавить источник", "Каждый день", "Вручную"] },
   { path: "/sources?tab=coverage", heading: "Источники", expect: ["Аудит чтения", "До колонок"] },
   { path: "/sources?tab=capabilities", heading: "Источники", expect: ["Нет в СУБД", "Аудит чтения"] },
   { path: "/agents", heading: "Агенты", expect: ["На связи", "Подключить агента"] },
   { path: "/policy", heading: "Политика", expect: ["Собственные детекторы", "Бюджет сканирования"] },
   { path: "/signals", heading: "Сигналы риска", expect: ["Правила", "Новая категория"] },
   { path: "/environments", heading: "Среды", expect: ["Производственная"] },
-  // The source added through the form above is in the journal under its name.
-  { path: "/journal", heading: "Журнал действий", expect: ["Добавление источника", "ui-postgres", "Выпуск токена регистрации", "Регистрация агента"] },
+  // The source added through the form above is in the journal under its name,
+  // and so is its schedule.
+  { path: "/journal", heading: "Журнал действий", expect: ["Добавление источника", "ui-postgres", "Настройка расписания сканирования", "Сканировать каждый день", "Выпуск токена регистрации", "Регистрация агента"] },
 ];
 
 const failures = [];
@@ -114,6 +115,21 @@ try {
   await page.getByRole("dialog").getByRole("button", { name: "Закрыть", exact: true }).last().click();
 } catch (error) {
   await page.screenshot({ path: `${output}/source-failure.png`, fullPage: true });
+  throw error;
+}
+
+// Scenario: the administrator has the new source scanned every night; the
+// dialog suggests the coming 02:00 and every day.
+try {
+  await page.getByRole("link", { name: "ui-postgres", exact: true }).first().click();
+  await heading("ui-postgres");
+  await page.getByRole("tab", { name: "Сканирования" }).click();
+  await page.getByRole("button", { name: "Настроить" }).click();
+  await page.getByRole("form", { name: "Расписание сканирования" }).getByRole("button", { name: "Сохранить" }).click();
+  await expectOnPage("scan schedule", ["Сканировать каждый день", "Следующий скан"]);
+  await page.screenshot({ path: `${output}/source-schedule.png`, fullPage: true });
+} catch (error) {
+  await page.screenshot({ path: `${output}/schedule-failure.png`, fullPage: true });
   throw error;
 }
 

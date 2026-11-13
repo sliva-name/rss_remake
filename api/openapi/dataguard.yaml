@@ -214,6 +214,37 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Source"}
+  /sources/{sourceId}/scan-schedule:
+    parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    put:
+      operationId: setScanSchedule
+      description: >-
+        The center queues a scan of the saved source every everyHours by itself,
+        first at firstRunAt or, when that has passed, at the next moment of the
+        same rhythm. No scan is queued while the previous one of the source still
+        waits or runs, and runs missed while the center was down are made up by
+        one scan. A draft gets a schedule once it is saved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewScanSchedule"}
+      responses:
+        "200":
+          description: The schedule with its next run
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ScanSchedule"}
+    delete:
+      operationId: deleteScanSchedule
+      description: Scans of the source start only by hand again. A source without a schedule is left as is.
+      responses:
+        "204":
+          description: Removed
   /scans:
     get:
       operationId: listScans
@@ -633,7 +664,8 @@ components:
         action:
           type: string
           enum: [tenant.create, environment.create, enrollment_token.issue, agent.enroll, agent.revoke,
-                 source.create, source.update, source.delete, scan.request, policy.publish]
+                 source.create, source.update, source.delete, scan.request, scan_schedule.update,
+                 scan_schedule.delete, policy.publish]
         objectKind:
           description: What objectId refers to
           type: string
@@ -641,8 +673,9 @@ components:
         objectId:
           description: >-
             The object acted on. A token is issued for an environment, a scan is
-            requested for a source and a policy belongs to the organization, so
-            those carry the environment, the source and the organization.
+            requested and scheduled for a source and a policy belongs to the
+            organization, so those carry the environment, the source and the
+            organization.
           type: string
           format: uuid
         objectLabel:
@@ -652,8 +685,9 @@ components:
           description: >-
             Value-free facts: changes lists the settings an update touched,
             version is a published policy version, environment the environment
-            of an enrolled agent, reason why the platform itself acted (restore:
-            a policy from a restored backup published again above what agents had).
+            of an enrolled agent, every_hours the period of a scan schedule,
+            reason why the platform itself acted (restore: a policy from a
+            restored backup published again above what agents had).
           type: object
           additionalProperties: {type: string}
     RiskSignal:
@@ -714,6 +748,8 @@ components:
         - updateSource
         - deleteSource
         - activateSource
+        - setScanSchedule
+        - deleteScanSchedule
         - listScans
         - requestScan
         - listCatalogColumns
@@ -835,7 +871,7 @@ components:
           properties:
             agentId: {type: string, format: uuid}
             draft:
-              description: Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. A draft older than an hour is removed when the next source is added to the same agent.
+              description: Check the connection before saving. The agent opens and probes a draft but neither scans it nor reads its audit; activateSource saves it. The center removes a draft left unchanged for an hour.
               type: boolean
               default: false
     Source:
@@ -865,6 +901,23 @@ components:
         draft:
           description: A connection check that has not been saved yet.
           type: boolean
+        scanSchedule: {$ref: "#/components/schemas/ScanSchedule"}
+    NewScanSchedule:
+      type: object
+      required: [everyHours, firstRunAt]
+      properties:
+        everyHours: {type: integer, minimum: 1, maximum: 720}
+        firstRunAt:
+          description: Within a year of now either way. A moment in the past only sets the rhythm.
+          type: string
+          format: date-time
+    ScanSchedule:
+      description: When the center queues scans of a source by itself. A source without one is scanned only by hand.
+      type: object
+      required: [everyHours, nextRunAt]
+      properties:
+        everyHours: {type: integer}
+        nextRunAt: {type: string, format: date-time}
     NewScan:
       type: object
       required: [sourceId]
@@ -872,12 +925,17 @@ components:
         sourceId: {type: string, format: uuid}
     Scan:
       type: object
-      required: [id, sourceId, status, requestedBy, failureCode, createdAt]
+      required: [id, sourceId, status, requestedBy, scheduled, failureCode, createdAt]
       properties:
         id: {type: string, format: uuid}
         sourceId: {type: string, format: uuid}
         status: {type: string, enum: [pending, running, completed, partial, failed, cancelled]}
-        requestedBy: {type: string}
+        requestedBy:
+          description: Subject of who asked for the scan; empty when the center queued it by schedule.
+          type: string
+        scheduled:
+          description: The center queued the scan by the source's schedule.
+          type: boolean
         failureCode: {type: string}
         createdAt: {type: string, format: date-time}
         startedAt: {type: string, format: date-time}

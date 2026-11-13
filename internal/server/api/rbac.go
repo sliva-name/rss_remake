@@ -48,6 +48,10 @@ var accessRules = map[string]accessRule{
 	"ActivateSource":        {roles: tenantAdmins, tenantScoped: true},
 	"ListScans":             {roles: tenantReaders, tenantScoped: true},
 	"RequestScan":           {roles: scanRequesters, tenantScoped: true},
+	// A schedule keeps loading the customer's database long after it is set,
+	// so it is configuration of the organization, like the policy budget.
+	"SetScanSchedule":       {roles: tenantAdmins, tenantScoped: true},
+	"DeleteScanSchedule":    {roles: tenantAdmins, tenantScoped: true},
 	"ListCatalogColumns":    {roles: tenantReaders, tenantScoped: true},
 	"GetCatalogColumn":      {roles: tenantReaders, tenantScoped: true},
 	"ListCatalogTables":     {roles: tenantReaders, tenantScoped: true},

@@ -29,6 +29,8 @@ const (
 	SourceUpdate         Action = "source.update"
 	SourceDelete         Action = "source.delete"
 	ScanRequest          Action = "scan.request"
+	ScanScheduleUpdate   Action = "scan_schedule.update"
+	ScanScheduleDelete   Action = "scan_schedule.delete"
 	PolicyPublish        Action = "policy.publish"
 )
 
@@ -41,13 +43,13 @@ const (
 )
 
 // ObjectKind is what Entry.ObjectID refers to. A token is issued for an
-// environment, a scan is requested for a source and a policy belongs to the
-// organization, so for them it is not the first word of the action.
+// environment, a scan is requested and scheduled for a source and a policy
+// belongs to the organization, so for them it is not the first word of the action.
 func (a Action) ObjectKind() string {
 	switch a {
 	case EnrollmentTokenIssue:
 		return KindEnvironment
-	case ScanRequest:
+	case ScanRequest, ScanScheduleUpdate, ScanScheduleDelete:
 		return KindSource
 	case PolicyPublish:
 		return KindTenant
@@ -67,6 +69,8 @@ const (
 	DetailEnvironment = "environment"
 	// DetailReason says why the platform itself acted.
 	DetailReason = "reason"
+	// DetailEveryHours is the period of a scan schedule, in hours.
+	DetailEveryHours = "every_hours"
 )
 
 // ReasonRestore: the center was restored from a backup older than what agents
