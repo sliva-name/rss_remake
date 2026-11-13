@@ -35,6 +35,9 @@ const (
 	runs          = 10
 	storeBatch    = 1_000
 	storeBatches  = 20
+	// settleQuietPolls polls a second apart without a merge mean the seed is merged.
+	settleQuietPolls = 3
+	settleTimeout    = 15 * time.Minute
 )
 
 // seedEvents is synthetic: every value derives from the row number. Accounts are
@@ -119,9 +122,7 @@ func timedAfter(t *testing.T, name string, target time.Duration, before func(), 
 	}
 }
 
-// logStorage reports what the hourly projection costs next to the rows, because the
-// ratio depends on how many accounts and identities act within an hour.
-func logStorage(t *testing.T, owner clickhouse.Settings) {
+func adminConnection(t *testing.T, owner clickhouse.Settings) chdriver.Conn {
 	t.Helper()
 	connection, err := chdriver.Open(&chdriver.Options{
 		Addr: []string{owner.Address},
@@ -130,9 +131,48 @@ func logStorage(t *testing.T, owner clickhouse.Settings) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = connection.Close() }()
+	t.Cleanup(func() { _ = connection.Close() })
+	return connection
+}
+
+// settle waits until the seeded parts are merged. Real events arrive over 30
+// days and are merged long before anyone reads the month, while the seed lands
+// in seconds; measured during its merges, a report times the cores the merges
+// left over. One quiet poll is not enough: the next merge may not have started.
+func settle(t *testing.T, connection chdriver.Conn) {
+	t.Helper()
+	started := time.Now()
+	for quiet := 0; quiet < settleQuietPolls; {
+		var merges, parts uint64
+		err := connection.QueryRow(t.Context(), `SELECT
+				(SELECT count() FROM system.merges WHERE database = currentDatabase() AND table = 'audit_events'),
+				(SELECT count() FROM system.parts WHERE database = currentDatabase() AND table = 'audit_events' AND active)`).
+			Scan(&merges, &parts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if merges > 0 {
+			quiet = 0
+		} else {
+			quiet++
+		}
+		if time.Since(started) > settleTimeout {
+			t.Fatalf("merges still running after %s, %d parts", settleTimeout, parts)
+		}
+		if quiet == settleQuietPolls {
+			t.Logf("settled      %d parts after %s", parts, time.Since(started).Round(time.Second))
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// logStorage reports what the hourly projection costs next to the rows, because the
+// ratio depends on how many accounts and identities act within an hour.
+func logStorage(t *testing.T, connection chdriver.Conn) {
+	t.Helper()
 	var rows, projectionRows, bytes, projectionBytes uint64
-	err = connection.QueryRow(t.Context(), `SELECT
+	err := connection.QueryRow(t.Context(), `SELECT
 			(SELECT sum(rows) FROM system.parts WHERE database = currentDatabase() AND table = 'audit_events' AND active),
 			(SELECT sum(rows) FROM system.projection_parts WHERE database = currentDatabase() AND table = 'audit_events' AND active),
 			(SELECT sum(data_compressed_bytes) FROM system.parts WHERE database = currentDatabase() AND table = 'audit_events' AND active),
@@ -160,7 +200,9 @@ func TestReportsAndSearchAtReferenceVolume(t *testing.T) {
 		}
 	}
 	t.Logf("seeded %d events in %s", events, time.Since(started).Round(time.Second))
-	logStorage(t, owner)
+	admin := adminConnection(t, owner)
+	settle(t, admin)
+	logStorage(t, admin)
 
 	store, err := clickhouse.Open(ctx, runtime)
 	if err != nil {
